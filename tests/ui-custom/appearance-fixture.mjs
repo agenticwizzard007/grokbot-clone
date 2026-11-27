@@ -11,7 +11,7 @@ export async function appearanceFixture() {
   for (const stream of [build.stdout, build.stderr]) stream.on('data', value => logs.push(String(value)));
   assert.equal((await once(build, 'exit'))[0], 0, logs.join(''));
   const server = await serverFixture();
-  server.db.prepare('UPDATE users SET name=? WHERE id=?').run('QA-Temp-Layout', server.fixture.userId);
+  server.db.prepare('UPDATE users SET name=? WHERE id=?').run('Test User', server.fixture.userId);
   return server;
 }
 export async function appearanceContext(browser, fixture, width, theme) {

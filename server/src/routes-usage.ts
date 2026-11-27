@@ -8,6 +8,7 @@ import { dailyUsage } from './messaging/signup.js';
 import { canManageServer } from './settings.js';
 import { usageCsv, usageReport, usageTimezone, type UsageRange } from './usage.js';
 import { vmRates } from './usage-vm.js';
+import { planUsageSummary } from './plan-usage.js';
 
 /**
  * /api/usage: the AI usage monitor. Everyone sees their own usage; the server's owner (who pays
@@ -23,6 +24,11 @@ const nextUtcMidnight = () => {
   const d = new Date();
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
 };
+
+usageApi.get('/summary', (c) => {
+  c.header('Cache-Control', 'no-store');
+  return c.json(planUsageSummary(c.get('user').id));
+});
 
 usageApi.get('/', (c) => {
   const user = c.get('user');

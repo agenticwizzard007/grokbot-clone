@@ -4,7 +4,7 @@ import { useEffectiveConfig, useUiConfig, useUiPatch } from '../../customization
 import { openConversation } from '../../configStore';
 import { useStore } from '../../store';
 import { prefillComposer } from '../Composer';
-import { Card, Row, Section } from '../layout';
+import { ButtonGroup, Card, Row, Section } from '../layout';
 import { Switch } from './ui';
 import { UiPreviewCard } from '../cards/UiPreviewCard';
 import { AppearanceSection } from './appearance/Controls';
@@ -14,6 +14,7 @@ import { Dashboards } from './appearance/Dashboards';
 import { Manage } from './appearance/Manage';
 import { appearanceRequest, AppearanceError, readPreview, readSaved } from './appearance/api';
 import { refreshAppearance, showAppearancePreview } from './appearance/runtime';
+import { Requirements } from './appearance/Requirements';
 import '../../styles/appearance.css';
 
 export function AppearanceSettings() {
@@ -25,12 +26,12 @@ export function AppearanceSettings() {
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const [agentAuto, setAgentAuto] = useState(false);
-  const [suggestionsEnabled, setSuggestionsEnabled] = useState(false);
+  const [profileAvailable, setProfileAvailable] = useState(false);
   const [agentReady, setAgentReady] = useState(false);
   const [previewCard, setPreviewCard] = useState<UiPreviewCardBody | null>(null);
   useEffect(() => {
     let alive = true;
-    void appearanceRequest<{ enabled: boolean }>('/ui/requirements').then(value => { if (alive) setSuggestionsEnabled(value.enabled); }).catch(() => {});
+    void appearanceRequest('/ui/requirements').then(() => { if (alive) setProfileAvailable(true); }).catch(() => {});
     void appearanceRequest<{ uiAgentApply: string }>('/account/preferences').then(value => { if (alive) { setAgentAuto(value.uiAgentApply === 'auto'); setAgentReady(true); } }).catch(error => { if (alive) setErrors([{ path: '', code: 'invalid_value', message: error.message }]); });
     return () => { alive = false; };
   }, []);
@@ -51,11 +52,11 @@ export function AppearanceSettings() {
     const preview = await readPreview(id);
     setPreviewCard({ card: 'ui_preview', previewId: id, title: 'Import layout', lines: preview.summary.slice(0, 6), moreCount: Math.max(0, preview.summary.length - 6), warnings: preview.warnings.map(w => w.message), status: preview.status });
   };
-  const ask = () => { const bot = bots.find(b => b.isPrimary) ?? bots[0]; if (bot) { prefillComposer(bot.id, 'Suggest a dashboard for my role and goals: '); openConversation(bot.id); } };
+  const ask = () => { const bot = bots.find(b => b.isPrimary) ?? bots[0]; if (bot) { prefillComposer(bot.id, 'Help me create or edit a dashboard: '); openConversation(bot.id); } };
   if (status === 'disabled') return <p role="status">Layout settings are unavailable.</p>;
   return <div className="appearance-settings">
-    <Section aria-label="Customize"><Row title="Or change it here." trailing={<button type="button" className="cfg-btn cfg-btn--primary" disabled={!bots.length} onClick={ask}>Ask your agent</button>} /></Section>
-    {suggestionsEnabled && <Section><Row title={<a href="#settings/appearance/use">About you</a>} subtitle="Role, goals and workflows" /></Section>}
+    <Section aria-label="Customize"><ButtonGroup><button type="button" className="cfg-btn cfg-btn--primary" disabled={!bots.length} onClick={ask}>Ask your agent</button></ButtonGroup></Section>
+    {profileAvailable && <Requirements embedded />}
     {previewCard && <UiPreviewCard key={previewCard.previewId} body={previewCard} />}
     {errors.length > 0 && <Card role="alert" className="appearance-errors">{errors.map((error, i) => <p key={i}>{error.message}{error.hint ? ` ${error.hint}` : ''}{error.suggested ? ` Try ${error.suggested}.` : ''}</p>)}</Card>}
     <fieldset disabled={status === 'loading'} className="appearance-fields" aria-label="Layout controls" aria-busy={busy}>

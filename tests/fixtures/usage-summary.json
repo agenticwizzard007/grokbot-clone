@@ -1,0 +1,16 @@
+{
+  "at": "2026-11-25T12:00:00.000Z",
+  "timezone": "Asia/Dubai",
+  "events": [
+    { "id": "native-a", "keyKind": "native", "cost": 0.014, "source": "provider" },
+    { "id": "native-b", "keyKind": "native", "cost": 0.014, "source": "provider" },
+    { "id": "estimate", "keyKind": "native", "cost": 0.025, "source": "estimate" },
+    { "id": "unpriced", "keyKind": "native", "cost": null, "source": null },
+    { "id": "personal", "keyKind": "personal", "cost": 2.345, "source": "provider" },
+    { "id": "personal-estimate", "keyKind": "personal", "cost": 0.015, "source": "estimate" },
+    { "id": "personal-unpriced", "keyKind": "personal", "cost": null, "source": null },
+    { "id": "subscription", "keyKind": "subscription", "cost": 0, "source": "subscription" },
+    { "id": "historical", "keyKind": "unknown", "cost": 4.444, "source": "provider" },
+    { "id": "historical-unpriced", "keyKind": "unknown", "cost": null, "source": null }
+  ]
+}

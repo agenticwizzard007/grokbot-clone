@@ -1,4 +1,5 @@
 import { asksBeforeEveryAction } from '../agent/approval-level.js';
+import { attributedResponseCreate } from '../usage-key-kind.js';
 import { boundedResponseCreate } from './model-request-policy.js';
 import { normalizeModelEfforts } from './model-efforts.js';
 import { catalogModelId, cliModelCatalog } from '../cli/catalog.js';
@@ -54,10 +55,10 @@ export function llmClient(timeout: number, options: { subscriptionTimeoutMs?: nu
     };
     // All API providers use Responses, including OpenRouter's Anthropic/Gemini adapters.
     // Install the policy once so chat, tool loops, memory and voice text calls share it.
-    c.client.responses.create = boundedResponseCreate(
+    c.client.responses.create = attributedResponseCreate(boundedResponseCreate(
       c.client.responses.create.bind(c.client.responses),
       (model, signal) => modelInfo(model, false, signal), p, baseURL,
-    ) as typeof c.client.responses.create;
+    ), personal || isTenant ? 'personal' : 'native', p) as typeof c.client.responses.create;
     // Bound retained clients/credentials in servers with many users.
     if (clients.size >= 200) clients.delete(clients.keys().next().value!);
     clients.set(slot, c);

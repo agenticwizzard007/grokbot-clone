@@ -6,19 +6,22 @@ const server = await dashboardFixture(); let passed = 0; const batches = [], met
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 try {
   const page = await server.page(), doc = exampleDashboard();
+  // Keep the chart below the fold independently of the dashboard header height.
+  await page.setViewportSize({ width: 1280, height: 720 });
   doc.widgets[0].source = { id: 'tasks.counts', params: {} }; doc.widgets[0].options = { field: 'working' };
   doc.widgets.forEach(widget => widget.refreshSec = 0); doc.widgets[2].refreshSec = 30;
-  doc.widgets.splice(3, 0, { id: '$new7', type: 'note', title: 'Fixture spacer', span: 12, rows: 6, options: { text: 'Fixture spacer' } });
+  doc.widgets.splice(3, 0, { id: '$new7', type: 'note', title: 'Weekly focus', span: 12, rows: 6, options: { text: 'Weekly focus' } });
   const dashboard = await server.create(page, doc);
   page.on('request', request => { if (request.url().endsWith('/api/ui/data')) batches.push({ body: request.postDataJSON(), time: Date.now(), fresh: request.headers()['cache-control'] }); });
   await server.open(page, dashboard.id); await pause(250);
   assert.equal(batches[0].body.requests.filter(row => row.source === 'tasks.counts').length, 1);
   assert.ok(batches[0].body.requests.some(row => row.source === 'usage.summary'));
+  assert.ok(await page.locator('[data-widget-type="chart"]').evaluate(el => el.getBoundingClientRect().top >= innerHeight), 'Chart starts outside the viewport');
   assert.ok(!batches.some(batch => batch.body.requests.some(row => row.source === 'usage.series'))); passed += 2;
   const working = page.getByRole('region', { name: 'Working now', exact: true }).locator('output');
   assert.equal(await working.textContent(), '4');
   const start = Date.now(); server.db.prepare('UPDATE tasks SET state=? WHERE id=?').run('done', 'qa-dashboard-task-0');
-  const answer = await page.evaluate(async id => { const response = await fetch(`/api/bots/${id}/cards/100/answer`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({answer:'Fixture choice'}) }); return response.status; }, server.fixture.bot.id);
+  const answer = await page.evaluate(async id => { const response = await fetch(`/api/bots/${id}/cards/100/answer`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({answer:'Review the launch plan'}) }); return response.status; }, server.fixture.bot.id);
   assert.equal(answer, 200); await page.waitForFunction(() => document.querySelectorAll('.dashboard-stat')[2]?.textContent === '3', { timeout: 1900 });
   metrics.sseMs = Date.now() - start; assert.ok(metrics.sseMs < 2000); assert.ok(batches.some(batch => batch.fresh === 'no-cache')); passed++;
   await page.locator('[data-widget-type="chart"]').scrollIntoViewIfNeeded(); await page.locator('.dashboard-chart svg').waitFor(); assert.ok(batches.some(batch => batch.body.requests.some(row => row.source === 'usage.series'))); passed++;

@@ -6,13 +6,13 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-export async function layoutServer({ root = path.resolve(new URL('..', import.meta.url).pathname) } = {}) {
+export async function layoutServer({ root = path.resolve(new URL('..', import.meta.url).pathname), customization = false } = {}) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-layout-'));
   async function port() { const s = net.createServer(); s.listen(0, '127.0.0.1'); await once(s, 'listening'); const p = s.address().port; await new Promise(r => s.close(r)); return p; }
   const apiPort = await port(), uiPort = await port(), base = `http://127.0.0.1:${uiPort}`;
   const fixtureFile = path.join(temp, 'fixture.json');
   // Never inherit database paths, provider keys, or hosted service credentials.
-  const env = { PATH: process.env.PATH, NODE_ENV: 'test', PHONE_QA_FIXTURE_FILE: fixtureFile,
+  const env = { PATH: process.env.PATH, NODE_ENV: 'test', UI_CUSTOMIZATION: customization ? 'on' : 'off', PHONE_QA_FIXTURE_FILE: fixtureFile,
     DB_PATH: path.join(temp, 'app.db'), FILES_DIR: path.join(temp, 'files'), CLI_PROFILES_DIR: path.join(temp, 'profiles'),
     SWARM_ROLE: 'standalone', SWARM_NO_SCHEDULER: '1', SESSION_SECRET: 'layout-test', COMPUTER_PROVIDER: 'local',
     INKBOX_TUNNEL: '0', DEV_LOGIN: '1', PORT: String(apiPort), APP_URL: base, SERVER_URL: base, WHATSAPP_DISABLED: '1' };
@@ -37,6 +37,6 @@ export async function layoutServer({ root = path.resolve(new URL('..', import.me
     assert.equal((await once(seed, 'exit'))[0], 0, logs.join(''));
     await ready(`http://127.0.0.1:${apiPort}/api/health`, start(['--import', preload, '--import', 'tsx', 'server/src/index.ts']));
     await ready(base, start([path.join(root, 'web/node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(uiPort), '--strictPort'], path.join(root, 'web'), { SWARM_API: `http://127.0.0.1:${apiPort}` }));
-    return { base, fixture: JSON.parse(fs.readFileSync(fixtureFile, 'utf8')), close };
+    return { base, dbPath: env.DB_PATH, fixture: JSON.parse(fs.readFileSync(fixtureFile, 'utf8')), close };
   } catch (e) { await close(); throw e; }
 }

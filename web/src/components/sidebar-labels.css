@@ -26,10 +26,10 @@
 .paper-shell .bot-row__preview { font-size: 12px; line-height: 16px; color: var(--color-text-tertiary); }
 .paper-shell .bot-list { display: flex; gap: 2px; }
 .paper-shell .sidebar__create { display: flex; min-height: 40px; padding: 8px 10px; margin: 2px 0 0; gap: 10px; font-size: 14px; line-height: 20px; color: var(--color-text-secondary); }
-.paper-shell .sidebar-usage { margin: 0 0 -4px; padding: 12px; gap: 8px; border: 0; border-radius: 12px; background: var(--color-bg-tertiary); }
-.paper-shell .sidebar-usage strong { font-size: 13px; font-weight: 600; line-height: 18px; }
+.paper-shell .sidebar-usage { margin: 0 0 -4px; padding: 16px; gap: 8px; border: 0; border-radius: 12px; background: var(--color-bg-tertiary); }
+.paper-shell .sidebar-usage strong { font-size: 14px; font-weight: 600; line-height: 20px; }
 .paper-shell .sidebar-usage__detail { display: block; font-size: 12px; line-height: 16px; color: var(--color-text-tertiary); }
-.paper-shell .sidebar-usage progress { height: 4px; }
+.paper-shell .sidebar-usage progress { height: 6px; }
 .paper-shell .sidebar__footer { min-height: 44px; padding: 0; }
 .paper-shell .account__btn { gap: 10px; padding: 8px; text-align: left; }
 .paper-shell .account__initials { display: inline-flex; width: 28px; height: 28px; color: var(--color-on-primary); background: var(--color-primary); font-size: 12px; font-weight: 600; }

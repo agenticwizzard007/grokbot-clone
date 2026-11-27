@@ -1,5 +1,11 @@
 import { reportDay, reportDayStart, reportTimezone, shiftDay } from './report-days.js';
 import { attribution } from './usage-context.js';
+import { isTenant } from './deployment.js';
+import { usesPersonalOpenRouter } from './providers/openrouter.js';
+import { migrateUsageKeyKind, responseUsageKey, type UsageKeyKind } from './usage-key-kind.js';
+import { hub } from './lib/hub.js';
+import { afterCommit } from './lib/commit-effects.js';
+import { withRun } from './agent/run-scope.js';
 import { billingNote, type BillingSource } from './usage-summary.js';
 export { withUsage } from './usage-context.js';
 import { db, now } from './db.js';
@@ -52,6 +58,7 @@ if (!usageColumns.has('token_fields')) db.exec('ALTER TABLE usage_events ADD COL
 
 for (const column of ['job_id','review_id']) if (!usageColumns.has(column)) db.exec(`ALTER TABLE usage_events ADD COLUMN ${column} TEXT`);
 db.exec('CREATE INDEX IF NOT EXISTS usage_job ON usage_events(user_id,job_id,id)');
+migrateUsageKeyKind(db);
 
 // ---------- recording ----------
 
@@ -69,6 +76,7 @@ async function priceFor(model: string): Promise<{ input: number; output: number 
 }
 
 export interface RecordOpts {
+  keyKind?: UsageKeyKind;
   userId?: string | null;
   botId?: string | null;
   kind?: UsageKind;
@@ -101,6 +109,9 @@ export async function recordModelUsage(opts: RecordOpts & { response: any }): Pr
     // zeros are placeholders behind this explicit mask, never measurements.
     if (usageStatus === 'unavailable') tokenFields = [];
     const who = attribution(opts);
+    const captured = responseUsageKey(opts.response);
+    const provider = captured?.provider ?? opts.provider ?? opts.response?.provider ?? llmProvider();
+    const keyKind = subscription ? 'subscription' : captured?.keyKind ?? opts.keyKind ?? requestKeyKind(who.userId, provider);
     const count = (field: string) => tokenFields.includes(field) ? tokenValues[field] as number : 0;
     const input = count('input_tokens');
     const cached = count('cached_tokens');
@@ -117,7 +128,7 @@ export async function recordModelUsage(opts: RecordOpts & { response: any }): Pr
       if (p && (input || output)) { cost = (input * p.input + output * p.output) / 1e6; source = 'estimate'; }
     }
     insert({
-      userId: who.userId, botId: who.botId, kind: who.kind, jobId: who.jobId, reviewId: who.reviewId, provider: opts.provider ?? opts.response?.provider ?? llmProvider(), model: opts.response?.billing === 'subscription' && typeof opts.response.model === 'string' ? opts.response.model : opts.model,
+      userId: who.userId, botId: who.botId, kind: who.kind, jobId: who.jobId, reviewId: who.reviewId, provider, keyKind, model: opts.response?.billing === 'subscription' && typeof opts.response.model === 'string' ? opts.response.model : opts.model,
       input, cached, output, reasoning, tools, units: null, unit: null, cost, source,
       byok: typeof u.is_byok === 'boolean' ? (u.is_byok ? 1 : 0) : null, requestId: typeof opts.response?.id === 'string' ? opts.response.id : null,
       usageStatus, tokenFields,
@@ -131,8 +142,9 @@ export async function recordModelUsage(opts: RecordOpts & { response: any }): Pr
 export function recordUnits(opts: RecordOpts & { units: number; unit: string; costUsd?: number | null; requestId?: string | null }) {
   try {
     const who = attribution(opts);
+    const provider = opts.provider ?? llmProvider();
     insert({
-      userId: who.userId, botId: who.botId, kind: who.kind, jobId: who.jobId, reviewId: who.reviewId, provider: opts.provider ?? llmProvider(), model: opts.model,
+      userId: who.userId, botId: who.botId, kind: who.kind, jobId: who.jobId, reviewId: who.reviewId, provider, keyKind: opts.keyKind ?? requestKeyKind(who.userId, provider), model: opts.model,
       input: 0, cached: 0, output: 0, reasoning: 0, tools: 0, units: opts.units, unit: opts.unit,
       cost: opts.costUsd ?? null, source: opts.costUsd != null ? 'provider' : null, byok: null, requestId: opts.requestId ?? null,
       usageStatus: 'complete', tokenFields: null,
@@ -142,15 +154,22 @@ export function recordUnits(opts: RecordOpts & { units: number; unit: string; co
   }
 }
 
+function requestKeyKind(userId: string | null, provider: string): UsageKeyKind {
+  return isTenant || provider === 'openrouter' && usesPersonalOpenRouter(userId) ? 'personal' : 'native';
+}
+
 function insert(r: {
+  keyKind: UsageKeyKind;
   userId: string | null; botId: string | null; kind: string; jobId: string|null; reviewId: string|null; provider: string; model: string;
   input: number; cached: number; output: number; reasoning: number; tools: number;
   units: number | null; unit: string | null; cost: number | null; source: string | null; byok: number | null; requestId: string | null;
   usageStatus: 'complete' | 'partial' | 'unavailable'; tokenFields: string[] | null;
 }) {
-  db.prepare(`INSERT INTO usage_events(user_id,bot_id,kind,provider,model,input_tokens,cached_tokens,output_tokens,reasoning_tokens,tool_calls,units,unit,cost_usd,cost_source,byok,request_id,usage_status,token_fields,created_at,job_id,review_id)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(r.userId, r.botId, r.kind, r.provider, r.model, r.input, r.cached, r.output, r.reasoning, r.tools, r.units, r.unit, r.cost, r.source, r.byok, r.requestId, r.usageStatus, r.tokenFields === null ? null : JSON.stringify(r.tokenFields), now(), r.jobId, r.reviewId);
+  db.prepare(`INSERT INTO usage_events(user_id,bot_id,kind,provider,model,input_tokens,cached_tokens,output_tokens,reasoning_tokens,tool_calls,units,unit,cost_usd,cost_source,byok,request_id,usage_status,token_fields,created_at,job_id,review_id,key_kind)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(r.userId, r.botId, r.kind, r.provider, r.model, r.input, r.cached, r.output, r.reasoning, r.tools, r.units, r.unit, r.cost, r.source, r.byok, r.requestId, r.usageStatus, r.tokenFields === null ? null : JSON.stringify(r.tokenFields), now(), r.jobId, r.reviewId, r.keyKind);
+  // A recorded charge still invalidates usage after its originating run stops.
+  if (r.userId) afterCommit(() => withRun(undefined, () => hub.emit(r.userId!, { type: 'usage' })));
 }
 
 // ---------- reporting ----------

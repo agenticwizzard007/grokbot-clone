@@ -47,6 +47,9 @@ const dataFile = (name: string) => new URL(`../../data/${name}`, import.meta.url
 const dbPath = process.env.DB_PATH ?? (isTenant ? dataFile('swarm.db') : preferExisting(dataFile('swarm.db'), dataFile('grokbot.db')));
 
 export const env = {
+  /** Read-only plan display configuration; never a provider key-wide limit. */
+  get planLimitUsd() { return process.env.SWARM_PLAN_LIMIT_USD ?? ''; },
+  get planName() { return process.env.SWARM_PLAN_NAME ?? ''; },
   port: Number(process.env.PORT ?? 8787),
   appUrl: process.env.APP_URL ?? 'http://localhost:5173',
   /** Public URL of this server, used for OAuth callbacks. */

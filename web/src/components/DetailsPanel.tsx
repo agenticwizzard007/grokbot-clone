@@ -58,7 +58,11 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
   useEffect(() => {
     if (bot.kind === 'room') return;
     const controller = new AbortController();
-    void flowApi.hasRuns(bot.id, controller.signal).then(hasRuns => { if (!hasRuns && storedTab === 'activity' && !flow && !controller.signal.aborted && !choseTab.current) { setFlow(true); } }).catch(error => { if (!controller.signal.aborted && error.code === 'disabled') { setFlowEnabled(false); setFlow(false); if (flowLocation()) useConfigUI.getState().setDetailsTab('activity'); } });
+    void flowApi.hasRuns(bot.id, controller.signal).then(hasRuns => {
+      if (controller.signal.aborted || choseTab.current || storedTab !== 'activity') return;
+      if (hasRuns && /^#bot\/[^/]+\/details\/activity(?:\?|$)/.test(location.hash)) setFlow(false);
+      else if (!hasRuns && !flow) setFlow(true);
+    }).catch(error => { if (!controller.signal.aborted && error.code === 'disabled') { setFlowEnabled(false); setFlow(false); if (flowLocation()) useConfigUI.getState().setDetailsTab('activity'); } });
     return () => controller.abort();
   }, []);
   const reports = useConfigUI(state => state.detailsReports);

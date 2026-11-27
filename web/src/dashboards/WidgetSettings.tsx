@@ -5,6 +5,7 @@ import { widgetSchema } from '@shared/ui-config/schema';
 import { WIDGETS } from '@shared/ui-config/registry-widgets';
 import { SOURCES } from '@shared/ui-config/registry-sources';
 import { Card, Section, ButtonGroup } from '../components/layout';
+import { Segmented } from '../components/config/ui';
 import { useStore } from '../store';
 import { useEffectiveConfig } from '../customization';
 import { DashboardDialog } from './Dialog';
@@ -33,7 +34,11 @@ export function WidgetSettings({ widget, save, close, error: serverError, title 
     event.preventDefault(); const parsed = widgetSchema.safeParse({ ...draft, id: draft.id.startsWith('$new') ? 'w_00000000' : draft.id });
     if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? 'Check the widget settings.'); return; }
     setError(''); setBusy(true); try { if (await save({ ...parsed.data, id: draft.id })) close(); } finally { setBusy(false); }
-  }}><Section><Card><label className="dashboard-field">Title<input value={draft.title ?? ''} maxLength={60} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
+  }}><div className="dashboard-settings-fields"><Section><Card><label className="dashboard-field">Title<input value={draft.title ?? ''} maxLength={60} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
+    <div className="dashboard-field">Size<Segmented label="Size" value={draft.span <= 4 ? 'small' : draft.span <= 6 ? 'medium' : draft.span <= 8 ? 'large' : 'full'} options={['Small', 'Medium', 'Large', 'Full'].map(label => ({ label, value: label.toLowerCase() }))} onChange={size => {
+      const dimensions = { small: [4, 2], medium: [6, 3], large: [8, 4], full: [12, 4] }[size]!;
+      setDraft(current => ({ ...current, span: dimensions[0], rows: dimensions[1] }));
+    }} /></div>
     {draft.type === 'agent' && <AgentFields options={draft.options as AgentWidgetOptions} change={options => setDraft({ ...draft, options })} />}
     {source && <label className="dashboard-field">Data<select value={source.id} onChange={event => {
       const id = event.target.value as NonNullable<Widget['source']>['id'];
@@ -53,7 +58,6 @@ export function WidgetSettings({ widget, save, close, error: serverError, title 
       return <label key={field}><input type="checkbox" checked={selected.includes(field)} onChange={event => option(key, event.target.checked ? [...selected, field] : selected.filter(value => value !== field))} />{fieldLabel(field)}</label>;
     })}</div></fieldset>}
     {draft.type === 'chart' && selectOption('Chart', 'kind', ['bar', 'line', 'area'], 'bar')}
-    {draft.type === 'meter' && numeric('Window', 'window', 0, 24, 0)}
     {draft.type === 'routineSchedule' && <label className="dashboard-field">Days<input type="number" min="1" max="14" value={Number(draft.options.days ?? 7)} onChange={event => setDraft({ ...draft, options: { ...draft.options, days: Number(event.target.value) }, source: { id: 'routines.upcoming', params: { days: Number(event.target.value) } } })} /></label>}
     {draft.type === 'note' && <label className="dashboard-field">Note<textarea rows={7} maxLength={2000} value={String(draft.options.text ?? '')} onChange={event => option('text', event.target.value)} /></label>}
     {draft.source && <label className="dashboard-field">Refresh<select value={draft.refreshSec ?? 60} onChange={event => setDraft({ ...draft, refreshSec: Number(event.target.value) as Widget['refreshSec'] })}>{[[0, 'Manual'], [30, 'Every 30 seconds'], [60, 'Every minute'], [300, 'Every 5 minutes']].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
@@ -68,6 +72,7 @@ export function WidgetSettings({ widget, save, close, error: serverError, title 
         <button type="button" className="btn btn--secondary" onClick={() => option('items', items.filter((_, n) => n !== index))}>Remove shortcut</button>
       </Card>;
     })}<button type="button" className="btn btn--secondary" disabled={items.length >= 6} onClick={() => option('items', [...items, { label: 'Tasks', target: 'tasks' }])}>Add shortcut</button></Section>}
+    </div>
     {(error || serverError) && <p role="alert">{error || serverError}</p>}
     <ButtonGroup><button type="button" className="btn btn--secondary" onClick={close} disabled={busy}>Cancel</button><button type="submit" className="btn btn--primary" disabled={busy}>{submitLabel}</button></ButtonGroup>
   </form></DashboardDialog>;

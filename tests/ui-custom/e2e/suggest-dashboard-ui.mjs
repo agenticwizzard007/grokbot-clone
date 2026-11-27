@@ -261,18 +261,45 @@ export async function runSuggestionUi(directory = '.context/ui-custom/suggest-da
         pass('two profiles have identical API and browser navigation, tabs and home', variant);
         await page.goto(`/${SUGGESTION_ROUTES[0].hash}`);
         const screen = page.getByRole('region', { name: before ? 'About your use' : 'About you', exact: true }); await screen.waitFor();
-        await screen.getByRole('textbox', { name: 'Role', exact: true }).waitFor();
-        await capture(page, SUGGESTION_ROUTES[0].name, variant);
-        // Save through the UI; it must not produce any config revision or preview.
-        await screen.getByRole('textbox', { name: 'Goals', exact: true }).fill('Draft the launch email');
-        await screen.getByRole('button', { name: 'Save changes', exact: true }).click();
-        await screen.getByText('Saved', { exact: true }).waitFor();
-        assert.deepEqual(check(await sales.request('GET', '/ui/config')), initial);
-        pass('editing and saving the profile leaves the full config unchanged', variant);
-        await screen.getByRole('button', { name: before ? 'Re-adapt' : 'Suggest a dashboard', exact: true }).scrollIntoViewIfNeeded();
-        await capture(page, 'about-you-actions', variant);
-        await screen.getByRole('button', { name: before ? 'Re-adapt' : 'Suggest a dashboard', exact: true }).click();
-        const card = screen.locator('.ui-preview-card'); await card.waitFor(); await card.scrollIntoViewIfNeeded();
+        let card;
+        if (before) {
+          await screen.getByRole('textbox', { name: 'Role', exact: true }).waitFor();
+          await capture(page, SUGGESTION_ROUTES[0].name, variant);
+          // Save through the UI; it must not produce any config revision or preview.
+          await screen.getByRole('textbox', { name: 'Goals', exact: true }).fill('Draft the launch email');
+          await screen.getByRole('button', { name: 'Save changes', exact: true }).click();
+          await screen.getByText('Saved', { exact: true }).waitFor();
+          assert.deepEqual(check(await sales.request('GET', '/ui/config')), initial);
+          pass('editing and saving the profile leaves the full config unchanged', variant);
+          await screen.getByRole('button', { name: before ? 'Re-adapt' : 'Suggest a dashboard', exact: true }).scrollIntoViewIfNeeded();
+          await capture(page, 'about-you-actions', variant);
+          await screen.getByRole('button', { name: before ? 'Re-adapt' : 'Suggest a dashboard', exact: true }).click();
+          card = screen.locator('.ui-preview-card'); await card.waitFor(); await card.scrollIntoViewIfNeeded();
+        } else {
+          await screen.getByText('Sales', { exact: true }).waitFor();
+          assert.equal(await screen.getByRole('button').count(), 1);
+          assert.equal(await screen.locator('input,textarea,select').count(), 0);
+          await capture(page, SUGGESTION_ROUTES[0].name, variant);
+          const profile = check(await sales.request('GET', '/ui/requirements'));
+          const writes = [];
+          const recordWrite = request => { if (request.method() !== 'GET' && /\/api\/(ui\/|bots\/[^/]+\/messages)/.test(request.url())) writes.push(request.url()); };
+          page.on('request', recordWrite);
+          await screen.getByRole('button', { name: 'Tell your agent', exact: true }).focus();
+          await page.keyboard.press('Enter');
+          await page.waitForURL(/#bot\//);
+          await page.waitForFunction(() => document.querySelector('.composer__input')?.value === 'Help me describe my role and goals for my dashboards: ');
+          assert.deepEqual(writes, []);
+          page.off('request', recordWrite);
+          assert.deepEqual(check(await sales.request('GET', '/ui/requirements')), profile);
+          assert.deepEqual(check(await sales.request('GET', '/ui/config')), initial);
+          pass('compact profile action opens an unsent draft without profile or layout writes', variant);
+          await proposeChatSuggestion(sales, { ...profiles.sales, goals: ['Draft the launch email'] }, 'Suggest a sales dashboard for my launch follow ups.');
+          await page.reload();
+          card = page.locator('.ui-preview-card').last();
+          await card.waitFor(); await card.scrollIntoViewIfNeeded();
+          assert.deepEqual(check(await sales.request('GET', '/ui/config')), initial);
+          pass('chat saves the profile and proposes a dashboard without changing layout', variant);
+        }
         if (!before) {
           await card.getByText('Create dashboard: Sales', { exact: true }).waitFor();
           assert.ok((await card.locator('li').count()) >= 4 && (await card.locator('li').count()) <= 6);
@@ -301,11 +328,12 @@ export async function runSuggestionUi(directory = '.context/ui-custom/suggest-da
           await capture(page, 'unchanged-navigation', variant);
           pass('suggestion does not change home, sidebar or phone tabs', variant);
           await page.goto(`/${SUGGESTION_ROUTES[0].hash}`); await screen.waitFor();
-          await screen.getByRole('button', { name: 'Manage requirements', exact: true }).click();
-          await page.getByRole('menuitem', { name: 'Reset', exact: true }).click(); await screen.getByText('Cleared', { exact: true }).waitFor();
+          const profile = check(await sales.request('GET', '/ui/requirements'));
+          const cleared = check(await sales.request('DELETE', '/ui/requirements', {}, profile.revision));
           assert.equal(check(await sales.request('GET', '/ui/requirements')).profile, null);
           assert.deepEqual(check(await sales.request('GET', '/ui/config')).doc, applied.doc);
-          await screen.getByRole('button', { name: 'Undo reset', exact: true }).click(); await screen.getByText('Reset undone', { exact: true }).waitFor();
+          check(await sales.request('PUT', '/ui/requirements', { undoReset: cleared.undoToken }, cleared.revision));
+          await page.reload(); await screen.getByText('Sales', { exact: true }).waitFor();
           assert.equal(check(await sales.request('GET', '/ui/requirements')).profile.role, 'Sales');
           assert.deepEqual(check(await sales.request('GET', '/ui/config')).doc, applied.doc);
           pass('reset and Undo only change the profile', variant);

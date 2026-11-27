@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { UiConfig } from '@shared/ui-config/index';
 import { useUiPatch } from '../../../customization';
-import { Row, ButtonGroup } from '../../layout';
+import { Row, ButtonGroup, Page } from '../../layout';
 import { Modal } from '../../modals/Modal';
 import { SettingsMenu } from '../SettingsControls';
 import { AppearanceSection, SelectRow } from './Controls';
@@ -22,7 +22,7 @@ export function Manage({ doc, revision, run, onPreview, onChange }: { doc: UiCon
   const change = async (save: () => Promise<unknown>) => { setBusy(true); setError(''); try { await save(); await onChange(); setDialog(null); } catch (failure) { setError((failure as Error).message); throw failure; } finally { setBusy(false); } };
   const mutate = (path: string, body: unknown) => change(() => appearanceRequest(path, 'POST', body, revision));
   return <AppearanceSection title="Manage">
-    <Row title="Layout" trailing={<ButtonGroup><button type="button" className="cfg-btn cfg-btn--secondary" disabled={revision === 0} onClick={() => void run(() => mutate('/ui/undo', { steps: 1 }))}>Undo</button><SettingsMenu ariaLabel="Manage layout" items={[
+    <Row title="Layout" trailing={<ButtonGroup><span className="appearance-button"><button type="button" className="cfg-btn cfg-btn--secondary" disabled={revision === 0} onClick={() => void run(() => mutate('/ui/undo', { steps: 1 }))}>Undo</button></span><SettingsMenu ariaLabel="Manage layout" items={[
       { label: 'Export', onSelect: () => void run(exportAppearance) },
       { label: 'Import', onSelect: () => input.current?.click() },
       { label: 'History', onSelect: () => void run(async () => { const result = await appearanceRequest<{ history: HistoryEntry[] }>('/ui/history'); setHistory(result.history.slice(0, 50)); setDialog('history'); }) },
@@ -37,7 +37,7 @@ export function Manage({ doc, revision, run, onPreview, onChange }: { doc: UiCon
       });
     }} />
     {dialog && <Modal label={dialog === 'history' ? 'Layout history' : 'Reset layout'} className="appearance-dialog" onClose={() => { if (!busy) setDialog(null); }}>
-      {error && <p role="alert" className="cfg-error">{error}</p>}
+      <Page title={dialog === 'history' ? 'Layout history' : 'Reset layout'}>{error && <p role="alert" className="cfg-error">{error}</p>}
       {dialog === 'history' ? <>
         {!history.length && <p>No changes yet.</p>}
         {history.map(entry => <Row key={entry.revision} title={`Revision ${entry.revision}`} subtitle={<><span>{entry.actor.startsWith('agent:') ? 'Agent' : entry.actor} · {new Date(entry.createdAt).toLocaleDateString()}</span><ul>{entry.summary.map((line, i) => <li key={i}>{line}</li>)}</ul></>} trailing={<button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} aria-label={`Restore revision ${entry.revision}`} onClick={() => void run(() => mutate(`/ui/history/${entry.revision}/restore`, {}))}>Restore</button>} />)}
@@ -45,7 +45,7 @@ export function Manage({ doc, revision, run, onPreview, onChange }: { doc: UiCon
         <SelectRow label="Reset" value={scope} options={[{ value: 'layout', label: 'Layout' }, { value: 'all', label: 'Layout and dashboards' }]} onChange={setScope} />
         <p>Resets navigation, visibility and shortcuts. {scope === 'all' ? `Deletes ${dashboardCount} and ${widgetCount}.` : `Keeps ${dashboardCount}.`}</p>
         <ButtonGroup><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setDialog(null)}>Cancel</button><button type="button" className="cfg-btn cfg-btn--danger" disabled={busy} onClick={() => void run(() => change(async () => { const result = await write(resetLayout(scope === 'all'), 'Reset layout'); if (!result.ok) throw new AppearanceError(result.errors); }))}>Reset</button></ButtonGroup>
-      </>}
+      </>}</Page>
     </Modal>}
   </AppearanceSection>;
 }

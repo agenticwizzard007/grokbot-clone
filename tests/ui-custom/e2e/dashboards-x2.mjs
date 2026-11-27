@@ -157,12 +157,18 @@ export async function runDashboards({ demo = false } = {}) {
     await page.goto(`${server.base}/#settings`); await page.locator('nav[aria-label="Settings sections"]').getByRole('button', { name: 'Dashboards', exact: true }).click(); await page.locator('.dashboards-manager').waitFor(); pass('Settings entry opens manager');
     await page.goto(`${server.base}/#search`); await page.getByRole('textbox', { name: 'Search', exact: true }).fill('Dashboards'); await page.keyboard.press('Enter'); await page.locator('.dashboards-manager').waitFor(); pass('command palette keyboard path opens manager');
     await page.goto(`${server.base}/#dash/${sales.id}`); await page.getByRole('button', { name: 'Edit', exact: true }).click();
-    await page.getByRole('button', { name: 'Bigger: Next steps', exact: true }).focus(); await page.keyboard.press('Enter');
-    await server.wait(async () => (await server.request(account, 'GET', '/ui/config')).body.doc.dashboards.find(d => d.id === sales.id).widgets[0].span === 7); pass('keyboard resize persists');
+    const resize = async size => {
+      await page.getByRole('button', { name: 'Settings: Next steps', exact: true }).click();
+      await page.getByRole('radio', { name: size, exact: true }).focus(); await page.keyboard.press('Space');
+      await page.getByRole('button', { name: 'Save', exact: true }).focus(); await page.keyboard.press('Enter');
+      await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    };
+    await resize('Large');
+    await server.wait(async () => (await server.request(account, 'GET', '/ui/config')).body.doc.dashboards.find(d => d.id === sales.id).widgets[0].span === 8); pass('keyboard resize persists');
     await page.getByRole('button', { name: 'Move down: Next steps', exact: true }).click(); await server.wait(async () => (await server.request(account, 'GET', '/ui/config')).body.doc.dashboards.find(d => d.id === sales.id).widgets[1].id === sales.widgets[0].id); pass('keyboard and touch reorder persists');
     await page.getByRole('button', { name: 'Move up: Next steps', exact: true }).click();
     await server.wait(async () => (await server.request(account, 'GET', '/ui/config')).body.doc.dashboards.find(d => d.id === sales.id).widgets[0].id === sales.widgets[0].id);
-    await page.getByRole('button', { name: 'Smaller: Next steps', exact: true }).click();
+    await resize('Medium');
     await server.wait(async () => (await server.request(account, 'GET', '/ui/config')).body.doc.dashboards.find(d => d.id === sales.id).widgets[0].span === 6);
     await page.getByRole('button', { name: 'Drag to reorder: Next steps', exact: true }).dragTo(page.locator(`[data-widget-id="${sales.widgets[1].id}"]`));
     await server.wait(async () => (await server.request(account, 'GET', '/ui/config')).body.doc.dashboards.find(d => d.id === sales.id).widgets[1].id === sales.widgets[0].id); pass('desktop drag reorder persists');

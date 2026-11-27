@@ -62,3 +62,27 @@
 .dashboard-manager-row { min-height: 60px; padding-block: 8px; }
 .dashboard-agent-fieldset .btn { padding-inline: 8px; letter-spacing: 0; }
 .ui-preview-card--dashboard .cfg-chip { height: auto; min-height: 20px; font-size: 13px; line-height: 20px; }
+
+/* Settings-sized controls for manager, widget and agent flows. */
+.dashboard-page .btn, .dashboard-dialog .btn {
+  min-height: 44px; padding: 8px 16px; gap: 8px; border: 1px solid transparent;
+  border-radius: var(--radius-sm); font-size: 14px; line-height: 20px; letter-spacing: 0;
+  text-decoration: none;
+}
+.dashboard-page .btn--secondary, .dashboard-dialog .btn--secondary {
+  background: var(--color-elevated); border-color: var(--color-border); box-shadow: none;
+}
+.dashboard-toolbar .btn, .dashboard-agent-header > .btn { width: 44px; flex: 0 0 44px; padding: 8px; }
+.dashboard-agent-header .dashboard-toolbar { flex: 0 1 auto; }
+.dashboard-dialog .dashboard-library-item { column-gap: 16px; row-gap: 4px; }
+.dashboard-dialog .dashboard-field :is(input,select,textarea) { padding: 8px 16px; }
+.dashboard-heading > div:empty { display: none; }
+.dashboard-heading:not(:has(p)) { justify-content: end; }
+.dashboard-heading:empty { display: none; }
+.dashboard-manager-row .layout-row__text, .dashboard-open > span { min-width: 0; }
+.dashboard-switcher-list .btn > svg { flex: 0 0 20px; }
+.dashboard-switcher .menu__item { font-size: 14px; line-height: 20px; }
+.dashboard-agent-fieldset .btn { padding-inline: 8px; }
+@media (max-width: 760px) {
+  .dashboard-toolbar .dashboard-drag { display: none; }
+}

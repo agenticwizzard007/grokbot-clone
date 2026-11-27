@@ -3,7 +3,7 @@ import { Row, Section, Card } from '../../layout';
 import { Segmented } from '../ui';
 
 export function AppearanceSection({ title, children, helper }: { title: string; children: ReactNode; helper?: string }) {
-  return <Section title={title} aria-label={title} className="appearance-section"><Card variant="list">{helper && <p className="appearance-helper">{helper}</p>}{children}</Card></Section>;
+  return <Section title={title} aria-label={title} className="appearance-section"><Card>{helper && <p className="appearance-helper">{helper}</p>}{children}</Card></Section>;
 }
 export function Choice({ label, value, values, onChange }: { label: string; value: string; values: readonly (string | { value: string; label: string })[]; onChange: (value: string) => void }) {
   const options = values.map(value => typeof value === 'string' ? { value, label: value[0].toUpperCase() + value.slice(1) } : value);
