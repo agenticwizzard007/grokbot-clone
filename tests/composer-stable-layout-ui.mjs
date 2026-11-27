@@ -28,8 +28,7 @@ const samples = [
   { name: 'codex-plan', provider: 'codex-cli', billing: 'plan', mark: 'openai', id: 'codex/default', label: 'Codex' },
   { name: 'grok-api', provider: 'openrouter', billing: 'api', mark: 'xai', id: 'x-ai/grok-4.7', label: 'Grok 4.7' },
 ];
-try {
-  for (const width of [320, 390, 480, 500, 768, 1280]) for (const theme of ['light', 'dark']) for (const sample of samples) {
+async function checkCase({ width, theme, sample }) {
     const { page, fixture, errors, writes } = await fixturePage(browser, { width, height: 900 });
     lastPage = page;
     await page.emulateMedia({ colorScheme: theme });
@@ -189,7 +188,19 @@ try {
     assert.deepEqual(errors, []);
     assert.ok(writes.every(write => write.path === '/api/voice/end'), 'only local End calls were made');
     await page.context().close();
-  }
+}
+try {
+  // Every case owns a browser context and API fixture. Run the same matrix in
+  // three workers so geometry waits do not serialize unrelated viewports.
+  const cases = [320, 390, 480, 500, 768, 1280].flatMap(width => ['light', 'dark'].flatMap(theme => samples.map(sample => ({ width, theme, sample }))));
+  let next = 0;
+  const workers = await Promise.allSettled(Array.from({ length: 3 }, async () => {
+    while (next < cases.length) await checkCase(cases[next++]);
+  }));
+  const failures = workers.filter(result => result.status === 'rejected');
+  if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Composer matrix failed');
+  assert.equal(results.length, 44, 'Every composer case runs');
+  results.sort((a, b) => a.width - b.width || a.theme.localeCompare(b.theme) || a.sample.localeCompare(b.sample) || a.bot.localeCompare(b.bot));
   await writeFile(`${evidence}/results.json`, JSON.stringify(results, null, 2));
   console.log(`PASS ${results.length} composer layout cases with typing, voice, sibling inputs and viewport checks`);
 } catch (error) {
