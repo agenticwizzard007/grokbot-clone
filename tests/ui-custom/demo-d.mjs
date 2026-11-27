@@ -19,7 +19,7 @@ try {
     for (const width of [390, 1280]) {
       await page.setViewportSize({ width, height: width < 760 ? 844 : 900 });
       for (const [route, hash] of [['bots', '#bots'], ['chat', `#bot/${server.fixture.bot.id}`]]) {
-        await page.goto(`${server.base}/${hash}`); await page.locator(route === 'chat' ? '.composer__input' : '.pb-bots').waitFor();
+        await page.goto(`${server.base}/${hash}`); await page.locator(route === 'chat' ? '.composer__input:not([disabled])' : '.pb-bots').waitFor();
         await screenshot(`${name}-${route}-${width}`); console.log(`PASS demo ${name} ${route} ${width}`);
       }
     }

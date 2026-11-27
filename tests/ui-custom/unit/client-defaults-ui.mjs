@@ -27,6 +27,7 @@ try {
     await context.addInitScript(theme => { localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
     const page = await context.newPage(); page.setDefaultTimeout(15000);
     for (const route of ROUTES) {
+      if (process.env.CLIENT_ROUTES && !process.env.CLIENT_ROUTES.split(',').includes(route.name)) continue;
       const key = `${width}-${theme}-${route.name.replaceAll('/', '-')}`;
       if (baseline && process.env.CLIENT_RESUME === '1' && fs.existsSync(path.join(output, `${key}.json`))) { report.push(key); continue; }
       if (route.signedOut) await context.clearCookies();
@@ -38,7 +39,7 @@ try {
 
       await page.locator('[data-layout="page"]:visible').first().waitFor();
       await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(400);
-      if (route.state) { await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().bots.some(bot => bot.id === id), server.fixture.bot.id); await preparePbeState(page, route.state, server.fixture.bot.id); }
+      if (route.state) { await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().bots.some(bot => bot.id === id), server.fixture.bot.id); await page.locator('.composer__input:not([disabled])').waitFor(); await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().transcripts[id]?.loaded, server.fixture.bot.id); await preparePbeState(page, route.state, server.fixture.bot.id); await page.waitForTimeout(400); }
       const result = await page.evaluate(() => {
         // Ignore transient chat scroll restoration when comparing structure.
         for (const element of document.querySelectorAll('*')) if (element.scrollTop) element.scrollTop = 0;
