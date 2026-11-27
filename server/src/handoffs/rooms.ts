@@ -3,9 +3,13 @@ import { isConfiguring } from '../bot-setup.js';
 import { appendRow, updateRow } from '../store.js';
 import { transactionWithEffects } from '../lib/commit-effects.js';
 import { syncLoopTasks, syncHandoffTasks } from './tasks.js';
-import type { LoopSpec, StopReason } from './contracts.js';
+import type { HandoffStatus, LoopSpec, StopReason } from './contracts.js';
 import type { EventBody, RowBody } from '../types.js';
-type HandoffBody = Extract<RowBody, { type: 'handoff' }>;
+// The shared RowKind already includes handoff. Keep the receipt shape explicit until
+// HO-A adds it to RowBody; the persistence boundary below is the only compatibility cast.
+type HandoffBody = { type: 'handoff'; handoffId: string; direction: 'sent'; otherBotId: string;
+  status: HandoffStatus; title: string; loopId?: string; iteration?: number; audience: 'user' };
+const receiptBody = (body: HandoffBody): RowBody => body as unknown as RowBody;
 
 export const ROOM_TARGET_REFUSAL = 'Choose an agent. Groups cannot receive handoffs.';
 
@@ -88,14 +92,14 @@ export function postRoomHandoff(userId: string, handoffId: string) {
     const room = ownRoom(userId, handoff.room_id);
     // Membership is checked when creating a handoff. Removed members must still get a final receipt.
     const body: HandoffBody = { type: 'handoff', handoffId, direction: 'sent', otherBotId: handoff.to_bot_id,
-      status: handoff.status, title: 'Agent handoff', ...(handoff.loop_id ? { loopId: handoff.loop_id } : {}), ...(handoff.iteration !== null ? { iteration: handoff.iteration } : {}) };
+      status: handoff.status, title: 'Agent handoff', audience: 'user', ...(handoff.loop_id ? { loopId: handoff.loop_id } : {}), ...(handoff.iteration !== null ? { iteration: handoff.iteration } : {}) };
     const existing = db.prepare("SELECT seq,body FROM rows WHERE bot_id=? AND generation=? AND kind='handoff' AND json_extract(body,'$.handoffId')=?").get(room.id, room.generation, handoffId) as { seq: number; body: string } | undefined;
     if (existing) {
       const before = JSON.parse(existing.body);
-      if (before.status !== body.status) updateRow(room.id, existing.seq, { ...body, audience: 'user' });
+      if (before.status !== body.status) updateRow(room.id, existing.seq, receiptBody(body));
       return existing.seq;
     }
-    return appendRow(room.id, 'handoff', { ...body, audience: 'user' }).seq;
+    return appendRow(room.id, 'handoff', receiptBody(body)).seq;
   });
 }
 
