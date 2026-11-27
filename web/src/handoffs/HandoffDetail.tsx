@@ -38,7 +38,7 @@ export function HandoffDetail({ handoffId, onBack, onSend }: { handoffId: string
   return <Page type="form" className="ho"><BackControl onBack={onBack} /><h1 className="ho-heading">Handoff</h1>
     <HandoffState loading={!detail.data && detail.loading} error={detail.error} retry={detail.retry} empty={!detail.loading && !detail.error && !handoff ? 'Nothing here yet' : undefined} />
     {handoff && <>
-      <Section title="Agents"><Card variant="list"><Row title={`From ${name(handoff.fromBotId)}`} /><Row title={`To ${name(handoff.toBotId)}`} subtitle={<span role="status">{handoffStatus[handoff.status]}</span>} />
+      <Section title="Agents"><Card variant="list"><Row title={`From ${name(handoff.fromBotId)}`} /><Row title={`To ${name(handoff.toBotId)}`} subtitle={<span className="ho-status" role="status">{handoffStatus[handoff.status]}</span>} />
         {handoff.reason && <Row title={handoffText(handoff.reason)} />}
       </Card></Section>
       <Section title="Ask"><Card><p className="ho-prose">{handoffText(handoff.instruction)}</p></Card></Section>
@@ -48,8 +48,9 @@ export function HandoffDetail({ handoffId, onBack, onSend }: { handoffId: string
         title={eventLabels[event.type] ?? 'Updated'} subtitle={new Date(event.createdAt).toLocaleString()} />) : <HandoffState empty="No events yet" />}</Card></Section>
       <ButtonGroup>
         {handoff.status === 'pending_approval' ? <><button disabled={busy} className="ho-button ho-button--primary" onClick={() => void act('approve')}>Approve</button><button disabled={busy} className="ho-button" onClick={() => void act('decline')}>Decline</button></> : ['queued', 'delivered', 'running'].includes(handoff.status) && <button disabled={busy} className="ho-button" onClick={() => void act('cancel')}>Stop</button>}
-        <button className="ho-button" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy details'}</button>
+        {handoff.status !== 'pending_approval' && <button className="ho-button" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy details'}</button>}
       </ButtonGroup>
+      {handoff.status === 'pending_approval' && <details className="ho-more"><summary>More options</summary><button className="ho-button" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy details'}</button></details>}
       {error && <p className="ho-error" role="alert">{error}</p>}
     </>}
   </Page>;

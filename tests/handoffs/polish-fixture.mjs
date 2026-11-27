@@ -11,6 +11,7 @@ export const screens = [
   'loops-list', 'loop-timeline', 'loop-graph', 'loop-sheet', 'gate-card', 'flow-tab', 'flow-compact', 'link-sheet', 'sidebar-loops',
   ...Object.keys(scenarios).filter(x => !['converged', 'gated'].includes(x)).map(x => `loop-${x}`),
   ...['loading', 'empty', 'error'].flatMap(x => [`output-${x}`, `handoffs-${x}`, `loops-${x}`, `flow-${x}`]),
+  ...['loading','empty','error'].flatMap(x => [`handoff-${x}`, `viewer-${x}`, `send-${x}`]), 'handoff-approval', 'gate-cap', 'gate-manual',
   'flow-suggestions', 'flow-long', 'link-edit', 'send-error', 'send-loop',
 ];
 export async function polishFixture() {
@@ -24,10 +25,11 @@ export async function polishFixture() {
   const botId = server.fixture.bot.id;
   return {
     async open(name, width, theme) {
-      const dView = name === 'handoff-list' ? 'list' : name.startsWith('output-') && ['loading','empty','error'].includes(name.slice(7)) ? 'card' : name.startsWith('handoffs-') ? 'list' : name.startsWith('send-') && ['error','loop'].includes(name.slice(5)) ? 'sheet' : null;
+      const dView = /^handoff-(loading|empty|error|approval)$/.test(name) ? 'detail' : /^viewer-(loading|empty|error)$/.test(name) ? 'viewer' : /^send-(loading|empty|error)$/.test(name) ? 'sheet' : name === 'handoff-list' ? 'list' : name.startsWith('output-') && ['loading','empty','error'].includes(name.slice(7)) ? 'card' : name.startsWith('handoffs-') ? 'list' : name.startsWith('send-') && ['error','loop'].includes(name.slice(5)) ? 'sheet' : null;
       if (dView) {
         const state = name.split('-').at(-1);
-        const page = await d.page({ view: dView, state: ['loading','empty','error'].includes(state) && dView !== 'sheet' ? state : 'ready', width, theme, loops: state === 'loop' });
+        const page = await d.page({ view: dView, state: ['loading','empty','error'].includes(state) && name !== 'send-error' ? state : 'ready', width, theme, loops: state === 'loop' });
+        if (name === 'handoff-approval') { await page.evaluate(() => { window.fixture.status = 'pending_approval'; window.refreshFixture(); }); await page.getByRole('button', {name:'Approve',exact:true}).waitFor(); }
         if (name === 'send-error') { await page.getByRole('button', { name: /^Checker/ }).click(); await page.evaluate(() => { window.fixture.failSend = true; }); await page.getByRole('button', { name: 'Send', exact: true }).click(); await page.getByRole('alert').waitFor(); }
         if (name === 'send-loop') { await page.getByRole('button', { name: /^Checker/ }).click(); await page.getByLabel('Keep improving', { exact: true }).check(); }
         return { page, selector: dView === 'sheet' ? 'dialog[open]' : '#root', close: () => page.close() };
@@ -38,9 +40,10 @@ export async function polishFixture() {
       await page.addInitScript(theme => { localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '1'); }, theme);
       await page.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname) ? route.fallback() : route.abort());
       let hash = `#bot/${botId}`, selector = name === 'output-card' ? '.ho-output-card' : '.ho-receipt, .ho-output-card, .ho-message-actions';
-      if (name.startsWith('loop') || name === 'gate-card') {
-        const runName = name === 'gate-card' ? 'gated' : name.startsWith('loop-') && scenarios[name.slice(5)] ? name.slice(5) : 'converged';
+      if (name.startsWith('loop') || name.startsWith('gate-')) {
+        const runName = name.startsWith('gate-') ? 'gated' : name.startsWith('loop-') && scenarios[name.slice(5)] ? name.slice(5) : 'converged';
         const run = recordedRun(runName);
+        if (name === 'gate-cap' || name === 'gate-manual') { run.detail.gate.kind = name.slice(5); run.detail.canExtend = true; }
         await page.route(/\/api\/loops(?:\/[^?]*)?(?:\?.*)?$/, route => {
           const pathname = new URL(route.request().url()).pathname;
           if (name === 'loops-loading') return new Promise(() => {});
