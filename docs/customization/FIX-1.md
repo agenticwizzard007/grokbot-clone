@@ -47,7 +47,7 @@ An initial Setup files discrepancy was a lazy Markdown loading state. Re-recordi
 
 ## Reviewed FIX-1 differences
 
-`reviewedDifferences` is empty for the new pin. The former two phone Activity exceptions applied to `e0d2cf9`; HO-I already removes the invalid-route fallback tabs. FIX-1 replaces the temporary header inside the same geometry. The fresh comparison must match all 208 complete snapshots against `5294c85`, with zero reviewed exceptions and zero skipped views.
+`reviewedDifferences` is empty for the new pin. The former two phone Activity exceptions applied to `e0d2cf9`; HO-I already removes the invalid-route fallback tabs. FIX-1 replaces the temporary header inside the same geometry. The fresh comparison matches all 208 complete snapshots against `5294c85`, with zero reviewed exceptions and zero skipped views.
 
 The review mechanism remains strict: listed views must have a reason, identical token maps, every non-navigation node including Page/card boxes, unchanged navigation styles, and exactly the recorded navigation boxes. Unlisted views require complete equality. A review fails when the pin already matches, so stale exceptions cannot survive. Nine negative/control tests exercise those safeguards.
 
@@ -89,7 +89,38 @@ Source evidence: `web/src/components/DetailsPanel.tsx` selects the Flow default 
 
 ## Local verification
 
-All checks use local fixture data and mock providers. Final results and commands are recorded here after the fresh defaults and navigation runs finish. The default checkouts and all snapshot metadata were deleted first; `.context/fix-1-rebase/cache-reset.log` records the reset, and `defaults-fresh.log` starts with a new detached checkout at `5294c85`.
+All checks use local fixture data and mock providers. Logs are under `.context/fix-1-rebase/`. Both cached defaults checkouts and all 210 snapshot/metadata files were deleted first; `cache-reset.log` records the reset, and `defaults-fresh.log` starts with a new detached checkout at `5294c85`.
+
+The expanded unit command runs on the branch and untouched main:
+
+```sh
+node --import tsx --test --test-concurrency=1 tests/ui-custom/*.test.mts tests/ui-custom/unit/*.test.mts tests/flow/*.test.mts tests/navigation-*.test.mts tests/structural-navigation.test.mts tests/handoffs/integration-i.test.mts
+```
+
+| Command | Result | Log |
+| --- | --- | --- |
+| `npm run typecheck` | Server and web pass, 2/2, zero errors | `typecheck.log` |
+| `npm run build -w web` | Production build passes | `build.log` |
+| Expanded unit command above | Branch 667/667, zero failures/skips; main 655/656, one timing failure described below | `unit.log`, `unit-main-isolated.log` |
+| `node --import tsx tests/navigation-every-route-ui.mjs` | 850/850 route/size/theme cases, zero failures, including Flow | `navigation-fresh.log` |
+| `node tests/ui-custom/unit/client-defaults-ui.mjs` | Fresh 208/208: 208 exact matches, 0 reviewed | `defaults-fresh.log` |
+| `node tests/ui-custom/demo-fix-1.mjs` | 40/40 pass | `demo.log` |
+| `node tests/layout-alignment-ui.mjs` | 208/208 route views, zero issues | `alignment.log` |
+| `node tests/flow/demo-g.mjs` | 36/36 pass | `flow-demo.log` |
+| `node tests/handoffs/integration-routes-ui.mjs` | 42/42 pass, zero real provider calls | `integration-ui.log` |
+| `node --import tsx --test tests/ui-custom/sources-performance.test.mts` | Branch 1/1; main 0/1, timing failure | `source-performance-branch.log`, `source-performance-main.log` |
+
+The branch adds two Flow route round trips and nine comparison controls to the 656 tests on main. Untouched main's isolated run has one source-performance failure: p95 167.89 ms against a 150 ms limit. A focused comparison records main 169.08 ms and branch 144.99 ms; the test and source implementation have no diff from main. The branch passes its complete 667-test run and the focused comparison. There are no new failures versus main.
+
+Acceptance evidence:
+
+- [x] Flow renders with rich, empty and malformed local models, shared navigation and avatar, and no browser errors: FIX-1 demo 40/40 and navigation 850/850.
+- [x] Flow/Activity browser Back and Forward stay synchronized with HO-I's route contract: FIX-1 demo 40/40 and existing Flow demo 36/36.
+- [x] Every HO-I geometry change is audited and listed above, with complete node/token records in `defaults-diff.json`; 184 unchanged views, 24 explained changes, 208 equal token maps.
+- [x] The baseline pins untouched main `5294c85`, retains 208 views and the reviewed-pin comment, and has no stale FIX-1 exceptions: fresh defaults 208/208 exact matches.
+- [x] Typecheck, customization/Flow/navigation tests and Paper v3 alignment pass locally. HO-I's mounted API integration passes 42 checks.
+
+Scope deviations: none. Verification limitation: the unchanged source-performance test exceeds its timing budget on main as recorded above. Requests for other workstreams: none; HO-I's Flow API mounts are integrated. The PR stays open for orchestrator review and merge.
 
 ## Demo evidence
 
