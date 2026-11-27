@@ -5,8 +5,8 @@ import { SettingsMenu } from '../../components/config/SettingsControls';
 import { DashboardForm, type DashboardDialogState } from './DashboardForm';
 import { DASHBOARD_LIMIT, moveDashboard } from './model';
 import { useDashboardManager, openDashboard } from './useDashboardManager';
-import '../dashboard-ui.css';
 import '../../styles/dashboards.css';
+import '../dashboard-ui.css';
 export default function DashboardsManager() {
   const manager = useDashboardManager(), { doc, busy, status, error, patch, ask, canAsk } = manager;
   const [dialog, setDialog] = useState<DashboardDialogState>();
@@ -15,7 +15,7 @@ export default function DashboardsManager() {
   return <Page type="list" className="dashboard-page dashboards-manager" aria-label="Dashboards">
     {status === 'loading' ? <p role="status">Loading dashboards...</p> : <Section>
       {!doc.dashboards.length && <p>Create a dashboard for your work.</p>}
-      <ButtonGroup className="dashboard-manager-actions"><button className="btn btn--primary" disabled={busy || full || status === 'disabled'} onClick={() => show({ kind: 'create' })}>Create</button><button className="btn btn--secondary" disabled={!canAsk} onClick={ask}>Ask your agent</button></ButtonGroup>
+      <ButtonGroup className="dashboard-manager-actions"><button className="btn btn--primary" disabled={busy || full || status === 'disabled'} onClick={() => show({ kind: 'create' })}>Create</button><button className="btn btn--secondary" disabled={!canAsk} onClick={ask}>Create with your agent</button></ButtonGroup>
       {full && <p role="status">You have reached the limit of {DASHBOARD_LIMIT} dashboards.</p>}
       {!!doc.dashboards.length && <Card>{doc.dashboards.map((dashboard, index) => <Row key={dashboard.id} className="dashboard-manager-row" title={<button type="button" className="dashboard-open" onClick={() => openDashboard(dashboard)}><LayoutDashboard size={20} aria-hidden /><span>{dashboard.name}</span><span className="dashboard-caption">{dashboard.widgets.length} {dashboard.widgets.length === 1 ? 'widget' : 'widgets'}</span></button>} trailing={<SettingsMenu ariaLabel={`Manage ${dashboard.name}`} disabled={busy} items={[
         ...(!full ? [{ label: 'Duplicate', onSelect: () => show({ kind: 'duplicate', dashboard }) }] : []),

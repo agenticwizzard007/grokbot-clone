@@ -23,6 +23,6 @@ export function useDashboardManager() {
     } catch { setError('Could not save this change. Try again.'); return false; }
     finally { lock.current = false; setBusy(false); }
   };
-  const ask = () => { const bot = bots.find(bot => bot.isPrimary) ?? bots[0]; if (bot) { prefillComposer(bot.id, 'Help me create a dashboard for '); openConversation(bot.id); } };
+  const ask = () => { const bot = bots.find(bot => bot.isPrimary) ?? bots[0]; if (bot) { prefillComposer(bot.id, 'Make me a dashboard for '); openConversation(bot.id); } };
   return { doc, status, busy, error, setError, patch, ask, canAsk: !!bots.length };
 }

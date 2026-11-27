@@ -8,8 +8,8 @@ import { DashboardDialog } from '../Dialog';
 import { DashboardForm } from './DashboardForm';
 import { openDashboard, useDashboardManager } from './useDashboardManager';
 import { DASHBOARD_LIMIT } from './model';
-import '../dashboard-ui.css';
 import '../../styles/dashboards.css';
+import '../dashboard-ui.css';
 export function DashboardSwitcher({ dashboardId }: { dashboardId: string }) {
   const manager = useDashboardManager(), dashboards = useEffectiveConfig().dashboards;
   const dashboard = dashboards.find(item => item.id === dashboardId), mobile = useStore(state => state.mobile);

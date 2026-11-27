@@ -34,7 +34,7 @@ export function AgentWidget({ dashboardId, widget, toolbar }: { dashboardId: str
     {state.loading && !doc && <p role="status">Loading answer...</p>}
     {(state.error || state.snapshot?.state === 'error') && <div className="dashboard-empty-data"><p role="alert">{state.error || 'Could not read the answer. Try again.'}</p><button className="btn btn--secondary" disabled={state.running} onClick={() => void state.run()}>Try again</button></div>}
     {!state.loading && !state.error && state.snapshot?.state !== 'error' && !state.running && emptyAnswer(doc) && <div className="dashboard-empty-data"><p>No answer yet</p><button className="btn btn--secondary" onClick={() => void state.run()}>Run</button></div>}
-    {doc && <div className={`dashboard-widget-body${doc.kind === 'list' ? ' dashboard-widget-body--scroll' : ''}`}><AgentAnswer doc={doc} action={rowAction} /></div>}
+    {doc && <div className="dashboard-widget-body"><AgentAnswer doc={doc} action={rowAction} /></div>}
     {actionError && !confirm && <p role="alert">{actionError}</p>}
     {confirm && <DashboardDialog title="Approve item" close={() => { if (!busy) setConfirm(undefined); }}><Section><p>{confirm.title}</p>{actionError && <p role="alert">{actionError}</p>}<ButtonGroup><button type="button" className="btn btn--secondary" disabled={busy} onClick={() => setConfirm(undefined)}>Cancel</button><button type="button" className="btn btn--primary" disabled={busy} onClick={() => void act(confirm.action, true)}>Approve</button></ButtonGroup></Section></DashboardDialog>}
   </Card>;

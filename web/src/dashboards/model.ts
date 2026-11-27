@@ -8,7 +8,7 @@ export interface WidgetData { ok: boolean; rows?: Record<string, unknown>[]; val
 export interface WidgetState { status: 'loading' | 'ready' | 'error'; data?: WidgetData; error?: string; refreshing?: boolean }
 export { widgetTitle as widgetLabel } from '@shared/ui-config/presentation';
 import { widgetTitle } from '@shared/ui-config/presentation';
-export const columnSpan = (span: number, width: number) => width <= 480 ? span <= 4 ? 1 : 2 : width <= 1023 ? Math.ceil(span / 2) : span;
+export const columnSpan = (span: number, width: number, type?: Widget['type']) => width < 360 ? type === 'stat' && span === 4 ? 2 : span <= 4 ? 1 : 2 : width <= 480 ? type === 'stat' && span === 4 ? 2 : span <= 4 ? 3 : 6 : width <= 1023 ? Math.ceil(span / 2) : span;
 export function findDashboard(dashboards: Dashboard[], reference?: string) {
   return reference ? routeDashboard(reference, dashboards) : undefined;
 }
