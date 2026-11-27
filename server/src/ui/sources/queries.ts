@@ -43,15 +43,19 @@ export function resolveSource(id: string, userId: string, params: Params): Sourc
   if (!userId) throw new SourceError('not_found', 'Account not found.');
   const scope = botScope(userId, params), limit = Number(params.limit ?? 25), now = Date.now();
   const range = (params.range ?? '7d') as UsageRange;
+  // Scan tasks against one account-owned id set instead of looking up the Bot
+  // separately for every task. The existing schema has no task Bot index.
+  const taskWhere = 't.bot_id IN (SELECT b.id FROM bots b WHERE b.user_id=?)' + (params.botId ? ' AND t.bot_id=?' : '');
   if (id === 'tasks.counts' || id === 'tasks.list') {
-    const where = scope.where + (params.state ? ' AND t.state=?' : '');
+    const where = taskWhere + (params.state ? ' AND t.state=?' : '');
     const args = [...scope.args, ...(params.state ? [params.state] : [])];
     const counts = one(`SELECT COUNT(*) AS total, COALESCE(SUM(t.state='working'),0) AS working,
       COALESCE(SUM(t.state='needs_input'),0) AS needs_input, COALESCE(SUM(t.state='done'),0) AS done
-      FROM tasks t JOIN bots b ON b.id=t.bot_id WHERE ${where}`, args);
+      FROM tasks t WHERE ${where}`, args);
     if (id === 'tasks.counts') return { value: counts, count: counts.total };
     return { count: counts.total, rows: all(`SELECT t.id, t.title, t.state, b.name AS botName, b.id AS botId, t.updated_at AS updatedAt
-      FROM tasks t JOIN bots b ON b.id=t.bot_id WHERE ${where} ORDER BY t.updated_at DESC, t.id LIMIT ?`, [...args, limit]) };
+      FROM (SELECT t.id,t.title,t.state,t.bot_id,t.updated_at FROM tasks t WHERE ${where}
+        ORDER BY t.updated_at DESC,t.id LIMIT ?) t JOIN bots b ON b.id=t.bot_id ORDER BY t.updated_at DESC,t.id`, [...args, limit]) };
   }
   if (id === 'tasks.series') {
     const timezone = usageTimezone(userId), { from, to, days } = rangeBounds(range, now, timezone);
@@ -62,9 +66,9 @@ export function resolveSource(id: string, userId: string, params: Params): Sourc
     const bounds = [...series].reverse().flatMap(({ day }) => [reportDayStart(day, timezone), day]);
     const dayCase = (column: 'created_at' | 'updated_at') => `CASE ${series.map(() => `WHEN t.${column}>=? THEN ?`).join(' ')} END`;
     const rows = all(`SELECT ${dayCase('created_at')} AS day, COUNT(*) AS created, 0 AS done
-      FROM tasks t JOIN bots b ON b.id=t.bot_id WHERE ${scope.where} AND t.created_at BETWEEN ? AND ? GROUP BY day
+      FROM tasks t WHERE ${taskWhere} AND t.created_at BETWEEN ? AND ? GROUP BY day
       UNION ALL SELECT ${dayCase('updated_at')} AS day, 0, COUNT(*)
-      FROM tasks t JOIN bots b ON b.id=t.bot_id WHERE ${scope.where} AND t.state='done' AND t.updated_at BETWEEN ? AND ? GROUP BY day`,
+      FROM tasks t WHERE ${taskWhere} AND t.state='done' AND t.updated_at BETWEEN ? AND ? GROUP BY day`,
     [...bounds, ...scope.args, from, to, ...bounds, ...scope.args, from, to]);
     for (const row of rows) { const day = series.find(day => day.day === row.day); if (day) { day.created += row.created; day.done += row.done; } }
     return { rows: series, count: series.reduce((n, day) => n + day.created, 0) };
@@ -74,9 +78,13 @@ export function resolveSource(id: string, userId: string, params: Params): Sourc
     if (id === 'bots.list') return { count, rows: all(`SELECT b.id, b.name, b.avatar_shape AS avatarShape,
       b.avatar_color AS avatarColor, b.updated_at AS lastActiveAt FROM bots b WHERE b.user_id=? ORDER BY b.updated_at DESC,b.id LIMIT ?`, [userId, limit]) };
     const attention = new Set(needsYou(userId).map(item => item.botId));
-    return { count, rows: all(`SELECT b.id, b.name, (SELECT COUNT(*) FROM tasks t WHERE t.bot_id=b.id AND t.state<>'done') AS openTasks,
-      EXISTS(SELECT 1 FROM agent_jobs j WHERE j.user_id=b.user_id AND j.bot_id=b.id AND j.state='running') AS working
-      FROM bots b WHERE b.user_id=? ORDER BY b.updated_at DESC,b.id LIMIT ?`, [userId, limit])
+    return { count, rows: all(`WITH selected AS (
+        SELECT id,name,user_id,updated_at FROM bots WHERE user_id=? ORDER BY updated_at DESC,id LIMIT ?
+      ), open AS (SELECT t.bot_id,COUNT(*) AS n FROM tasks t
+        WHERE t.state<>'done' AND t.bot_id IN (SELECT id FROM selected) GROUP BY t.bot_id)
+      SELECT b.id,b.name,COALESCE(o.n,0) AS openTasks,
+        EXISTS(SELECT 1 FROM agent_jobs j WHERE j.user_id=b.user_id AND j.bot_id=b.id AND j.state='running') AS working
+      FROM selected b LEFT JOIN open o ON o.bot_id=b.id ORDER BY b.updated_at DESC,b.id`, [userId, limit])
       .map(({ working, ...bot }) => ({ ...bot, status: attention.has(bot.id) ? 'needs_you' : working ? 'working' : 'ready' })) };
   }
   if (id === 'needsYou.list') { const rows = needsYou(userId); return { count: rows.length, rows: rows.slice(0, limit).map(({ id, type, botName, title, createdAt }) => ({ id, type, botName, title, createdAt })) }; }

@@ -64,6 +64,17 @@ for (const source of SOURCES) test(`${source.id}: allowlisted fields, caps and d
   if (source.id === 'usage.windows') assert.deepEqual({ rows: own.rows, available: own.available }, { rows: [], available: false });
 });
 
+test('limited Bot status aggregates and filtered task pages retain exact counts and ordering', async () => {
+  const status = await read(a.id, 'bots.status', { limit: 3 }); assert.ok(status.ok);
+  if (status.ok) { assert.equal(status.count, 30); assert.deepEqual(status.rows!.map(row => [row.id, row.openTasks]), [[`${a.id}-bot-0`, 2], [`${a.id}-bot-1`, 2], [`${a.id}-bot-2`, 0]]); }
+  const page = await read(a.id, 'tasks.list', { botId: `${a.id}-bot-0`, state: 'working', limit: 1 }); assert.ok(page.ok);
+  if (page.ok) { assert.equal(page.count, 2); assert.equal(page.rows!.length, 1); assert.equal(page.rows![0].id, `${a.id}-task-0`); assert.equal(page.rows![0].botName, 'Fixture A Bot 0'); }
+  const counts = await read(a.id, 'tasks.counts', { botId: `${a.id}-bot-2` }); assert.ok(counts.ok);
+  if (counts.ok) assert.deepEqual(counts.value, { working: 0, needs_input: 0, done: 2, total: 2 });
+  const series = await read(a.id, 'tasks.series', { botId: `${a.id}-bot-2` }); assert.ok(series.ok);
+  if (series.ok) { assert.equal(series.count, 2); assert.equal(series.rows!.reduce((n, row) => n + Number(row.done), 0), 2); }
+});
+
 test('all 14 sources reject unknown params and never accept a user id', async () => {
   assert.equal(SOURCES.length, 14);
   for (const source of SOURCES) for (const params of [{ userId: b.id }, { sql: 'SELECT * FROM users' }, { url: 'https://example.test' }, [], null]) {
