@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import fs from 'node:fs';
-import { buildFlowModel, flowInputsHash, stepHash, type FlowInputs } from '../../server/src/flow/build.js';
+import { buildFlowModel, flowInputsHash, stepHash, scheduleLabel, type FlowInputs } from '../../server/src/flow/build.js';
 import { fixtures } from './fixtures.mjs';
 
 for (const [name, input] of Object.entries(fixtures)) test(`golden model: ${name}`, () => {
@@ -52,4 +52,10 @@ test('new flow sources contain no forbidden punctuation or provider imports', ()
     assert.doesNotMatch(text, /[\u2013\u2014]/, file);
     if (file === 'build.ts' || file === 'cache.ts') assert.doesNotMatch(text, /from ['"].*(composio|llm|openai|agent\/loop)/);
   }
+});
+
+test('routine schedules use plain deterministic labels', () => {
+  assert.equal(scheduleLabel('0 8 * * 1-5'), 'Weekdays 08:00');
+  assert.equal(scheduleLabel('30 9 * * 1'), 'Mondays 09:30');
+  assert.equal(scheduleLabel('event:GITHUB_NEW_ISSUE'), 'When github new issue');
 });

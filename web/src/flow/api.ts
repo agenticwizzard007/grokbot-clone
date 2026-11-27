@@ -39,9 +39,16 @@ let returnNode: { account?: string; botId: string; nodeId: string } | undefined;
 export function openFlow(botId: string, link?: string, replace = false) {
   const st = useStore.getState(), bot = st.bots.find(b => b.id === botId && b.kind !== 'room');
   if (!bot) return;
-  navigation.navigate({ kind: 'details', bot: botSlug(bot), tab: 'activity' }, replace ? 'replace' : 'push');
+  const current = flowLocation();
   const hash = `#bot/${encodeURIComponent(botSlug(bot))}/details/flow${link ? `?link=${encodeURIComponent(link)}` : ''}`;
-  history.replaceState({ ...history.state, flowTab: { account: st.user?.id, botId } }, '', hash);
+  if (current && routeBot(current.bot, st.bots)?.id === botId) {
+    if (replace && current.link && !link && history.state?.flowSheetEntry) { history.back(); return; }
+    const mode = !replace && location.hash !== hash ? 'pushState' : 'replaceState';
+    history[mode]({ ...history.state, flowTab: { account: st.user?.id, botId }, flowSheetEntry: mode === 'pushState' && !!link }, '', hash);
+    announce(); return;
+  }
+  navigation.navigate({ kind: 'details', bot: botSlug(bot), tab: 'activity' }, replace ? 'replace' : 'push');
+  history.replaceState({ ...history.state, flowTab: { account: st.user?.id, botId }, flowSheetEntry: false }, '', hash);
   announce();
 }
 export function leaveFlow() {

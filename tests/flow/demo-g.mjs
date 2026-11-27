@@ -102,6 +102,8 @@ try {
     pass(`${width} node destinations and return focus`, `${nodes.filter(n => n.kind !== 'loop').length} clicks; loop route reserved for HO-I`);
     await show(rich); await page.getByRole('button', { name: 'Add handoff', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Handoff links' }); await dialog.waitFor();
+    await page.goBack(); await dialog.waitFor({ state: 'hidden' }); await page.locator('.flow-chart').waitFor(); pass(`${width} sheet browser Back`, 'returns to Flow');
+    await page.getByRole('button', { name: 'Add handoff', exact: true }).click(); await dialog.waitFor();
     await dialog.getByLabel('Agent', { exact: true }).selectOption(suggested.bot.id); await dialog.getByRole('button', { name: 'Add link', exact: true }).click();
     await dialog.waitFor({ state: 'hidden' }); assert.equal(saves, 1); pass(`${width} add link`, '1 save');
     await page.locator('[data-kind="handoff_to"]').click(); await dialog.waitFor(); await dialog.getByLabel('Mode', { exact: true }).selectOption('auto');

@@ -33,7 +33,7 @@ export function FlowChart({ model, onNode = node => openFlowNode(model.botId, no
           </button>
         </Card></li>)}
         {!lane.nodes.length && <li><Card className="flow-empty"><Row title="None yet" /><button type="button" onClick={() => onNode({ id: `${lane.id}:empty`, kind: 'step', label: EMPTY[lane.id][0], state: 'ok', target: { hash: `#bot/${encodeURIComponent(model.botId)}/${EMPTY[lane.id][1]}` } })}>{EMPTY[lane.id][0]}</button></Card></li>}
-        {lane.more > 0 && <li><button type="button" className="flow-more" onClick={() => onNode({ id: `${lane.id}:more`, kind: 'step', label: `More ${lane.label.toLowerCase()}`, state: 'ok', target: { hash: `#bot/${encodeURIComponent(model.botId)}/${MORE[lane.id]}` } })}>+{lane.more} more</button></li>}
+        {lane.more > 0 && <li><button type="button" className="flow-more" onClick={() => onNode({ id: `${lane.id}:more`, kind: 'step', label: `More ${lane.label.toLowerCase()}`, state: 'ok', target: { hash: lane.id === 'inputs' ? (lane.nodes.every(n => n.kind.includes('mcp')) ? '#settings/mcp' : '#settings/apps') : `#bot/${encodeURIComponent(model.botId)}/${MORE[lane.id]}` } })}>+{lane.more} more</button></li>}
         </ol>
       </Section>
       {index < 4 && <span className="flow-arrow" aria-hidden>{wide ? <ArrowRight size={18} /> : <ArrowDown size={18} />}</span>}
