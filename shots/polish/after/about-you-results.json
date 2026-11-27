@@ -1,0 +1,37 @@
+{
+  "passed": 18,
+  "checks": [
+    "about-you-empty 320 light",
+    "about-you 320 light",
+    "keyboard draft only 320 light",
+    "about-you-empty 390 light",
+    "about-you 390 light",
+    "keyboard draft only 390 light",
+    "about-you-empty 390 dark",
+    "about-you 390 dark",
+    "keyboard draft only 390 dark",
+    "about-you-empty 500 light",
+    "about-you 500 light",
+    "keyboard draft only 500 light",
+    "about-you-empty 1280 light",
+    "about-you 1280 light",
+    "keyboard draft only 1280 light",
+    "about-you-empty 1280 dark",
+    "about-you 1280 dark",
+    "keyboard draft only 1280 dark"
+  ],
+  "screenshots": [
+    "after/about-you-empty-320-light.png",
+    "after/about-you-320-light.png",
+    "after/about-you-empty-390-light.png",
+    "after/about-you-390-light.png",
+    "after/about-you-empty-390-dark.png",
+    "after/about-you-390-dark.png",
+    "after/about-you-empty-500-light.png",
+    "after/about-you-500-light.png",
+    "after/about-you-empty-1280-light.png",
+    "after/about-you-1280-light.png",
+    "after/about-you-empty-1280-dark.png",
+    "after/about-you-1280-dark.png"
+  ]
+}
