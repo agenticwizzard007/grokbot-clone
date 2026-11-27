@@ -1,19 +1,43 @@
 {
-  "commit": "e0d2cf9404b6392112dbeccc4085e82a3b6e2fcf",
-  "description": "Main after the reviewed HO-G flow layout changes",
+  "commit": "8691f86",
+  "description": "Reviewed HO-P Paper typography, card geometry and Flow controls, including FIX-1 shared navigation",
   "_comment": "Move this pin only with a reviewed layout change.",
   "historyTimestamp": "2026-11-27T01:11:11.000Z",
-  "widths": [390, 1280],
-  "themes": ["light", "dark"],
+  "widths": [
+    390,
+    1280
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
   "routeViews": 208,
-  "reviewedDifferences": {
-    "390-light-bot-activity": {
-      "reason": "FIX-1 replaces the temporary Flow header with shared navigation and removes phone tabs exposed by the invalid-route fallback.",
-      "navigation": [{ "class": "shell-header", "rect": [0, 0, 390, 56] }]
-    },
-    "390-dark-bot-activity": {
-      "reason": "FIX-1 replaces the temporary Flow header with shared navigation and removes phone tabs exposed by the invalid-route fallback.",
-      "navigation": [{ "class": "shell-header", "rect": [0, 0, 390, 56] }]
-    }
-  }
+  "reviewedDifferences": {},
+  "reviewedGeometryViews": [
+    "390-light-bot-activity",
+    "390-light-bot-setup",
+    "390-light-bot-setup-responsibilities",
+    "390-light-bot-setup-harness",
+    "390-light-bot-setup-files",
+    "390-light-bot-setup-history",
+    "390-dark-bot-activity",
+    "390-dark-bot-setup",
+    "390-dark-bot-setup-responsibilities",
+    "390-dark-bot-setup-harness",
+    "390-dark-bot-setup-files",
+    "390-dark-bot-setup-history",
+    "1280-light-bot-activity",
+    "1280-light-bot-setup",
+    "1280-light-bot-setup-responsibilities",
+    "1280-light-bot-setup-harness",
+    "1280-light-bot-setup-files",
+    "1280-light-bot-setup-history",
+    "1280-dark-bot-activity",
+    "1280-dark-bot-setup",
+    "1280-dark-bot-setup-responsibilities",
+    "1280-dark-bot-setup-harness",
+    "1280-dark-bot-setup-files",
+    "1280-dark-bot-setup-history"
+  ],
+  "reviewNote": "HO-P: Flow uses 14/20 node titles, 13/18 metadata, 20px chips, 16px card padding, 20px icon slots and two toolbar actions. Setup compact rows use the same type and trailing alignment. See tests/handoffs/POLISH-REPORT.md for the measured before/after view inventory."
 }

@@ -19,7 +19,7 @@ export async function polishFixture() {
   const dir = fs.mkdtempSync(path.join(root, 'fixture-'));
   const server = await integrationServer(dir);
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-  const d = await handoffFixture();
+  const d = await handoffFixture({ server });
   const { fixtures } = await tsImport('../flow/fixtures.mts', import.meta.url);
   const { buildFlowModel } = await tsImport('../../server/src/flow/build.ts', import.meta.url);
   const botId = server.fixture.bot.id;

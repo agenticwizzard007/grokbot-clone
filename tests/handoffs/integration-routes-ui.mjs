@@ -7,7 +7,6 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
-import { inspectAlignment } from '../layout-alignment-ui.mjs';
 
 // Same isolated seed, offline boundary and server as layout-fixture.mjs, with
 // a second seed process for handoff records and a local mock provider.
@@ -91,6 +90,7 @@ runner.stopLoopDeadlines(); reconcile.stopHandoffRecovery(); db.close();
 }
 
 export async function runIntegrationDemo() {
+  const { inspectAlignment } = await import('../layout-alignment-ui.mjs');
   const evidence = path.resolve('.context/handoffs/demo-i'); fs.mkdirSync(evidence, { recursive: true });
   const server = await integrationServer(evidence);
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
