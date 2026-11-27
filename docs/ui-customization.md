@@ -1,6 +1,6 @@
 # Dashboards and requirements
 
-Swarm can build dashboards and change your home and navigation through chat. Accounts with no saved configuration keep the existing defaults. Availability depends on the account's feature flags. Requirements adaptation, About your use and All sections are pending UC-I integration; the section below describes that planned workflow.
+Swarm can build dashboards and change your home and navigation through chat. Accounts with no saved configuration keep the existing defaults. Availability depends on the account's feature flags. Requirements adaptation, About your use and All sections are included in the integrated stack.
 
 ## Ask your agent
 
@@ -21,7 +21,7 @@ Dashboard Edit provides Add widget, Move earlier, Move later, Narrower, Wider, S
 
 ## About your use
 
-Requirements adaptation is owned by UC-I. Once integrated, the agent saves only requirements you state, including role, goals, workflows and focus. Saving the profile alone does not rearrange the app. A deterministic engine proposes the home dashboard, emphasized navigation, suggested Bots, templates and default views; Apply confirms the proposal.
+The agent saves only requirements you state, including role, goals, workflows and focus. Saving the profile alone does not rearrange the app. A deterministic engine proposes the home dashboard, emphasized navigation, suggested Bots, templates and default views; Apply confirms the proposal.
 
 Settings, Appearance and layout, About your use (`#settings/appearance/use`) is the central place to view and edit the profile, re-adapt, or reset. A requirement change produces a new proposal. Values you changed by hand are kept and identified in the preview. Suggested Bots and templates require their own explicit create action.
 
@@ -79,14 +79,18 @@ node tests/ui-custom/e2e/accessibility-ui.mjs
 node tests/ui-custom/security/security-ui.mjs
 node tests/ui-custom/perf/performance-ui.mjs
 node tests/ui-custom/demo-h.mjs
+node tests/ui-custom/e2e/adapt-ui.mjs
+node tests/ui-custom/demo-i.mjs
+node tests/ui-custom/unit/client-defaults-ui.mjs
+node --import tsx tests/navigation-every-route-ui.mjs
 node tests/layout-alignment-ui.mjs
 ```
 
-The fixture launches a disposable SQLite database and loopback mock services. UC-B checks are mandatory: missing config routes, authentication failures and server errors fail. Unmerged client or UC-I features emit a named SKIP; `UC_REQUIRE_FULL=1` makes missing features fail. Skips never establish acceptance.
+The fixture launches a disposable SQLite database and loopback mock services. UC-B checks are mandatory: missing config routes, authentication failures and server errors fail. All merged client and requirements modules are mandatory, including when `UC_REQUIRE_FULL` is unset. Missing modules fail. A missing production build can skip the bundle check in development; `UC_REQUIRE_FULL=1` rejects that skip. Skips never establish acceptance.
 
-The alignment command preserves main's existing default 208-view audit. The custom matrix uses 320, 390, 500 and 1280 light plus 390 and 1280 dark with default cosmetic values. `fixtures/routes.mjs` registers seeded and empty dashboards with all ten widget types, edit mode, widget settings, add widget, Appearance, Preview and safe mode. Requirements, All sections and adaptive home are route-list entries gated on UC-I availability. Configurations go through PUT `/api/ui/config`; adaptation uses its real chat tools. Independent screens use a fresh local server every four cases to respect production rate limits.
+The alignment command preserves main's existing default 208-view audit. The custom matrix uses 320, 390, 500 and 1280 light plus 390 and 1280 dark with default cosmetic values. `fixtures/routes.mjs` registers seeded and empty dashboards with all ten widget types, edit mode, widget settings, add widget, Appearance, Preview and safe mode. Requirements, All sections, adaptive home and the adaptation preview card are mandatory route-list entries. Each case resets the requirements profile and its managed layout before setting up its own account state. Configurations go through PUT `/api/ui/config`; adaptation uses its real chat tools. Independent screens use a fresh local server every four cases to respect production rate limits.
 
-The quality auditor checks visible text, body 14px minimum, explicit secondary text 13px minimum, contrast, control heights, card tokens, spacing, ButtonGroup flex, one phone Back, duplicate titles and helper copy. Existing geometry and complete-label checks remain active. Active sheets are audited independently of their inert background. All custom screens and demo captures reject `mock`, `Fixture`, `PRIVATE`, `QA-`, `undefined`, `null` and `[object`. Natural prompts stay in conversation history; scripted replies are injected only into the loopback provider request.
+The quality auditor checks visible text, body 14px minimum, explicit secondary text 13px minimum, contrast, control heights, card tokens, spacing, ButtonGroup flex, one phone Back on child screens and none on root tabs, duplicate titles and helper copy. Existing geometry and complete-label checks remain active. Active sheets are audited independently of their inert background. All custom screens and demo captures reject `mock`, `Fixture`, `PRIVATE`, `QA-`, `undefined`, `null` and `[object`. Natural prompts stay in conversation history; scripted replies are injected only into the loopback provider request.
 
 `tests/ui-custom/fixtures/uc-p-known-issues.json` is the temporary UC-P inventory explicitly authorized for dashboard and Appearance polish. Each entry matches an exact rule, element, observed value and route/width/theme. New violations fail. Fixed entries fail as stale until removed. Forbidden text and missing screens cannot be waived. `UC_REQUIRE_FULL=1` rejects every known issue as well as unavailable features. The inventory is never updated by a test run.
 

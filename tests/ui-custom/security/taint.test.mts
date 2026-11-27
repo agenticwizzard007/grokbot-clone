@@ -43,12 +43,9 @@ test('clean direct user turn can confirm navigation in auto mode', async () => {
   assert.equal((await call('apply_ui_patch', { previewId: preview.previewId }, context)).status, 'applied');
   assert.equal(uiConfigService.get(userId).doc.layout.home.kind, 'tasks');
 });
-for (const [index, injection] of INJECTION_DOCUMENTS.entries()) test(`untrusted content ${index + 1} cannot write requirements`, async t => {
+for (const [index, injection] of INJECTION_DOCUMENTS.entries()) test(`untrusted content ${index + 1} cannot write requirements`, async () => {
   const tool = toolMap.get('update_requirements');
-  if (!tool) {
-    assert.notEqual(process.env.UC_REQUIRE_FULL, '1', 'Required feature unavailable: update_requirements');
-    t.skip('UC-I update_requirements is not present'); return;
-  }
+  assert.ok(tool, 'Merged requirements tool must be registered');
   const context = { userId, botId: bot.id, jobId: acceptJob(bot.id, { type: 'user', text: 'Summarize the supplied fixture' }).id, depth: 0, enqueueBotMessage() {} };
   const before = await call('get_requirements', {}, context);
   appendRow(bot.id, 'tool-call', { type: 'tool-call', name: 'read_file', callId: `profile-${index}`, args: {}, label: 'Read fixture', status: 'done', jobId: context.jobId, output: injection });

@@ -100,6 +100,20 @@ cases.push({ name: 'modal excludes inert background and requires one phone Back'
     assert.ok((await page.evaluate(inspectScreenQuality, { selector: 'dialog[open]', phoneBack: true })).some(i => i.rule === 'phone-back-count'));
   } finally { await page.close(); }
 } });
+cases.push({ name: 'phone root has no Back while child screens require exactly one', run: async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  try {
+    await page.setContent('<style>body{background:white;color:#18202a;font:14px Arial}button{height:44px;font:inherit}</style><main><h1>Operations</h1></main>');
+    const audit = phoneBack => page.evaluate(inspectScreenQuality, { selector: 'main', phoneBack });
+    assert.deepEqual(await audit(0), []);
+    assert.ok((await audit(true)).some(i => i.rule === 'phone-back-count' && i.expected === 1));
+    await page.locator('main').evaluate(el => el.insertAdjacentHTML('beforeend', '<button>Back</button>'));
+    assert.ok((await audit(0)).some(i => i.rule === 'phone-back-count' && i.expected === 0));
+    assert.deepEqual(await audit(true), []);
+    await page.locator('main').evaluate(el => el.insertAdjacentHTML('beforeend', '<button>Back to Settings</button>'));
+    assert.ok((await audit(true)).some(i => i.rule === 'phone-back-count' && i.actual === 2));
+  } finally { await page.close(); }
+} });
 cases.push({ name: 'known issue matching rejects new, changed, stale and forbidden violations', run: () => {
   const issue = { rule: 'body-text-size', target: 'p', actual: '12px', expected: '14px minimum' };
   const inventory = { views: { screen: [issue] } };

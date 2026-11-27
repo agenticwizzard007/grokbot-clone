@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { XSS, cssFuzz, HOSTILE_PATCHES, INJECTION_DOCUMENTS } from './corpus.mjs';
 import { MATRIX, matrixDocument, widgets, DASHBOARD_EDITS, dashboardPatch, REQUIREMENTS } from '../fixtures/matrix.mjs';
-import { requireFeature, MissingFeature } from '../fixtures/harness.mjs';
+import { requireFeature, requireModules, MissingFeature } from '../fixtures/harness.mjs';
 
 test('50 distinct XSS cases cover active HTML and network asset sinks', () => {
   assert.equal(XSS.length, 50); assert.equal(new Set(XSS).size, 50);
@@ -71,4 +71,9 @@ test('merged API probes never skip missing routes, authentication failures or se
     await assert.rejects(configAvailable(request, 'http://127.0.0.1:1234'), error => !(error instanceof MissingFeature));
   }
   await assert.rejects(configAvailable({ get: async () => { throw new Error('Must not request a remote host'); } }, 'https://example.invalid'), /loopback/);
+});
+
+test('merged modules are mandatory without the full gate flag', () => {
+  assert.doesNotThrow(() => requireModules('server/src/agent/ui-requirements-tools.ts', 'web/src/components/AllSections.tsx'));
+  assert.throws(() => requireModules('tests/ui-custom/absent-module.ts'), error => !(error instanceof MissingFeature) && /Merged feature module unavailable/.test(error.message));
 });

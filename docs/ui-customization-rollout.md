@@ -13,12 +13,14 @@ npm run build -w web
 UC_REQUIRE_FULL=1 node tests/ui-custom/run-all.mjs
 UC_REQUIRE_FULL=1 node tests/layout-alignment-ui.mjs
 UC_REQUIRE_FULL=1 node tests/ui-custom/demo-h.mjs
+node tests/ui-custom/demo-i.mjs
+node --import tsx tests/navigation-every-route-ui.mjs
 ```
 
-Archive command output, exact pass/fail/skip counts, reports, performance measurements and screenshots. A skip is incomplete evidence. The scope correction replaces the original cosmetic matrix and story with these gates:
+Run the unit phase before concurrent browser work so load measurements are not distorted by competing test servers. Archive command output, exact pass/fail/skip counts, reports, performance measurements and screenshots. The full runner includes UC-I adaptation and client defaults; defaults must match all 208 pinned views without new reviewed entries unless the workstream changed those views. A skip is incomplete evidence. The scope correction replaces the original cosmetic matrix and story with these gates:
 
 - Ten journeys at 390 and 1280: chat dashboard creation and add/remove/reorder/resize, layout by chat, keyboard editing, recovery, two-tab sync, isolation, offline navigation, injection rejection, different requirements use cases, and requirement change/reset.
-- Main's unchanged default alignment coverage plus dashboard and navigation routes at 320, 390, 500 and 1280 light and 390/1280 dark: all ten widget types empty and seeded, edit mode, both sheets, Appearance, Preview, safe mode, Requirements, adaptive home and All sections.
+- Main's unchanged default alignment coverage plus dashboard and navigation routes at 320, 390, 500 and 1280 light and 390/1280 dark: all ten widget types empty and seeded, edit mode, both sheets, Appearance, Preview, safe mode, Requirements, adaptive home, All sections and the adaptation preview card.
 - Zero serious or critical axe findings on default Bots/chat and those dashboard/navigation surfaces at both widths.
 - XSS through API/import/agent, hostile CSS strings in navigation/dashboard enums, taint and injection, lockout recovery, account isolation and network boundaries.
 - Recorded performance budgets for config reads and size, validation, data batches, dashboard content/CLS and lazy bundle size.

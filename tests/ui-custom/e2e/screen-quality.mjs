@@ -82,10 +82,11 @@ export function inspectScreenQuality({ selector = '[data-layout="page"]', phoneB
     if (headings.length > 1) add('one-screen-title', headings[1], headings.length, 1);
     const shell = document.querySelector('.shell-header__title');
     if (!document.querySelector('dialog[open]') && shell && visible(shell) && headings.some(h => h.textContent.trim() === shell.textContent.trim())) add('duplicate-screen-title', shell, shell.textContent.trim(), 'One title per screen');
-    if (phoneBack && innerWidth <= 760) {
+    if (phoneBack !== false && innerWidth <= 760) {
       const scope = document.querySelector('dialog[open]') || document;
       const backs = [...scope.querySelectorAll('button, a')].filter(el => visible(el) && /^(?:Back|Back to .*)$/.test((el.innerText || el.getAttribute('aria-label') || '').trim()));
-      if (backs.length !== 1) add('phone-back-count', roots[0] || document.body, backs.length, 1);
+      const expected = phoneBack === true ? 1 : phoneBack;
+      if (backs.length !== expected) add('phone-back-count', roots[0] || document.body, backs.length, expected);
     }
     const helpers = elements.filter(el => el.matches('.layout-page__subtitle, .layout-section__footer, .appearance-help, .dashboard-helper'));
     const groups = new Map();

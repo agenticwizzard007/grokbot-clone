@@ -13,7 +13,7 @@ export function requireFeature(available, message) {
 export function requireModules(...files) {
   for (const file of files) {
     const alternate = file.endsWith('.tsx') ? file.slice(0, -1) : file.endsWith('.ts') ? file + 'x' : file;
-    requireFeature(fs.existsSync(path.join(ROOT, file)) || fs.existsSync(path.join(ROOT, alternate)), file);
+    assert.ok(fs.existsSync(path.join(ROOT, file)) || fs.existsSync(path.join(ROOT, alternate)), `Merged feature module unavailable: ${file}`);
   }
 }
 function localOnly(base) { assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(new URL(base).hostname), 'Quality checks only target loopback fixture servers'); }
@@ -42,6 +42,16 @@ export async function patch(context, base, ops) {
 export async function put(context, base, doc) {
   const { revision } = await configAvailable(context.request, base);
   return api(context.request, base, '/config', 'PUT', doc, 200, revision);
+}
+export async function resetRequirements(context, base) {
+  const current = await api(context.request, base, '/requirements');
+  assert.equal(current.enabled, true, 'The local fixture must enable merged requirements tools');
+  if (current.profile || current.adapted) {
+    const reset = await api(context.request, base, '/requirements', 'DELETE', {}, 200, current.revision);
+    await api(context.request, base, `/previews/${reset.previewId}/apply`, 'POST', {});
+    const cleared = await api(context.request, base, '/requirements');
+    assert.equal(cleared.profile, null); assert.equal(cleared.adapted, false);
+  }
 }
 export async function until(check, message, timeout = 10000) {
   const end = performance.now() + timeout;

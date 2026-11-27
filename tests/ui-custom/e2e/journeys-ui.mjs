@@ -1,12 +1,13 @@
 import { seedWidgetData } from '../fixtures/widget-data.mjs';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
-import { api, patch, configAvailable, requireModules, fixtureContext, open, agentPreview, button, until, runSuite } from '../fixtures/harness.mjs';
+import { api, patch, configAvailable, requireModules, fixtureContext, open, agentPreview, button, until, runSuite, resetRequirements } from '../fixtures/harness.mjs';
 import { LAYOUT_PATCH, dashboardPatch, corruptDocument, DASHBOARD_EDITS } from '../fixtures/matrix.mjs';
 import { requirementsUseCases, requirementsChangeReset } from './requirements-journeys.mjs';
 import { INJECTION_DOCUMENTS } from '../security/corpus.mjs';
 
 export async function reset(context, server) {
+  await resetRequirements(context, server.base);
   const current = await configAvailable(context.request, server.base);
   await api(context.request, server.base, '/reset', 'POST', { scope: 'all' }, 200, current.revision);
 }

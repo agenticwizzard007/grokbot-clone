@@ -292,8 +292,8 @@ export async function customMatrix() {
       const modal = await page.locator('dialog[open]').count();
       const selector = modal ? 'dialog[open]' : '.shell-content > :not(.shell-header):not(.phone-tabs)';
       const legacy = await page.evaluate(inspectAlignment, { selector });
-      if (route.dashboard && !modal) legacy.push(...await page.evaluate(inspectDashboardGrid));
-      if (route.preview || route.safe) legacy.push(...await page.evaluate(inspectAlignment, { selector: '[role="status"]', requirePage: false }));
+      if ((route.dashboard || (route.adapt && !route.hash)) && !modal) legacy.push(...await page.evaluate(inspectDashboardGrid));
+      if (route.preview || route.safe || route.adaptationPreview) legacy.push(...await page.evaluate(inspectAlignment, { selector: '[role="status"]', requirePage: false }));
       if (route.dashboard || route.quality) {
         for (const root of await page.locator(modal ? 'dialog[open]' : '[data-layout="page"]').all()) legacy.push(...await root.evaluate(inspectDashboardLabels));
       } else {
