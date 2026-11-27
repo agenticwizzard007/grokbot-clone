@@ -33,7 +33,7 @@ try {
   pass('sidebar ordering, hidden items, width and Pinned group');
   await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
   await page.getByRole('menuitem', { name: /^Settings/ }).click();
-  await page.waitForURL('**/#settings');
+  await page.waitForURL('**/#settings/general');
   pass('Settings menu stays reachable when reordered near the top');
   await page.getByRole('region', { name: 'Dashboards', exact: true }).getByRole('button', { name: 'Weekly overview and planning', exact: true }).click();
   await page.waitForURL(`**/#dash/${id}`); pass('dashboard sidebar route');
@@ -41,7 +41,8 @@ try {
   await page.locator('.sidebar.is-collapsed').waitFor();
   await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click();
   assert.equal(await page.locator('.sidebar.is-collapsed').count(), 0);
-  await server.patch([{ op: 'replace', path: '/layout/sidebar/collapsed', value: false }]);
+  const expanded = await server.patch([{ op: 'replace', path: '/layout/sidebar/collapsed', value: false }]);
+  await page.waitForFunction(async revision => (await import('/src/customization/store.ts')).useCustomization.getState().revision >= revision, expanded.revision);
   pass('collapsed preference applies once and manual expansion works');
   await page.evaluate(async () => {
     const { useCustomization } = await import('/src/customization/store.ts');
@@ -51,7 +52,7 @@ try {
     useCustomization.setState({ effective: doc });
   });
   assert.ok(await page.getByRole('button', { name: 'Account & settings' }).isVisible());
-  assert.equal(await page.getByRole('region', { name: 'Pinned', exact: true }).count(), 0);
+  await page.getByRole('region', { name: 'Pinned', exact: true }).waitFor({ state: 'detached' });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => { location.hash = '#bots'; }); await page.locator('.phone-tabs').waitFor();
   assert.ok(await page.locator('.phone-tabs').getByRole('button', { name: 'Settings', exact: true }).isVisible());
@@ -89,7 +90,7 @@ try {
   assert.deepEqual(await page.evaluate(inspectAlignment), []); pass('Bots hide states leave no orphan heading or gap');
   await server.open(page, '#tasks');
   assert.equal(await page.locator('.task-filters').isVisible(), false);
-  assert.ok(await page.getByTestId('tasks-needs-input').isVisible());
+  await page.getByTestId('tasks-needs-input').waitFor();
   assert.deepEqual(await page.evaluate(inspectAlignment), []); pass('task filters hide while approvals stay visible');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('.phone-tabs').waitFor();
@@ -115,7 +116,7 @@ try {
   assert.match(await page.locator('.sidebar__search').getAttribute('title'), /Alt\+S/);
   await page.keyboard.press('Control+k'); assert.equal(await page.locator('.search-modal').isVisible(), false);
   await page.keyboard.press('Alt+s'); await page.waitForURL('**/#search');
-  await page.keyboard.press('Alt+o'); await page.waitForURL('**/#settings');
+  await page.keyboard.press('Alt+o'); await page.waitForURL('**/#settings/general');
   await page.keyboard.press('Alt+t'); await page.waitForURL('**/#tasks');
   await page.keyboard.press('Alt+b'); await page.waitForURL('**/#bots');
   await page.keyboard.press('Alt+d'); await page.waitForURL(`**/#dash/${id}`);

@@ -29,8 +29,9 @@ try {
   results.push({ name: 'explicit chat hash wins over home', pass: true });
   await server.patch([{ op: 'add', path: '/keybindings/focusComposer', value: 'Alt+J' }]);
   await desktop.waitForFunction(async () => (await import('/src/lib/shortcuts.ts')).shortcutLabel('focus', false) === 'Alt+J');
-  await desktop.locator('.shell-header').focus();
-  assert.equal(await desktop.locator('.shell-header').evaluate(el => el === document.activeElement), true);
+  await desktop.bringToFront();
+  await desktop.waitForFunction(() => { const target = document.querySelector('.sidebar__search'); target?.focus(); return target === document.activeElement; });
+  assert.equal(await desktop.locator('.sidebar__search').evaluate(el => el === document.activeElement), true, await desktop.evaluate(() => document.activeElement?.outerHTML));
   await desktop.keyboard.press('Control+i');
   assert.equal(await desktop.locator('.composer__input').evaluate(el => el === document.activeElement), false);
   await desktop.keyboard.press('Alt+j');

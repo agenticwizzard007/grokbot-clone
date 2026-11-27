@@ -1,4 +1,4 @@
-import { useLayoutEffect, useReducer } from 'react';
+import { useLayoutEffect, useReducer, useRef } from 'react';
 import { useEffectiveConfig } from '../index';
 import { navigation, useConfigUI } from '../../configStore';
 import { useStore } from '../../store';
@@ -8,12 +8,14 @@ import { dashboardScreen } from './usePhoneTabs';
 
 export function useKeybindings() {
   const { keybindings, dashboards } = useEffectiveConfig();
+  const current = useRef({ bindings: effectiveBindings(keybindings), dashboards });
+  current.current = { bindings: effectiveBindings(keybindings), dashboards };
   const [, refreshLabels] = useReducer(value => value + 1, 0);
   useLayoutEffect(() => { setShortcutBindings(keybindings); refreshLabels(); }, [keybindings]);
   useLayoutEffect(() => {
-    const bindings = effectiveBindings(keybindings);
     const keydown = (event: KeyboardEvent) => {
       if (event.isComposing || event.repeat) return;
+      const { bindings, dashboards } = current.current;
       const action = Object.keys(bindings).find(id => bindingMatches(bindings[id], event));
       // Composer owns legacy bubble listeners. Capture prevents a rebound key
       // from also triggering its previous action without editing that component.
@@ -52,5 +54,5 @@ export function useKeybindings() {
     };
     window.addEventListener('keydown', keydown, true);
     return () => window.removeEventListener('keydown', keydown, true);
-  }, [keybindings, dashboards]);
+  }, []);
 }

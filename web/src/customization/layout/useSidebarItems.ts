@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { NAV_IDS, type NavId } from '@shared/ui-config/registry-nav';
 import { DEFAULT_CONFIG, type UiConfig } from '@shared/ui-config/schema';
 import { useEffectiveConfig } from '../index';
@@ -25,7 +25,14 @@ export function useSidebarItems() {
 
 export function useSidebarDefault() {
   const preference = useEffectiveConfig().layout.sidebar.collapsed;
+  const previous = useRef<boolean | null>(null);
+  const automatic = useRef(useStore.getState().sidebarCollapsed);
   useEffect(() => {
-    if (typeof preference === 'boolean') useStore.getState().set({ sidebarCollapsed: preference });
+    if (typeof preference === 'boolean') {
+      if (previous.current === null) automatic.current = useStore.getState().sidebarCollapsed;
+      // A preview or saved default must not overwrite the device's manual choice.
+      useStore.setState({ sidebarCollapsed: preference });
+    } else if (previous.current !== null) useStore.setState({ sidebarCollapsed: automatic.current });
+    previous.current = preference;
   }, [preference]);
 }

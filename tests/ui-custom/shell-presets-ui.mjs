@@ -41,7 +41,10 @@ try {
             await page.locator('.signin, .access-signin, .join').first().waitFor();
             if (route.code) { await page.locator('input[type=tel]').fill('+15555550123'); await page.getByRole('button', { name: 'Continue with phone', exact: true }).click(); await page.getByRole('textbox', { name: '6-digit code' }).waitFor(); }
           } else await server.open(page, hash);
-          if (route.state) await preparePbeState(page, route.state, server.fixture.bot.id);
+          if (route.state) {
+            await page.waitForFunction(async () => (await import('/src/store.ts')).useStore.getState().sseConnected);
+            await preparePbeState(page, route.state, server.fixture.bot.id);
+          }
           await page.locator(route.hash.includes('/details/') ? '.pb-details [data-layout="page"]:visible' : '[data-layout="page"]:visible').first().waitFor();
           await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(100);
           ({ issues, legacyFloorMismatches } = await densityAlignment(page));

@@ -16,7 +16,7 @@ export function phoneTabsFor(doc: UiConfig) {
   };
   let dashboardAdded = false;
   const ids = [...new Set(doc.layout.phoneTabs)].filter(id => {
-    if (id in builtins) return true;
+    if (Object.hasOwn(builtins, id)) return true;
     if (dashboardAdded || !id.startsWith('dashboard:') || !doc.dashboards.some(d => d.id === id.slice(10))) return false;
     dashboardAdded = true;
     return true;
@@ -24,7 +24,7 @@ export function phoneTabsFor(doc: UiConfig) {
   if (!ids.includes('settings')) { if (ids.length === 5) ids.pop(); ids.push('settings'); }
   for (const id of ['bots', 'tasks', 'search'] as const) if (ids.length < 3 && !ids.includes(id)) ids.push(id);
   return ids.map(id => {
-    if (id in builtins) return { id, ...builtins[id as keyof typeof builtins] };
+    if (Object.hasOwn(builtins, id)) return { id, ...builtins[id as keyof typeof builtins] };
     const dashboard = doc.dashboards.find(d => d.id === id.slice(10))!;
     return { id, label: dashboard.name, Icon: LayoutDashboard, target: dashboardScreen(dashboard.id) };
   });
