@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { resolveSource } from './queries.js';
+import { cachedWindows } from './cached-windows.js';
 
 export type Params = Record<string, string | number>;
 export interface SourceData { rows?: Record<string, unknown>[]; value?: Record<string, unknown>; count: number; available?: boolean }
@@ -16,7 +17,11 @@ const range = z.enum(['today', '7d', '30d', 'month']).default('7d');
 const limit = z.number().int().min(1).max(25).default(10);
 const def = (id: string, label: string, shape: z.ZodRawShape, fields: string[], series = false): Source => ({
   id, label, paramsSchema: z.object(shape).strict(), fields, series,
-  resolve: (userId, params) => resolveSource(id, userId, params),
+  resolve: (userId, params) => {
+    const data = id === 'usage.windows' ? cachedWindows(userId) : resolveSource(id, userId, params);
+    const pick = (row: Record<string, unknown>) => Object.fromEntries(fields.filter(key => Object.hasOwn(row, key)).map(key => [key, row[key]]));
+    return { ...data, ...(data.rows ? { rows: data.rows.map(pick) } : {}), ...(data.value ? { value: pick(data.value) } : {}) };
+  },
 });
 
 /** Public metadata and projection allowlists. No user supplied query or column names. */

@@ -60,8 +60,8 @@ export class SourceRunner {
     this.child = undefined; this.ready = false;
     child?.kill('SIGKILL');
     this.active?.reject(error); this.active = undefined;
-    // Queued sources did not run. Keep their errors distinct from the timed out query.
-    for (const job of this.queue.splice(0)) job.reject(new SourceError('unavailable', 'Data is unavailable. Retry shortly.'));
+    if (error.code === 'timeout' && this.queue.length) this.start();
+    else for (const job of this.queue.splice(0)) job.reject(new SourceError('unavailable', 'Data is unavailable. Retry shortly.'));
   }
 
   close() { this.fail(new SourceError('unavailable', 'Data sources are closed.')); }

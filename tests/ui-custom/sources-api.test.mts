@@ -137,10 +137,13 @@ test('200 ms deadline interrupts a real CPU-bound SQLite query and subsequent re
     SELECT t.* FROM dashboard_original_tasks t CROSS JOIN work;`);
   try {
     const start = performance.now();
-    const slow = await bounded.execute(a.id, { key: 'slow', source: 'tasks.counts', params: {} });
+    const slowRead = bounded.execute(a.id, { key: 'slow', source: 'tasks.counts', params: {} });
+    const healthyRead = bounded.execute(a.id, { key: 'healthy', source: 'bots.list', params: { limit: 1 } });
+    const slow = await slowRead;
     const elapsed = performance.now() - start;
     assert.ok(!slow.ok && slow.code === 'timeout', JSON.stringify(slow));
     assert.ok(elapsed >= 180 && elapsed < 600, `deadline took ${elapsed} ms`);
+    assert.equal((await healthyRead).ok, true, 'another source in the batch survives a query timeout');
   } finally { db.exec('DROP VIEW tasks; ALTER TABLE dashboard_original_tasks RENAME TO tasks;'); }
   const recovered = await bounded.execute(a.id, { key: 'recovered', source: 'tasks.counts', params: {} });
   assert.ok(recovered.ok && recovered.count === 33, JSON.stringify(recovered));

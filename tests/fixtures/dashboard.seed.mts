@@ -20,6 +20,8 @@ export async function seedDashboard({ performance = false } = {}) {
   await import('../../server/src/usage.js');
   await import('../../server/src/deliverables/schema.js');
   await import('../../server/src/agent/subagents.js');
+  await import('../../server/src/bot-setup.js');
+  const { initRooms } = await import('../../server/src/agent/rooms.js'); initRooms();
   const at = Date.now(), start = Date.UTC(new Date(at).getUTCFullYear(), new Date(at).getUTCMonth(), new Date(at).getUTCDate());
   const botCount = performance ? 100 : 30, taskCount = performance ? 10_000 : 33;
   db.transaction(() => {
