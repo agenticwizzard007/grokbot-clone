@@ -16,6 +16,8 @@ import { isNewBotShortcut } from './lib/shortcuts';
 import { ChevronLeft, House, ListTodo, Menu, Search, Settings } from 'lucide-react';
 import { backLabel, parentScreen, parseScreen, screenTitle, type Screen } from './lib/navigation';
 import { Modal } from './components/modals/Modal';
+import { BotAvatarFor } from './avatar/BotAvatar';
+import { routeBot } from './lib/userRoutes';
 
 import './styles/shell.css';
 import './styles/chat.css';
@@ -64,6 +66,8 @@ function Shell() {
   const backText = mobile ? 'Back' : backTarget.kind === 'chat' ? 'Back to chat' : backLabel(backTarget, bots);
   const back = () => navigation.back(parentScreen(screen) ?? { kind: 'bots' });
   const headerTitle = !mobile && screen.kind === 'settings' ? 'Settings' : screenTitle(screen, bots).replace(/ · Swarm$/, '').replace(/^Settings · /, '');
+  const headerBot = 'bot' in screen ? routeBot(screen.bot, bots) : undefined;
+  const botSubtitle = headerBot ? headerTitle.replace(`${headerBot.name} · `, '') : '';
   useEffect(() => { setDrawerOpen(false); }, [headerTitle, mobile]);
   // Settings pages load lazily; navigation stays mounted.
   const botSettings = useConfigUI(s => s.botSettings);
@@ -128,7 +132,8 @@ function Shell() {
       <div className="shell-content">
         <header className="shell-header" tabIndex={-1}>
           {hasBack && <button type="button" className="shell-back" aria-label={mobile ? 'Back' : backText} onClick={back}><ChevronLeft size={mobile ? 20 : 16} aria-hidden /><span>{backText}</span></button>}
-          <div id="shell-chat-header" hidden={!chatHeader} />{!chatHeader && <strong className="shell-header__title">{headerTitle}</strong>}
+          <div id="shell-chat-header" hidden={!chatHeader} />
+          {!chatHeader && (headerBot ? <><BotAvatarFor bot={headerBot} size={32} /><div className="shell-header__bot"><strong className="shell-header__title">{headerBot.name}</strong><span className="shell-header__subtitle">{botSubtitle}</span></div></> : <strong className="shell-header__title">{headerTitle}</strong>)}
           {mobile && <button type="button" className="shell-menu" aria-label="Open navigation" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}><Menu size={22} aria-hidden /></button>}
         </header>
       <div className={`main-pane${detailsOpen && hasBot && view === 'chat' && !botSettings && modal !== 'create' && modal !== 'group' ? ' has-bot-details' : ''}`} hidden={settingsOpen || routeModal}>

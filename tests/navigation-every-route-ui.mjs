@@ -46,6 +46,12 @@ try {
    if (!parseScreen(hash)) await page.waitForFunction(() => location.hash !== '#unknown');
    const current = parseScreen(new URL(page.url()).hash);
    const target = parentScreen(current) ?? { kind: 'bots' };
+   if (current.kind === 'details' || current.kind === 'bot-settings') {
+    assert.equal(await page.locator('.shell-header > .bot-avatar').count(), 1, `${hash}: Bot avatar in top bar`);
+    assert.equal(await page.locator('.shell-header > .bot-avatar').evaluate(el => el.getBoundingClientRect().width), 32);
+    assert.equal(await page.locator('.shell-header__subtitle').innerText() !== '', true);
+   }
+   assert.equal(await page.locator('.shell-header').evaluate(el => el.scrollWidth <= el.clientWidth), true, `${hash}: header fits`);
    const back = page.locator('.shell-back');
    assert.ok(await back.isVisible() || await page.locator('.sidebar').isVisible() || await page.locator('.phone-tabs').isVisible(), `${hash}: visible navigation`);
    if (width > 760) {
