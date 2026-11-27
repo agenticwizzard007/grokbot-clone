@@ -8,7 +8,7 @@ import { accountPreferences, saveAccountPreferences } from './settings.js';
 export const preferencesApi = new Hono<AuthVars>();
 preferencesApi.use('*', requireUser);
 
-const patchSchema = z.object({ askBeforeComputer: z.boolean().optional(), apiApprovalLevel: z.enum(['standard', 'every_action']).optional() }).strict().refine(p => Object.keys(p).length > 0);
+const patchSchema = z.object({ askBeforeComputer: z.boolean().optional(), apiApprovalLevel: z.enum(['standard', 'every_action']).optional(), uiAgentApply: z.enum(['ask', 'auto']).optional() }).strict().refine(p => Object.keys(p).length > 0);
 
 preferencesApi.get('/preferences', (c) => c.json(accountPreferences(c.get('user').id)));
 
