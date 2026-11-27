@@ -49,6 +49,34 @@ try {
     }
     await assertGrid(page, width); assert.deepEqual(await page.evaluate(inspectAlignment), []);
     await page.getByRole('heading',{name:'My week',exact:true}).scrollIntoViewIfNeeded(); await page.screenshot({path:`${out}/seeded-${width}.png`});
+    // A period can contain completed older tasks but no newly created tasks.
+    // Likewise, zero working tasks is meaningful when the account has tasks.
+    server.db.prepare('UPDATE tasks SET created_at=?,updated_at=?,state=? WHERE bot_id=?').run(Date.now()-60*86400_000,Date.now(),'done',account.bot.id);
+    const current=(await server.request(account,'GET','/ui/config')).body;
+    const updated=await server.request(account,'PATCH','/ui/config',{patch:[
+      {op:'replace',path:'/dashboards/0/widgets/3/source',value:{id:'tasks.series',params:{range:'7d'}}},
+      {op:'replace',path:'/dashboards/0/widgets/0/options/field',value:'working'},
+    ]},current.revision);
+    assert.equal(updated.status,200,JSON.stringify(updated));
+    await page.getByRole('button',{name:'Refresh',exact:true}).click();
+    const stat=page.locator('[data-widget-type="stat"]'); await stat.scrollIntoViewIfNeeded();
+    await page.waitForFunction(()=>document.querySelector('[data-widget-type="stat"] output')?.textContent==='0');
+    assert.equal(await stat.locator('.dashboard-empty-data').count(),0); checks.push(`stat: meaningful zero with existing tasks at ${width}`);
+    const chart=page.locator('[data-widget-type="chart"]'); await chart.scrollIntoViewIfNeeded();
+    await chart.getByRole('columnheader',{name:'Done',exact:true}).waitFor({state:'attached'});
+    assert.equal(await chart.locator('svg[role="img"]').count(),1); assert.match(await chart.locator('table').textContent(),/12/);
+    assert.equal(await chart.locator('.dashboard-empty-data').count(),0); checks.push(`chart: completed older tasks remain visible with no new tasks at ${width}`);
+    // A local usage receipt can contain computer hours without any AI requests.
+    server.db.prepare('DELETE FROM usage_events WHERE user_id=?').run(account.userId);
+    server.db.prepare('INSERT INTO vm_usage(day,user_id,vm_key,provider,state,seconds,cost_usd,updated_at) VALUES(?,?,?,?,?,?,?,?)')
+      .run(new Date().toISOString().slice(0,10),account.userId,`fixture-${account.userId}`,'fixture','running',7200,0,Date.now());
+    const computer=await server.request(account,'PATCH','/ui/config',{patch:[
+      {op:'replace',path:'/dashboards/0/widgets/0/source',value:{id:'usage.summary',params:{range:'7d'}}},
+      {op:'replace',path:'/dashboards/0/widgets/0/options/field',value:'computerHours'},
+    ]},updated.body.revision);
+    assert.equal(computer.status,200,JSON.stringify(computer)); await stat.scrollIntoViewIfNeeded();
+    await page.waitForFunction(()=>document.querySelector('[data-widget-type="stat"] output')?.textContent==='2');
+    assert.equal(await stat.locator('.dashboard-empty-data').count(),0); checks.push(`stat: computer hours remain visible without AI requests at ${width}`);
     await page.context().close();
   }
   fs.writeFileSync('.context/ui-custom/dashboard-live-widgets/results.json',JSON.stringify({passed:checks.length,failed:0,checks},null,2));

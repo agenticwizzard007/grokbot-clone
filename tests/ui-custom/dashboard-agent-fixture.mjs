@@ -34,6 +34,10 @@ if(op==='bot')result=createBot(userId,{name:'Fixture assistant',isPrimary:true})
 if(op==='pair')result=createCliPairing(userId);
 if(op==='meter'){await refreshCli(userId);selectCli(userId,'claude');await platformState(userId,botId);result=true;}
 process.send?.({id,result});}catch(error){process.send?.({id,error:String(error)});}});`);
+  const viteEntry = path.join(temp, 'dashboard-vite.mjs');
+  fs.writeFileSync(viteEntry, `import {createServer} from ${JSON.stringify(path.join(root,'web/node_modules/vite/dist/node/index.js'))};
+const server=await createServer({root:${JSON.stringify(path.join(root,'web'))},cacheDir:${JSON.stringify(path.join(temp,'vite-cache'))},server:{host:'127.0.0.1',port:${uiPort},strictPort:true}});
+await server.listen();`);
   const start = (args, cwd = root, extra = {}) => {
     const child = spawn(process.execPath, args, { cwd, env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
     children.push(child); for (const stream of [child.stdout, child.stderr]) stream.on('data', data => logs.push(String(data))); return child;
@@ -46,7 +50,7 @@ process.send?.({id,result});}catch(error){process.send?.({id,error:String(error)
     assert.equal((await once(seed, 'exit'))[0], 0, logs.join(''));
     const child = start(['--import', preload, '--import', 'tsx', entry]);
     await ready(`${api}/api/health`, child);
-    await ready(base, start([path.join(root, 'web/node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(uiPort), '--strictPort'], path.join(root, 'web'), { SWARM_API: api }));
+    await ready(base, start([viteEntry], path.join(root, 'web'), { SWARM_API: api }));
     const fixture = JSON.parse(fs.readFileSync(fixtureFile, 'utf8'));
     const db = new Database(env.DB_PATH);
     const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
