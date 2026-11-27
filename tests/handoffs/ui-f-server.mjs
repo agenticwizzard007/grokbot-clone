@@ -271,3 +271,18 @@ test('a gate already created by HO-B does not double count the starter linked ta
   assert.equal(db.prepare("SELECT COUNT(*) n FROM tasks WHERE bot_id=? AND state='needs_input'").get(f.bots[0].id).n, 1);
   assert.equal(f.task().state, 'needs_input');
 });
+
+
+test('recovery does not resurrect cleared room history or overwrite a reused row seq', async () => {
+  const f = fixture(), seq = event(f, 'loop.started');
+  rooms.postLoopRoomEvent(f.userId, seq); rooms.postRoomHandoff(f.userId, f.handoffId);
+  const { clearConversation, appendRow } = await import('../../server/src/store.ts');
+  clearConversation(f.roomId);
+  const fresh = appendRow(f.roomId, 'event', { type: 'event', event: 'bot-message', text: 'New room topic' });
+  db.prepare("UPDATE handoffs SET status='completed' WHERE id=?").run(f.handoffId);
+  rooms.postLoopRoomEvent(f.userId, seq); rooms.postRoomHandoff(f.userId, f.handoffId);
+  const current = db.prepare('SELECT body FROM rows WHERE bot_id=? AND generation=?').all(f.roomId, fresh.generation);
+  assert.equal(current.length, 1); assert.equal(JSON.parse(current[0].body).text, 'New room topic');
+  rooms.postLoopRoomEvent(f.userId, event(f, 'loop.finished', { reason: 'passed', iteration: 3 }));
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM rows WHERE bot_id=? AND generation=?').get(f.roomId, fresh.generation).n, 2);
+});

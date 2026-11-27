@@ -52,7 +52,7 @@ export function postLoopRoomEvent(userId: string, eventSeq: number) {
     if (!row || !row.room_id || !transitions.has(row.type)) return null;
     const room = ownRoom(userId, row.room_id);
     const ref = `#loop/${encodeURIComponent(row.loop_id)}?event=${row.seq}`;
-    const exists = db.prepare("SELECT seq FROM rows WHERE bot_id=? AND generation=? AND kind='event' AND json_extract(body,'$.ref')=?").get(room.id, room.generation, ref) as { seq: number } | undefined;
+    const exists = db.prepare("SELECT seq FROM rows WHERE bot_id=? AND kind='event' AND json_extract(body,'$.ref')=? ORDER BY generation DESC LIMIT 1").get(room.id, ref) as { seq: number } | undefined;
     if (exists) return exists.seq;
     const spec = JSON.parse(row.spec) as LoopSpec;
     const data = JSON.parse(row.data) as Record<string, unknown>;
@@ -94,8 +94,9 @@ export function postRoomHandoff(userId: string, handoffId: string) {
     // Membership is checked when creating a handoff. Removed members must still get a final receipt.
     const body: HandoffBody = { type: 'handoff', handoffId, direction: 'sent', otherBotId: handoff.to_bot_id,
       status: handoff.status, title: 'Agent handoff', audience: 'user', ...(handoff.loop_id ? { loopId: handoff.loop_id } : {}), ...(handoff.iteration !== null ? { iteration: handoff.iteration } : {}) };
-    const existing = db.prepare("SELECT seq,body FROM rows WHERE bot_id=? AND generation=? AND kind='handoff' AND json_extract(body,'$.handoffId')=?").get(room.id, room.generation, handoffId) as { seq: number; body: string } | undefined;
+    const existing = db.prepare("SELECT seq,generation,body FROM rows WHERE bot_id=? AND kind='handoff' AND json_extract(body,'$.handoffId')=? ORDER BY generation DESC LIMIT 1").get(room.id, handoffId) as { seq: number; generation: number; body: string } | undefined;
     if (existing) {
+      if (existing.generation !== room.generation) return existing.seq;
       const before = JSON.parse(existing.body);
       if (before.status !== body.status) updateRow(room.id, existing.seq, receiptBody(body));
       return existing.seq;
