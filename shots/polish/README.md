@@ -23,7 +23,7 @@ Dashboard file structure, data contracts and patch semantics are unchanged. UC-X
 | Demo P | 144 + 18 |
 | About you | 18 |
 | Existing alignment routes | 208, zero issues |
-| Client defaults | Pending final report |
+| Client defaults | 208 matched, zero reviewed differences |
 
 The About you test covers empty and saved profiles, one action, readable type, card geometry, complete labels, keyboard use, and zero layout/profile/message writes. The retired UC-I journeys are outside the revised scope and must be removed or replaced by UC-Y.
 
@@ -233,7 +233,7 @@ Light: 320, 390, 500 and 1280. Dark: 390 and 1280. Before images come from main 
 - [widget-taskBoard-390-light.png](before/widget-taskBoard-390-light.png)
 - [widget-taskBoard-500-light.png](before/widget-taskBoard-500-light.png)
 
-### After (162 PNGs)
+### After (156 PNGs)
 
 - [about-you-1280-dark.png](after/about-you-1280-dark.png)
 - [about-you-1280-light.png](after/about-you-1280-light.png)
@@ -325,12 +325,6 @@ Light: 320, 390, 500 and 1280. Dark: 390 and 1280. Before images come from main 
 - [empty-dashboard-390-dark.png](after/empty-dashboard-390-dark.png)
 - [empty-dashboard-390-light.png](after/empty-dashboard-390-light.png)
 - [empty-dashboard-500-light.png](after/empty-dashboard-500-light.png)
-- [review-1280-dark.png](after/review-1280-dark.png)
-- [review-1280-light.png](after/review-1280-light.png)
-- [review-320-light.png](after/review-320-light.png)
-- [review-390-dark.png](after/review-390-dark.png)
-- [review-390-light.png](after/review-390-light.png)
-- [review-500-light.png](after/review-500-light.png)
 - [widget-botStatus-1280-dark.png](after/widget-botStatus-1280-dark.png)
 - [widget-botStatus-1280-light.png](after/widget-botStatus-1280-light.png)
 - [widget-botStatus-320-light.png](after/widget-botStatus-320-light.png)
