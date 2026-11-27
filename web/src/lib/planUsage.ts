@@ -21,6 +21,7 @@ export async function refreshPlanUsage() {
   const current = () => request === controller && useStore.getState().user?.id === account;
   try {
     const summary = await api.usageSummary(controller.signal);
+    if (!summary.plan || !summary.ownKeys) throw new Error('Usage unavailable');
     if (current()) usage.setState({ summary, error: false });
   } catch {
     if (current()) usage.setState({ error: true });

@@ -22,3 +22,6 @@
   .paper-shell .sidebar-usage { min-height: 138px; }
   .sidebar-usage .plan-usage__reset { display: none; }
 }
+.plan-usage__quota:not(:has(progress)) { justify-content: flex-end; }
+.sidebar-usage .plan-usage progress::-webkit-progress-value { background: var(--usage-color, var(--color-primary)); }
+.sidebar-usage .plan-usage progress::-moz-progress-bar { background: var(--usage-color, var(--color-primary)); }
