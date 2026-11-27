@@ -26,7 +26,7 @@ const HandoffEnabled = createContext<{ enabled: boolean; links: Record<string, N
 export function TaskHandoffProvider({ children }: { children: ReactNode }) {
   const userId = useStore(s => s.user?.id);
   const [enabledFor, setEnabledFor] = useState<string>();
-  const [links, setLinks] = useState<Record<string, NonNullable<HandoffTask['handoff']>>>({});
+  const [linkSnapshot, setLinkSnapshot] = useState<{ userId: string; links: Record<string, NonNullable<HandoffTask['handoff']>> }>();
   const version = useVersion('tasks');
   const connected = useStore(s => s.sseConnected);
   useEffect(() => {
@@ -38,17 +38,17 @@ export function TaskHandoffProvider({ children }: { children: ReactNode }) {
         if (controller.signal.aborted) return;
         const enabled = (result?.settings ?? result)?.enabled === true;
         setEnabledFor(enabled ? userId : undefined);
-        if (!enabled) { setLinks({}); return; }
+        if (!enabled) { setLinkSnapshot(undefined); return; }
         const response = await fetch('/api/handoff-task-links', { credentials: 'include', signal: controller.signal });
         if (response.ok) {
           const data = await response.json();
-          if (!controller.signal.aborted) setLinks(data.links ?? {});
+          if (!controller.signal.aborted) setLinkSnapshot({ userId, links: data.links ?? {} });
         }
       })
       .catch(() => {});
     return () => controller.abort();
   }, [userId, version, connected]);
-  return <HandoffEnabled.Provider value={{ enabled: !!userId && enabledFor === userId, links: enabledFor === userId ? links : {} }}>{children}</HandoffEnabled.Provider>;
+  return <HandoffEnabled.Provider value={{ enabled: !!userId && enabledFor === userId, links: enabledFor === userId && linkSnapshot?.userId === userId ? linkSnapshot.links : {} }}>{children}</HandoffEnabled.Provider>;
 }
 
 export function TaskLoopsLink() {
