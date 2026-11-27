@@ -1,8 +1,91 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import fs from 'node:fs';
+import { inspectAlignment } from '../layout-alignment-ui.mjs';
 import { runIntegrationDemo } from './integration-routes-ui.mjs';
 
-await runIntegrationDemo({ settingsFlow: async ({ page, width, server, check, alignment, openSidebar, screenshots, evidence }) => {
+const paperResults = [];
+const setTheme = (page, theme) => page.evaluate(async theme => {
+  const { setTheme } = await import('/src/customization/runtime.ts');
+  await setTheme(theme);
+  await document.fonts.ready;
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}, theme);
+
+// Audit only the new Settings surface and its shared output-card mount. The
+// handoff and Flow component source belongs to HO-P and is not changed here.
+function inspectPaper(selector) {
+  const root = document.querySelector(selector), issues = [];
+  const visible = el => el.checkVisibility() && !el.closest('.sr-only, option, style, script');
+  const all = [root, ...root.querySelectorAll('*')].filter(visible);
+  const text = all.flatMap(el => [...el.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent)).join(' ');
+  if (/mock:|mock-delay:|[\u2013\u2014]/i.test(text)) issues.push('Test script or forbidden punctuation is visible');
+  for (const el of all) {
+    const css = getComputedStyle(el), rect = el.getBoundingClientRect();
+    const ownText = [...el.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+    if (ownText && parseFloat(css.fontSize) < 13) issues.push('Text below 13px: ' + el.textContent.trim());
+    if (ownText && !el.matches('h1,h2,h3') && parseFloat(css.fontSize) > 15) issues.push('Body above 15px: ' + el.textContent.trim());
+    if (el.matches('label,button,summary,.layout-row__title,.layout-row__subtitle,.cfg-chip,.ho-chip') && (el.scrollWidth > el.clientWidth + 1 || css.textOverflow === 'ellipsis' || !['none', ''].includes(css.webkitLineClamp))) issues.push(`Clipped label: ${el.textContent.trim()} (${el.scrollWidth}/${el.clientWidth}, ${css.textOverflow}, ${css.webkitLineClamp})`);
+    if (el.matches('[data-layout="row"],button,summary,select,.agents-check') && rect.height < 43) issues.push('Control below 44px: ' + el.textContent.trim());
+    if (el.matches('[data-layout="card"]') && (css.borderRadius !== '12px' || ['paddingTop','paddingRight','paddingBottom','paddingLeft'].some(key => css[key] !== '16px'))) issues.push('Card differs from 12px radius and 16px padding');
+    if (el.matches('[role="status"],.layout-row__subtitle,.cfg-chip,.ho-chip') && parseFloat(css.borderRadius) < 12) issues.push('Status is not a chip: ' + el.textContent.trim());
+    if (el.matches('a') && css.textDecorationLine.includes('underline')) issues.push('Raw underlined link');
+    if (el.matches('[data-layout="row"],[data-layout="button-group"]') && el.querySelectorAll('.cfg-btn--primary,.ho-button--primary').length > 1) issues.push('Multiple primary actions in a row');
+    if (el.dataset.layout === 'button-group') {
+      const buttons = [...el.children].filter(visible).map(child => child.getBoundingClientRect());
+      if (buttons.some(button => Math.abs(button.width - buttons[0].width) > 1)) issues.push('Unequal action widths');
+      if (buttons.some(button => buttons.filter(other => Math.abs(button.top - other.top) < 1).length > 2)) issues.push('More than two actions per row');
+    }
+    for (const gap of [css.rowGap, css.columnGap]) if (gap.endsWith('px') && ![0,4,8,16,24,32,40,48].includes(parseFloat(gap))) issues.push('Off-scale gap: ' + gap);
+  }
+  return { issues: [...new Set(issues)], words: text.trim().split(/\s+/).filter(Boolean).length };
+}
+
+async function paperMatrix({ page, width, server, check, screenshots, evidence }, selector, name) {
+  if (width !== 1280) return;
+  for (const testedWidth of [320, 390, 500, 1280]) for (const theme of ['light', 'dark']) {
+    await page.setViewportSize({ width: testedWidth, height: 1000 }); await setTheme(page, theme);
+    // Reload the persisted theme to remove the transient customization Undo
+    // banner, and wait for the resized settings frame and resources to settle.
+    await page.reload(); await page.locator(selector).waitFor();
+    if (name === 'settings-agents') {
+      await page.getByLabel('Links from', { exact: true }).selectOption(server.fixture.bot.id);
+      await page.getByLabel('Handoff mode for Research', { exact: true }).waitFor();
+    }
+    await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const result = await page.evaluate(inspectPaper, selector);
+    assert.deepEqual(result.issues, [], `${name} ${testedWidth} ${theme}`);
+    assert.deepEqual(await page.evaluate(inspectAlignment, { selector, requirePage: false }), []);
+    if (name === 'settings-agents' && testedWidth <= 760) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1);
+    if (name === 'settings-agents') {
+      const info = page.getByRole('button', { name: 'About handoffs', exact: true });
+      await info.focus(); await page.getByRole('tooltip').waitFor(); await page.keyboard.press('Escape');
+      assert.equal(await page.getByRole('tooltip').count(), 0);
+      await page.locator('.agents-settings summary').click();
+      assert.deepEqual((await page.evaluate(inspectPaper, selector)).issues, []);
+      assert.deepEqual(await page.evaluate(inspectAlignment, { selector, requirePage: false }), []);
+      await page.locator('.agents-settings summary').click();
+      const words = await page.locator('.paper-settings').evaluate(el => el.innerText.trim().split(/\s+/).length);
+      result.mainWords = words;
+      // The pre-polish captures count 191 phone / 212 desktop words, including
+      // settings navigation. Keep at most 30%, as BUILD-SPEC 0b requires.
+      assert.ok(words <= (testedWidth <= 760 ? 191 : 212) * 0.3, `Copy budget: ${words}`);
+    }
+    if ([390,1280].includes(testedWidth)) {
+      const screenshot = path.join(evidence, `${name}-after-${testedWidth}-${theme}.png`);
+      await page.screenshot({ path: screenshot, fullPage: true }); screenshots.push(screenshot);
+    }
+    paperResults.push({ name, width: testedWidth, theme, ...result });
+    check(`Paper ${name} at ${testedWidth} ${theme}`, result);
+  }
+  await page.setViewportSize({ width, height: 1000 }); await setTheme(page, 'light');
+}
+
+await runIntegrationDemo({ outputFlow: async args => {
+  await args.page.locator('.settings-output-card').waitFor();
+  await paperMatrix(args, '.settings-output-card', 'output-card');
+}, settingsFlow: async ({ page, width, server, check, alignment, openSidebar, screenshots, evidence }) => {
   const settingsNav = page.getByRole('navigation', { name: 'Settings sections', exact: true });
   const back = page.getByRole('button', { name: 'Back', exact: true });
   const policy = page.getByLabel('Agent handoffs', { exact: true });
@@ -11,7 +94,7 @@ await runIntegrationDemo({ settingsFlow: async ({ page, width, server, check, al
   const save = async (route, action) => {
     const response = page.waitForResponse(r => new URL(r.url()).pathname === '/api' + route && r.request().method() === 'PUT');
     await action(); assert.equal((await response).status(), 200);
-    await page.waitForFunction(() => document.querySelector('.ho-settings')?.getAttribute('aria-busy') === 'false');
+    await page.waitForFunction(() => document.querySelector('.agents-settings')?.getAttribute('aria-busy') === 'false');
   };
   const pickSettings = async label => {
     if (width === 390 && !await settingsNav.isVisible()) await back.click();
@@ -66,17 +149,22 @@ await runIntegrationDemo({ settingsFlow: async ({ page, width, server, check, al
   await page.route('**/api/handoff-settings', async route => route.request().method() === 'PUT'
     ? route.fulfill({ status: 503, json: { error: 'Fixture settings unavailable. Try again.' } }) : route.continue());
   await policy.selectOption('links_only');
-  await page.getByRole('alert').filter({ hasText: 'Fixture settings unavailable' }).waitFor();
+  await page.getByRole('alert').filter({ hasText: 'Not saved' }).waitFor();
+  await page.getByRole('button', { name: 'Save error', exact: true }).focus();
+  await page.getByRole('tooltip').filter({ hasText: 'Fixture settings unavailable' }).waitFor();
+  await page.keyboard.press('Escape');
   assert.equal(await policy.inputValue(), 'team');
   await page.unroute('**/api/handoff-settings');
   await save('/handoff-settings', () => policy.selectOption('links_only'));
   await save('/handoff-settings', () => policy.selectOption('team'));
   check('Failed settings save stays inline and can be retried without changing the saved policy');
 
-  for (const text of ['Starts at 4. Choose 1 to 10 passes.', 'Starts at 30 minutes. Choose 5 to 240 minutes.', 'Starts at 10 minutes. Choose 1 to 30 minutes.', 'Up to 3 running loops and 20 new loops per day.']) {
+  await page.locator('.agents-settings summary').click();
+  for (const text of ['4 (1 to 10)', '30 (5 to 240)', '10 (1 to 30)', 'Running loops', 'Starts per day']) {
     assert.equal(await page.getByText(text, { exact: true }).count(), 1);
   }
   await alignment();
+  await page.locator('.agents-settings summary').click();
   const screenshot = path.join(evidence, `settings-agents-${width}.png`);
   await page.setViewportSize({ width, height: Math.min(4000, await page.locator('.app-settings__page').evaluate(el => el.scrollHeight) + 160) });
   await page.screenshot({ path: screenshot, fullPage: true }); screenshots.push(screenshot);
@@ -110,4 +198,25 @@ await runIntegrationDemo({ settingsFlow: async ({ page, width, server, check, al
   await page.reload(); await policy.waitFor(); await alignment();
   assert.equal(new URL(page.url()).hash, '#settings/agents');
   check('Layout dashboard manager and Agents share phone and desktop navigation; cold Agents works');
+  await page.getByLabel('Links from', { exact: true }).selectOption(server.fixture.bot.id);
+  await page.getByLabel('Handoff mode for Research', { exact: true }).waitFor();
+  for (const theme of ['light', 'dark']) {
+    await pickSettings('General');
+    await page.getByRole('radio', { name: theme === 'light' ? 'Light' : 'Dark', exact: true }).click();
+    await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+    await page.reload(); await page.getByRole('radio', { name: theme === 'light' ? 'Light' : 'Dark', exact: true }).waitFor();
+    const reference = path.join(evidence, `settings-reference-${width}-${theme}.png`);
+    await page.screenshot({ path: reference, fullPage: true }); screenshots.push(reference);
+    await pickSettings('Agents'); await policy.waitFor();
+    await openSidebar(); await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
+    await page.locator('.task-card').first().waitFor();
+    const tasks = path.join(evidence, `tasks-reference-${width}-${theme}.png`);
+    await page.screenshot({ path: tasks, fullPage: true }); screenshots.push(tasks);
+    await page.goBack(); await policy.waitFor();
+  }
+  await page.getByLabel('Links from', { exact: true }).selectOption(server.fixture.bot.id);
+  await page.getByLabel('Handoff mode for Research', { exact: true }).waitFor();
+  await paperMatrix({ page, width, server, check, screenshots, evidence }, '.agents-settings', 'settings-agents');
 } });
+
+fs.writeFileSync(path.resolve('.context/handoffs/demo-i/paper-report.json'), JSON.stringify(paperResults, null, 2));

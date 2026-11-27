@@ -236,7 +236,14 @@ export function DraftCard({ row, body }: { row: Row; body: Card<'draft'> }) {
 export function CardRow({ row, output, onSend, suggestions }: { row: Row } & Partial<Pick<OutputCardProps, 'output' | 'onSend' | 'suggestions'>>) {
   // A finished run uses its persisted output, alongside the existing chat and
   // customization preview cards. Sending still requires the shared Send sheet.
-  if (output && onSend) return <Suspense fallback={null}><RunOutputCard output={output} onSend={onSend} suggestions={suggestions} /></Suspense>;
+  if (output && onSend) return <Suspense fallback={null}><div className="settings-output-card">
+    <style>{`
+      .settings-output-card { --text-xs: 13px; font-size: 14px; }
+      .settings-output-card .layout-row__subtitle, .settings-output-card .ho-chip { display: inline-flex; padding: 4px 8px; border-radius: var(--radius-full); background: var(--color-bg-tertiary); font: 500 13px/18px var(--font-stack); }
+      .settings-output-card .ho-button { font-size: 14px; }
+    `}</style>
+    <RunOutputCard output={output} onSend={onSend} suggestions={suggestions} />
+  </div></Suspense>;
   const b = row.body;
   if (b.type !== 'card') return null;
   switch (b.card) {

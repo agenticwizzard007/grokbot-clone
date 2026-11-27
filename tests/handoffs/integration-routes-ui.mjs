@@ -22,7 +22,18 @@ async function integrationServer(evidence) {
     PHONE_QA_FIXTURE_FILE: fixtureFile, PORT: String(apiPort), APP_URL: base, SERVER_URL: base,
     DIRECT_API_KEY: 'placeholder', DIRECT_BASE_URL: `http://127.0.0.1:${mockPort}/v1`, LLM_PROVIDER: 'direct' };
   const preload = path.join(temp, 'offline.mjs');
-  fs.writeFileSync(preload, `const local = fetch; globalThis.fetch = (input, init) => { const url = new URL(input instanceof Request ? input.url : input); if (['127.0.0.1','localhost'].includes(url.hostname)) return local(input, init); return Promise.resolve(Response.json({data:[],items:[]})); };`);
+  // Keep provider scripting at the offline adapter boundary, out of visible UI.
+  fs.writeFileSync(preload, `const local = fetch; globalThis.fetch = (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    if (url.port === '${mockPort}' && url.pathname === '/v1/responses' && init?.body) {
+      const body = JSON.parse(init.body), user = body.input?.findLast(item => item.role === 'user');
+      const delay = JSON.stringify(body).includes('Improve the placeholder draft') ? 'mock-delay:3000 ' : '';
+      if (user) user.content = [{type:'input_text',text:delay + 'mock: say Placeholder review complete.'}];
+      init = {...init,body:JSON.stringify(body)};
+    }
+    if (['127.0.0.1','localhost'].includes(url.hostname)) return local(input, init);
+    return Promise.resolve(Response.json({data:[],items:[]}));
+  };`);
   const children = [], logs = [];
   function start(args, cwd = root, extra = {}) { const child = spawn(process.execPath, args, { cwd, env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(child); for (const stream of [child.stdout, child.stderr]) stream.on('data', data => logs.push(String(data))); return child; }
   async function ready(url, child) { for (let i = 0; i < 300; i++) { assert.equal(child.exitCode, null, logs.join('')); if (await fetch(url).then(r => r.ok).catch(() => false)) return; await new Promise(resolve => setTimeout(resolve, 100)); } throw new Error(logs.join('')); }
@@ -90,7 +101,7 @@ runner.stopLoopDeadlines(); reconcile.stopHandoffRecovery(); db.close();
   } catch (error) { await close(); throw error; }
 }
 
-export async function runIntegrationDemo({ settingsFlow } = {}) {
+export async function runIntegrationDemo({ settingsFlow, outputFlow } = {}) {
   const evidence = path.resolve('.context/handoffs/demo-i'); fs.mkdirSync(evidence, { recursive: true });
   const server = await integrationServer(evidence);
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
@@ -117,10 +128,11 @@ export async function runIntegrationDemo({ settingsFlow } = {}) {
       await page.getByRole('menuitem', { name: 'Send to agent', exact: true }).click();
       await page.getByRole('dialog', { name: 'Send to agent' }).waitFor(); await page.keyboard.press('Escape');
       check('Assistant message overflow snapshots output and opens Send to agent');
+      if (outputFlow) await outputFlow({ page, width, server, check, screenshots, evidence });
       await page.locator('.ho-output-card').getByRole('button', { name: 'Send to agent', exact: true }).first().click();
       const sheet = page.getByRole('dialog', { name: 'Send to agent' });
       await sheet.getByRole('button', { name: /Research/ }).click();
-      const instruction = `mock: say The placeholder review at ${width} is ready.`;
+      const instruction = `Review the placeholder release draft at ${width}.`;
       await sheet.getByLabel('Ask', { exact: true }).fill(instruction);
       await sheet.getByRole('button', { name: 'Send', exact: true }).click();
       const receipt = page.locator('.ho-receipt').filter({ hasText: instruction });
@@ -191,7 +203,7 @@ export async function runIntegrationDemo({ settingsFlow } = {}) {
       await openBot('Coordinator');
       await page.locator('.ho-output-card').getByRole('button', { name: 'Send to Research', exact: true }).first().click();
       await page.waitForFunction(() => document.querySelector('.ho-dialog textarea')?.value.includes('Placeholder release draft ready'));
-      await sheet.getByLabel('Ask', { exact: true }).fill('mock-delay:3000 mock: say Placeholder loop draft.');
+      await sheet.getByLabel('Ask', { exact: true }).fill('Improve the placeholder draft.');
       await sheet.getByLabel('Keep improving', { exact: true }).check();
       await sheet.getByLabel('Stop when', { exact: true }).selectOption('manual');
       await sheet.getByRole('button', { name: 'Start loop', exact: true }).click();
@@ -204,7 +216,7 @@ export async function runIntegrationDemo({ settingsFlow } = {}) {
       await openSidebar();
       await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
       await page.locator('.task-filters .is-done').click();
-      await page.locator('.task-card-frame').filter({ hasText: 'Placeholder release draft' }).getByRole('button', { name: 'Send to agent', exact: true }).click();
+      await page.locator('.task-card-frame').filter({ has: page.getByRole('button', { name: /^Placeholder release draft: Done\./ }) }).getByRole('button', { name: 'Send to agent', exact: true }).click();
       await sheet.waitFor(); await page.keyboard.press('Escape'); check('Done task card opens Send to agent');
       if (settingsFlow) await settingsFlow({ page, width, server, check, alignment, openSidebar, screenshots, evidence });
       assert.deepEqual(errors, []); await context.close();

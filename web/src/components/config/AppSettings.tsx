@@ -1,4 +1,4 @@
-import { SettingsMenu } from './SettingsControls';
+import { InfoTip, SettingsMenu } from './SettingsControls';
 import { Section, Card, Row, ButtonGroup } from '../layout';
 import { ProviderMark } from '../ProviderMark';
 import { ApprovalLevelSettings } from './ApprovalLevelSettings';
@@ -18,7 +18,6 @@ import { UsageSection } from './UsageSection';
 import { relativeShort } from '../../lib/time';
 import { navigation, openConversation, useConfigUI, useVersion, type Theme } from '../../configStore';
 import { handoffApi, type HandoffLink, type HandoffSettings } from '../../handoffs/api';
-import { HandoffState } from '../../handoffs/HandoffRow';
 import { errorText, handoffText, refreshHandoffs, useHandoffResource } from '../../handoffs/useHandoffs';
 import { useStore } from '../../store';
 import { computerStatusText } from './computerStatus';
@@ -108,47 +107,62 @@ export function AgentsSection() {
     }));
   });
   const disabled = busy || policy.loading;
-  return <div className="ho-settings" aria-busy={busy || policy.loading || links.loading}>
-    <Section title="Handoffs" footer="A handoff sends finished work to another agent. A loop repeats work and review until a check passes or a limit is reached.">
-      <HandoffState loading={!settings && policy.loading} error={policy.error} retry={policy.retry} />
-      {settings && <Card variant="list">
-        <Row title={<label className="ho-check"><input type="checkbox" role="switch" aria-checked={settings.enabled} checked={settings.enabled} disabled={disabled} onChange={event => void changePolicy({ enabled: event.target.checked })} />Enable handoffs and loops</label>} />
-        <Row title={<label className="ho-field">Agent handoffs<select aria-label="Agent handoffs" value={settings.agentHandoffs} disabled={disabled || !settings.enabled} onChange={event => void changePolicy({ agentHandoffs: event.target.value as HandoffSettings['agentHandoffs'] })}>
+  const state = (resource: { loading: boolean; error?: string; retry: () => void }) => resource.error
+    ? <Card role="alert"><span className="cfg-chip">Unavailable</span><InfoTip label="Load error">{resource.error}</InfoTip><ButtonGroup><button className="cfg-btn cfg-btn--secondary" onClick={resource.retry}>Retry</button></ButtonGroup></Card>
+    : resource.loading ? <span className="cfg-chip" role="status">Loading</span> : null;
+  return <div className="agents-settings" aria-busy={busy || policy.loading || links.loading}>
+    <style>{`
+      .agents-settings { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; font-size: 14px; line-height: 20px; }
+      .agents-settings .cfg-chip { align-self: flex-start; height: auto; padding: 4px 8px; border-radius: var(--radius-full); font: 500 13px/18px var(--font-stack); white-space: normal; }
+      .agents-settings .cfg-btn { font-size: 14px; padding-inline: 16px; gap: 8px; }
+      .agents-settings .agents-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: 14px; }
+      .agents-settings select { width: 100%; min-width: 0; min-height: var(--control-h); padding: 8px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg-pane); color: var(--color-text-primary); font: inherit; }
+      .agents-settings .agents-check { display: flex; align-items: center; gap: 8px; min-height: var(--control-h); cursor: pointer; }
+      .agents-settings .agents-check input { flex: 0 0 20px; width: 20px; height: 20px; margin: 0; accent-color: var(--color-primary); }
+      .agents-settings .layout-row__subtitle { font-size: 13px; line-height: 18px; }
+      .agents-settings .agents-saved { color: var(--color-success); background: var(--color-success-bg); }
+    `}</style>
+    <Section title="Handoffs" action={<InfoTip label="About handoffs">Send finished work to another agent. Team allows any available teammate; Links only follows standing links; Off stops agent sends. You can still send work yourself. Limits: 20 per agent per hour, 100 per account per day.</InfoTip>}>
+      {!settings && state(policy)}
+      {settings && <Card>
+        <Row title={<label className="agents-check"><input type="checkbox" role="switch" aria-label="Enable handoffs and loops" aria-checked={settings.enabled} checked={settings.enabled} disabled={disabled} onChange={event => void changePolicy({ enabled: event.target.checked })} />Enabled</label>} />
+        <Row title={<label className="agents-field">Agent handoffs<select aria-label="Agent handoffs" value={settings.agentHandoffs} disabled={disabled || !settings.enabled} onChange={event => void changePolicy({ agentHandoffs: event.target.value as HandoffSettings['agentHandoffs'] })}>
           <option value="team">Team</option><option value="links_only">Links only</option><option value="off">Off</option>
-        </select></label>} subtitle={settings.agentHandoffs === 'team' ? 'Agents can send work to any available agent on your team.' : settings.agentHandoffs === 'links_only' ? 'Agents can send work only along enabled standing links.' : 'Agents cannot start handoffs. You can still send work yourself.'} />
-        <Row title="Agent sending limits" subtitle="20 handoffs per agent per hour, 100 per account per day." />
+        </select></label>} />
       </Card>}
     </Section>
-    {settings?.enabled && <Section title="Standing links" footer="Automatic links send matching finished work without another tap. Loop auto-approval applies only to the selected pair.">
-      {sender && <label className="ho-field">Links from<select aria-label="Links from" value={sender.id} disabled={busy || links.loading} onChange={event => { setSelected(event.target.value); setSaved(false); setError(''); }}>
-        {senders.map(bot => <option key={bot.id} value={bot.id}>{handoffText(bot.name)}</option>)}
-      </select></label>}
-      <Card variant="list">
-        <HandoffState loading={links.loading && !links.data} error={links.error} retry={links.retry} empty={!sender || links.data?.links.length === 0 ? 'No standing links yet' : undefined} />
+    {settings?.enabled && <Section title="Standing links" action={<InfoTip label="About standing links">Automatic sends matching finished work without another tap. Suggest offers a send button. Loop approval applies only to this pair.</InfoTip>}>
+      <Card>
+        {sender && <Row title={<label className="agents-field">From<select aria-label="Links from" value={sender.id} disabled={busy || links.loading} onChange={event => { setSelected(event.target.value); setSaved(false); setError(''); }}>
+          {senders.map(bot => <option key={bot.id} value={bot.id}>{handoffText(bot.name)}</option>)}
+        </select></label>} />}
+        {state(links)}
+        {(!sender || links.data?.links.length === 0) && <Row title={<span className="cfg-chip">No links</span>} />}
         {links.data?.links.map(link => {
           const name = handoffText(bots.find(bot => bot.id === link.toBotId)?.name ?? 'Agent');
-          return <Row key={link.id} title={name}>
-            <label className="ho-field">Handoff mode for {name}<select aria-label={`Handoff mode for ${name}`} value={link.mode} disabled={busy || links.loading} onChange={event => void changeLink(link, { mode: event.target.value as HandoffLink['mode'] })}>
-              <option value="off">Off</option><option value="suggest">Suggest</option><option value="auto">Automatic</option>
-            </select></label>
-            <label className="ho-check"><input type="checkbox" checked={link.autoApproveLoops} disabled={busy || links.loading} onChange={event => void changeLink(link, { autoApproveLoops: event.target.checked })} />Auto approve loops started by agents with {name}</label>
+          return <Row key={link.id} title={<label className="agents-field">{name}<select aria-label={`Handoff mode for ${name}`} value={link.mode} disabled={busy || links.loading} onChange={event => void changeLink(link, { mode: event.target.value as HandoffLink['mode'] })}>
+            <option value="off">Off</option><option value="suggest">Suggest</option><option value="auto">Automatic</option>
+          </select></label>}>
+            <label className="agents-check"><input type="checkbox" aria-label={`Auto approve loops started by agents with ${name}`} checked={link.autoApproveLoops} disabled={busy || links.loading} onChange={event => void changeLink(link, { autoApproveLoops: event.target.checked })} />Approve loops</label>
           </Row>;
         })}
       </Card>
-      {sender && <button className="ho-button" onClick={() => navigation.navigate({ kind: 'details', bot: sender.id, tab: 'activity', flow: true, link: 'new' })}>Add a standing link</button>}
+      {sender && <ButtonGroup><button className="cfg-btn cfg-btn--secondary" aria-label="Add a standing link" onClick={() => navigation.navigate({ kind: 'details', bot: sender.id, tab: 'activity', flow: true, link: 'new' })}>Add link</button></ButtonGroup>}
     </Section>}
-    <Section title="Loop defaults and limits" footer="Choose different limits when you start a loop. Agents need approval before the first pass unless you approve their exact pair above.">
-      <Card variant="list">
-        <Row title="Passes" subtitle="Starts at 4. Choose 1 to 10 passes." />
-        <Row title="Total time" subtitle="Starts at 30 minutes. Choose 5 to 240 minutes." />
-        <Row title="Time per step" subtitle="Starts at 10 minutes. Choose 1 to 30 minutes." />
-        <Row title="Account limits" subtitle="Up to 3 running loops and 20 new loops per day." />
-        <Row title="Cost and token limits" subtitle="Optional when usage is reported. Some plans do not report cost." />
-      </Card>
-      {settings?.enabled && <button className="ho-button" onClick={() => navigation.navigate({ kind: 'loops' })}>Open Loops</button>}
+    <Section title="Loops" action={<InfoTip label="About loops">Work and review repeat until checks pass or a limit is reached. Choose limits when starting a loop. Agents need approval first unless their exact pair is approved above.</InfoTip>}>
+      <Card><details className="settings-disclosure">
+        <summary>Defaults and limits</summary>
+        <Row title="Passes" trailing={<span>4 (1 to 10)</span>} />
+        <Row title="Total minutes" trailing={<span>30 (5 to 240)</span>} />
+        <Row title="Step minutes" trailing={<span>10 (1 to 30)</span>} />
+        <Row title="Running loops" trailing={<span>3</span>} />
+        <Row title="Starts per day" trailing={<span>20</span>} />
+        <Row title={<span className="settings-label-info">Cost and tokens<InfoTip label="About usage limits">Optional caps when usage is reported. Some plans do not report cost.</InfoTip></span>} trailing={<span>Optional</span>} />
+      </details></Card>
+      {settings?.enabled && <ButtonGroup><button className="cfg-btn cfg-btn--primary" onClick={() => navigation.navigate({ kind: 'loops' })}>Open Loops</button></ButtonGroup>}
     </Section>
-    {error && <p className="ho-error" role="alert">{error}</p>}
-    {saved && <p role="status">Saved</p>}
+    {error && <Card role="alert"><span className="cfg-chip">Not saved</span><InfoTip label="Save error">{error}</InfoTip></Card>}
+    {saved && <span className="cfg-chip agents-saved" role="status">Saved</span>}
   </div>;
 }
 
