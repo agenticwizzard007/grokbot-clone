@@ -99,7 +99,10 @@ export async function runSuite(name, cases, { server: needsServer = true } = {})
       catch (error) { results.push({ name: item.name, status: error instanceof MissingFeature ? 'skip' : 'fail', reason: error.message, stack: error instanceof MissingFeature ? undefined : error.stack }); }
       const result = results.at(-1); console.log(`${result.status.toUpperCase()} ${result.name}${result.reason ? `: ${result.reason}` : ''}`);
     }
-  } finally { await browser?.close(); await server?.close(); }
+  } finally {
+    if (server) fs.writeFileSync(path.join(out, 'server.log'), server.logs.join(''));
+    await browser?.close(); await server?.close();
+  }
   const counts = Object.fromEntries(['pass', 'fail', 'skip'].map(status => [status, results.filter(r => r.status === status).length]));
   fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify({ suite: name, counts, results }, null, 2) + '\n');
   console.log(`${name}: ${counts.pass} passed, ${counts.fail} failed, ${counts.skip} skipped. Report: ${out}/report.json`);

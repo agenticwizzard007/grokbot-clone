@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
 
 export const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -77,7 +77,11 @@ export async function qualityServer({ extraSeed = true } = {}) {
     });
     await ready(`${mock}/_requests`, start(['tests/mock-provider.mjs', String(mockPort)]));
     await ready(`${backend}/api/health`, start(['--import', preload, '--import', 'tsx', 'server/src/index.ts']));
-    await ready(base, start([path.join(ROOT, 'web/node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(uiPort), '--strictPort'], path.join(ROOT, 'web'), { SWARM_API: backend }));
+    // Parallel fixture servers must not invalidate each other's optimized modules.
+    const viteBoot = path.join(temp, 'vite.mjs');
+    fs.writeFileSync(viteBoot, `import { createServer } from ${JSON.stringify(pathToFileURL(path.join(ROOT, 'web/node_modules/vite/dist/node/index.js')).href)};
+      const server = await createServer(${JSON.stringify({ root: path.join(ROOT, 'web'), configFile: path.join(ROOT, 'web/vite.config.ts'), cacheDir: path.join(temp, 'vite-cache'), server: { host: '127.0.0.1', port: uiPort, strictPort: true } })}); await server.listen();`);
+    await ready(base, start([viteBoot], path.join(ROOT, 'web'), { SWARM_API: backend }));
     return { base, backend, mock, fixture, close, withDb, logs,
       blockedRequests: () => fs.existsSync(blocked) ? fs.readFileSync(blocked, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [],
     };

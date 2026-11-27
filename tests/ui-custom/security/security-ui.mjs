@@ -22,7 +22,13 @@ function xssDocument(defaults, value, index) {
 async function withContext(args, fn) {
   const { context, external } = await fixtureContext(args.browser, args.server);
   try { const current = await configAvailable(context.request, args.server.base); await fn({ ...args, context, current, external }); }
-  finally { await context.close(); }
+  catch (error) {
+    for (const [index, page] of context.pages().entries()) {
+      await page.screenshot({ path: path.join(args.out, `failure-${Date.now()}-${index}.png`), fullPage: true }).catch(() => {});
+      fs.writeFileSync(path.join(args.out, 'last-browser-failure.txt'), await page.locator('body').innerText().catch(() => 'Page unavailable'));
+    }
+    throw error;
+  } finally { await context.close(); }
 }
 const cases = [
   { name: 'no executable rendering sinks', run: async () => {
