@@ -30,7 +30,7 @@ export async function pbeFixture(browser, width, theme) {
       {id:'t3',botId:'coordinator',title:'Collect references',state:'done',note:'',updatedAt:now},
     ]}};
     if(path==='/api/conversation-search') return {json:{results:[{botId:'coordinator',generation:1,seq:3,role:'assistant',text:'The launch is on track.',createdAt:now}]}};
-    if(/^\/api\/deliverables\/bots\/[^/]+$/.test(path)) return {json:{artifacts:path.includes('coordinator')?[{id:'fixture-file',botId:'coordinator',filename:'Launch plan.md',mimeType:'text/markdown',size:256,createdAt:now,libraryPath:'Launch plan.md',downloadUrl:'/api/fixture-download',deliveries:[]}]:[]}};
+    if(/^\/api\/deliverables\/bots\/[^/]+$/.test(path)) return {json:{artifacts:path.includes('coordinator')?[{id:'fixture-file',botId:'coordinator',filename:state.longFile || 'Launch plan.md',mimeType:'text/markdown',size:256,createdAt:now,libraryPath:'Launch plan.md',downloadUrl:'/api/fixture-download',deliveries:[]}]:[]}};
     return original(args);
   };
   return {...f,state};

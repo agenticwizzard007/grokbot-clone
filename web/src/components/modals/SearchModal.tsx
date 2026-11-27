@@ -5,7 +5,7 @@ import { navigation as appNavigation } from '../../configStore';
 import { botSlug } from '../../lib/userRoutes';
 import { FileText, ListTodo } from 'lucide-react';
 import '../../styles/search.css';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { displayName, useStore } from '../../store';
 import { Icon } from '../Icon';
@@ -16,6 +16,28 @@ import { Modal } from './Modal';
 
 type WorkHit = { id: string; botId: string; title: string; kind: 'file' | 'task' };
 type Item = { kind: 'bot'; id: string } | { kind: 'message'; hit: ConversationSearchHit } | WorkHit;
+
+function SearchText({ text, fallback, className }: { text: string; fallback: string; className: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [compact, setCompact] = useState(false);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    const context = document.createElement('canvas').getContext('2d');
+    if (!element || !context) return;
+    let mounted = true;
+    const measure = () => {
+      if (!mounted) return;
+      context.font = getComputedStyle(element).font;
+      setCompact(text.split(/\s+/).some(word => context.measureText(word).width > element.clientWidth));
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    measure();
+    void document.fonts.ready.then(measure);
+    return () => { mounted = false; observer.disconnect(); };
+  }, [text]);
+  return <span ref={ref} className={className} title={text}>{compact ? <><span aria-hidden="true">{fallback}</span><span className="sr-only">{text}</span></> : text}</span>;
+}
 
 /** Search Bots by name and every Bot's visible conversation by message text (MF-028, PD-08 option B). */
 export function SearchModal({ inline = false }: { inline?: boolean }) {
@@ -159,7 +181,7 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
           >
             <BotAvatarFor bot={b} size={28} />
             <span className="search-row__text">
-              <span className="search-row__name">{displayName(b)}</span>
+              <SearchText className="search-row__name" text={displayName(b)} fallback="Bot" />
 
             </span>
           </button>
@@ -183,8 +205,8 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
             >
               <BotAvatarFor bot={bot} size={28} />
               <span className="search-row__text">
-                <span className="search-row__name">{item.hit.role === 'user' ? `You to ${bot.name}` : bot.name}</span>
-                <span className="search-row__sub">{item.hit.text}</span>
+                <SearchText className="search-row__name" text={item.hit.role === 'user' ? `You to ${bot.name}` : bot.name} fallback="Message" />
+                <SearchText className="search-row__sub" text={item.hit.text} fallback="Open message" />
               </span>
             </button>
           );
@@ -193,7 +215,7 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
         {work.map((item, j) => {
           const index = botResults + messageItems.length + j;
           return <button key={`${item.kind}:${item.id}`} type="button" className={`search-row${index === active ? ' is-active' : ''}`} role="option" aria-selected={index === active} data-idx={index} onMouseMove={() => setActive(index)} onClick={() => void choose(item)}>
-            {item.kind === 'file' ? <FileText size={20} aria-hidden /> : <ListTodo size={20} aria-hidden />}<span className="search-row__text"><span className="search-row__name">{item.title}</span><span className="search-row__sub">{bots.find(bot => bot.id === item.botId)?.name}</span></span>
+            {item.kind === 'file' ? <FileText size={20} aria-hidden /> : <ListTodo size={20} aria-hidden />}<span className="search-row__text"><SearchText className="search-row__name" text={item.title} fallback={item.kind === 'file' ? 'Saved file' : 'Task details'} /><SearchText className="search-row__sub" text={bots.find(bot => bot.id === item.botId)?.name ?? 'Bot'} fallback="Bot" /></span>
           </button>;
         })}
         {workError && <p role="status">Some files or tasks could not load.</p>}

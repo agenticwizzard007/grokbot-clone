@@ -5,7 +5,7 @@ import path from 'node:path';
 import { build, preview } from '../web/node_modules/vite/dist/node/index.js';
 import { chromium } from 'playwright';
 import { inspectAlignment } from './layout-alignment-ui.mjs';
-const outDir=path.resolve(process.env.PBE_DIST || '.context/pb-e/dist');
+const outDir=path.resolve(process.env.PBE_DIST || process.env.PBE_BUILD_DIR || '.context/pb-e/dist');
 if (!process.env.PBE_DIST) await build({ root: path.resolve('web'), build: { outDir, emptyOutDir: true }, plugins: [{ name: 'pbe-local-fixtures', enforce: 'pre', transform(code, id) {
   if (id.endsWith('/voice/call.ts')) return code + '\nwindow.__pbeVoice = useVoice;';
   if (id.endsWith('/src/store.ts')) return code + '\nwindow.__pbeStore = useStore;';
@@ -71,6 +71,19 @@ for(const width of widths)for(const theme of themes) {
   results.push({name,width,theme,words,alignment,labels});
   console.log(`${alignment.length||labels.length?'FAIL':'PASS'} ${name} ${width} ${theme}: ${words} words`,alignment,labels);
   if(screenshots.includes(name)&&([390,1280].includes(width)||(width===320&&theme==='light')))await page.screenshot({path:`${evidence}/${name}-${width}-${theme}.png`});
+  if(name==='search') {
+    state.longFile = 'launch' + 'Long'.repeat(30) + '.md';
+    await page.reload();
+    await page.getByRole('textbox',{name:'Search',exact:true}).fill('launch');
+    await page.getByText('Saved file',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('option',{name:new RegExp(state.longFile)}).count(),1,'Full filename remains accessible');
+    assert.deepEqual(await page.evaluate(inspectLabels),[],'Long search labels fit without splitting words');
+    assert.deepEqual(await page.evaluate(inspectAlignment,{}),[],'Long search labels retain alignment');
+    state.longFile = null;
+    await page.reload();
+    await page.getByRole('textbox',{name:'Search',exact:true}).fill('launch');
+    await page.getByText('Launch plan.md',{exact:true}).waitFor();
+  }
   if(width===390&&theme==='light') {
     if(name==='chat-run') { await page.getByRole('button',{name:"Don't allow",exact:true}).click(); await page.locator('.card__outcome.is-denied').waitFor(); assert.ok(state.denied);
       for (const [label, decision] of [['Allow','allow'],['Always allow','always']]) {
@@ -97,6 +110,6 @@ for(const width of widths)for(const theme of themes) {
  }
  assert.deepEqual(errors,[],'No browser errors or external requests');await page.close();
 }
-}finally{await browser.close();await vite.close();fs.writeFileSync('.context/pb-e/matrix.json',JSON.stringify(results,null,2));}
+}finally{await browser.close();await vite.close();fs.writeFileSync(process.env.PBE_REPORT || '.context/pb-e/matrix.json',JSON.stringify(results,null,2));}
 assert.equal(results.filter(r=>r.alignment.length||r.labels.length).length,0,'Every PB-E screen meets layout and label rules');
 console.log(`${results.length} PB-E screen checks passed`);

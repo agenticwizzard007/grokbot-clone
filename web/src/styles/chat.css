@@ -278,7 +278,7 @@
 .app.paper-shell .chat-dock .composer-area { padding: 0; width: 100%; max-width: none; }
 .app.paper-shell .chat-dock .composer { width: 100%; max-width: none; }
 .app.paper-shell .chat-dock .composer :is(.composer__btn, .model-pill, .composer__cta) { min-height: 36px; height: 36px; }
-.app.paper-shell .chat:has(.pb-room-header) .chat-dock .composer__cta { min-height: var(--control-h); height: var(--control-h); }
+.app.paper-shell .chat:has(.pb-room-header) .chat-dock .composer :is(.composer__btn, .model-pill, .composer__cta) { min-height: var(--control-h); height: var(--control-h); }
 .app.paper-shell .bubble-wrap { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .app.paper-shell .bubble { line-height: 24px; }
 .app.paper-shell .bubble.is-agent { background: transparent; border: 0; box-shadow: none; padding: 0; max-width: 100%; width: 100%; }
