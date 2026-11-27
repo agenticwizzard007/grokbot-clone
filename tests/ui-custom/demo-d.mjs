@@ -30,7 +30,7 @@ try {
   await page.getByRole('status', { name: 'Appearance preview' }).getByRole('button', { name: 'Discard', exact: true }).click();
   await page.getByRole('status', { name: 'Appearance preview' }).waitFor({ state: 'hidden' }); console.log('PASS demo discard');
   await page.goto(`${server.base}/?ui=safe#bots`); await page.getByRole('status', { name: 'Appearance recovery' }).waitFor();
-  for (const width of [390, 1280]) { await page.setViewportSize({ width, height: width < 760 ? 844 : 900 }); await screenshot(`safe-mode-${width}`); }
+  for (const width of [390, 1280]) { await page.setViewportSize({ width, height: width < 760 ? 844 : 900 }); await page.goto(`${server.base}/?ui=safe#bots`); await page.getByRole('status', { name: 'Appearance recovery' }).waitFor(); await screenshot(`safe-mode-${width}`); }
   console.log('PASS demo safe mode');
   fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ passed: 15, configs: results, screenshots: images }, null, 2));
   const sheet = await browser.newPage({ viewport: { width: 1560, height: 1200 } });

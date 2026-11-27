@@ -26,8 +26,8 @@ export async function setTheme(mode: 'system' | 'light' | 'dark') {
 }
 let migrationPending = false;
 async function migrateTheme() {
-  const { userId, revision, status } = useCustomization.getState();
-  if (!userId || status !== 'ready' || migrationPending) return;
+  const { userId, revision, status, invalidStored } = useCustomization.getState();
+  if (!userId || status !== 'ready' || invalidStored || migrationPending) return;
   const key = `swarm.ui.migrated:${userId}`;
   try {
     if (localStorage.getItem(key)) return;
