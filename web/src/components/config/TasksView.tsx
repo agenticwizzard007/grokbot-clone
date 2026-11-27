@@ -13,7 +13,7 @@ import { WorkflowsPanel } from './WorkflowsPanel';
 import { WorkReports } from './WorkReports';
 import { workBotKey } from './workScope';
 import { useNeedsYou, useTasks } from './taskData';
-import { TaskHandoffProvider, AttentionStatus, NeedsYouCard, TaskCard, TaskError, sortTasks, workContext, setWorkContext, type Filter, type WorkContext } from './TaskCards';
+import { TaskLoopsLink, TaskHandoffProvider, AttentionStatus, NeedsYouCard, TaskCard, TaskError, sortTasks, workContext, setWorkContext, type Filter, type WorkContext } from './TaskCards';
 
 const TABS: WorkTab[] = ['Tasks', 'Team', 'Goals', 'Reports'];
 
@@ -77,7 +77,7 @@ function WorkWorkspace() {
       <div className="tasks-view__scroll" ref={scroll}>
         <Page type="list" className="tasks-view__inner work-ui">
           <div className="work-heading"><h1 id="tasks-heading" ref={pageHeading} tabIndex={-1}>{title === workTabLabel(tab) ? `${scope}${title}` : title}</h1>
-            {tab === 'Tasks' && <button type="button" className="btn btn--primary" onClick={() => { const bot = selectedBot ?? bots.find(b => b.isPrimary) ?? bots[0]; if (bot) { prefillComposer(bot.id, 'Create a task: '); openConversation(bot.id); } }} disabled={!bots.length}>Add task</button>}
+            {tab === 'Tasks' && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)', justifyContent: 'flex-end' }}><TaskLoopsLink /><button type="button" className="btn btn--primary" onClick={() => { const bot = selectedBot ?? bots.find(b => b.isPrimary) ?? bots[0]; if (bot) { prefillComposer(bot.id, 'Create a task: '); openConversation(bot.id); } }} disabled={!bots.length}>Add task</button></div>}
           </div>
           {tab === 'Tasks' && counts.needs_input > 0 && <Card tone="warning" className="tasks-needs-input" role="status" data-testid="tasks-needs-input">
             <span>{counts.needs_input} {counts.needs_input === 1 ? 'task needs' : 'tasks need'} your input</span>

@@ -1,5 +1,5 @@
-import { register } from 'node:module';
-register('tsx/esm', import.meta.url);
+import { register } from 'tsx/esm/api';
+register();
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import fs from 'node:fs';
@@ -197,4 +197,19 @@ test('ordinary room dispatch keeps the three responder cap and has no loop parsi
   calls.length = 0; dispatchRoomMessage(f.roomId, '@Checker loop', (id, trigger) => calls.push({ id, trigger }));
   assert.deepEqual(calls.map(c => c.id), [f.bots[1].id]);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM loops WHERE user_id=?').get(f.userId).n, 1);
+});
+
+
+test('task links API requires a session, scopes results, and honors both feature switches', async () => {
+  const a = fixture(), b = fixture(); a.transition('awaiting_approval');
+  for (const f of [a, b]) db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES(session_hash(?),?,?,?)').run(f.userId, f.userId, Date.now(), Date.now() + 60000);
+  assert.equal((await tasks.handoffTasksApi.request('/handoff-task-links')).status, 401);
+  const get = f => tasks.handoffTasksApi.request('/handoff-task-links', { headers: { cookie: `swarm_session=${f.userId}` } });
+  const response = await get(a); assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal((await response.json()).links[a.taskId].loopId, a.loopId);
+  assert.deepEqual((await (await get(b)).json()).links, {});
+  db.prepare('INSERT INTO handoff_user_settings(user_id,enabled,updated_at) VALUES(?,0,?)').run(a.userId, Date.now());
+  assert.equal((await get(a)).status, 503);
+  process.env.HANDOFFS_DISABLED = '1';
+  try { assert.equal((await get(b)).status, 503); } finally { delete process.env.HANDOFFS_DISABLED; }
 });

@@ -1,3 +1,5 @@
+import { Hono } from 'hono';
+import { requireUser, type AuthVars } from '../lib/auth.js';
 import { db, now } from '../db.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
@@ -111,3 +113,14 @@ export function linkTaskOutput(userId: string, taskId: string, jobId: string) {
   if (task.state !== 'done') return false;
   return db.prepare('UPDATE run_outputs SET task_id=? WHERE user_id=? AND bot_id=? AND job_id=? AND (task_id IS NULL OR task_id=?)').run(taskId, userId, task.bot_id, jobId, taskId).changes > 0;
 }
+
+/** HO-I mounts this alongside handoffsApi; no change to the existing task schema or serializer. */
+export const handoffTasksApi = new Hono<AuthVars>();
+handoffTasksApi.use('*', requireUser);
+handoffTasksApi.get('/handoff-task-links', c => {
+  const userId = c.get('user').id;
+  const setting = db.prepare('SELECT enabled FROM handoff_user_settings WHERE user_id=?').get(userId) as { enabled: number } | undefined;
+  c.header('Cache-Control', 'no-store');
+  if (process.env.HANDOFFS_DISABLED === '1' || setting?.enabled === 0) return c.json({ error: 'Agent handoffs are disabled.', code: 'disabled' }, 503);
+  return c.json({ links: getTaskHandoffLinks(userId) });
+});

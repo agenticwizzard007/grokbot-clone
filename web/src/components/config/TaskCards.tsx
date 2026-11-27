@@ -7,7 +7,7 @@ import type { NeedsYouItem } from '../../lib/api';
 import { queueImportedSetup } from '../../lib/setupApi';
 import { scrollToRow } from '../../lib/scrollToRow';
 import { relativeShort } from '../../lib/time';
-import { openConversation, useConfigUI } from '../../configStore';
+import { openConversation, useConfigUI, useVersion } from '../../configStore';
 import { botSlug, type WorkTab } from '../../lib/userRoutes';
 import { useStore } from '../../store';
 import { needsYouChip } from './settingsLogic';
@@ -21,21 +21,39 @@ import '../../styles/tasks.css';
 
 /** Optional task response enrichment supplied by the handoff service. */
 export type HandoffTask = Task & { handoff?: { loopId?: string; handoffId?: string; kind: 'loop' | 'gate' | 'receiver' } };
-const HandoffEnabled = createContext(false);
+const HandoffEnabled = createContext<{ enabled: boolean; links: Record<string, NonNullable<HandoffTask['handoff']>> }>({ enabled: false, links: {} });
 
 export function TaskHandoffProvider({ children }: { children: ReactNode }) {
   const userId = useStore(s => s.user?.id);
   const [enabledFor, setEnabledFor] = useState<string>();
+  const [links, setLinks] = useState<Record<string, NonNullable<HandoffTask['handoff']>>>({});
+  const version = useVersion('tasks');
+  const connected = useStore(s => s.sseConnected);
   useEffect(() => {
     if (!userId) return;
     const controller = new AbortController();
     fetch('/api/handoff-settings', { credentials: 'include', signal: controller.signal })
       .then(async response => response.ok ? response.json() : undefined)
-      .then(result => { if (!controller.signal.aborted && (result?.settings ?? result)?.enabled === true) setEnabledFor(userId); })
+      .then(async result => {
+        if (controller.signal.aborted) return;
+        const enabled = (result?.settings ?? result)?.enabled === true;
+        setEnabledFor(enabled ? userId : undefined);
+        if (!enabled) { setLinks({}); return; }
+        const response = await fetch('/api/handoff-task-links', { credentials: 'include', signal: controller.signal });
+        if (response.ok) {
+          const data = await response.json();
+          if (!controller.signal.aborted) setLinks(data.links ?? {});
+        }
+      })
       .catch(() => {});
     return () => controller.abort();
-  }, [userId]);
-  return <HandoffEnabled.Provider value={!!userId && enabledFor === userId}>{children}</HandoffEnabled.Provider>;
+  }, [userId, version, connected]);
+  return <HandoffEnabled.Provider value={{ enabled: !!userId && enabledFor === userId, links: enabledFor === userId ? links : {} }}>{children}</HandoffEnabled.Provider>;
+}
+
+export function TaskLoopsLink() {
+  const { enabled } = useContext(HandoffEnabled);
+  return enabled ? <a className="cfg-btn cfg-btn--secondary" href="#loops">Loops</a> : null;
 }
 
 /** Public launch contract for the shared HO-D sheet. The feature stays hidden until that module ships. */
@@ -44,13 +62,20 @@ type SheetProps = { open: boolean; source: { taskId: string }; senderId: string;
 type SendSheetComponent = (props: SheetProps) => ReactNode;
 
 export function TaskActions({ task, bot }: { task: HandoffTask; bot?: Bot }) {
-  const enabled = useContext(HandoffEnabled);
+  const { enabled, links } = useContext(HandoffEnabled);
+  const handoff = links[task.id] ?? task.handoff;
   const [Sheet, setSheet] = useState<SendSheetComponent>();
   const [error, setError] = useState(false);
   const [receipt, setReceipt] = useState<{ id: string; name: string }>();
   const [loading, setLoading] = useState(false);
   const alive = useRef(true);
   const opener = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    if (Sheet || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    opener.current?.focus();
+  }, [Sheet]);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const open = async () => {
     if (loading) return;
@@ -61,11 +86,11 @@ export function TaskActions({ task, bot }: { task: HandoffTask; bot?: Bot }) {
     } catch { if (alive.current) setError(true); }
     finally { if (alive.current) setLoading(false); }
   };
-  const close = () => { setSheet(undefined); opener.current?.focus(); };
+  const close = () => { restoreFocus.current = true; setSheet(undefined); };
   if (!enabled) return null;
   return <div style={{ display: 'grid', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
-    {task.handoff?.loopId && <><span className="pb-pill" style={{ justifySelf: 'start' }}>Loop</span><a className="cfg-btn cfg-btn--secondary" href={`#loop/${encodeURIComponent(task.handoff.loopId)}`}>View</a></>}
-    {!task.handoff?.loopId && task.handoff?.handoffId && <a className="cfg-btn cfg-btn--secondary" href={`#handoff/${encodeURIComponent(task.handoff.handoffId)}`}>View</a>}
+    {handoff?.loopId && <><span className="pb-pill" style={{ justifySelf: 'start', borderRadius: 'var(--radius-full)', background: 'var(--color-bg-subtle)', padding: '2px 8px', fontSize: '12px' }}>Loop</span><a className="cfg-btn cfg-btn--secondary" href={`#loop/${encodeURIComponent(handoff.loopId)}`}>View</a></>}
+    {!handoff?.loopId && handoff?.handoffId && <a className="cfg-btn cfg-btn--secondary" href={`#handoff/${encodeURIComponent(handoff.handoffId)}`}>View</a>}
     {task.state === 'done' && bot && bot.kind !== 'room' && sendSheets['../../handoffs/SendSheet.tsx'] && <button ref={opener} type="button" className="cfg-btn cfg-btn--secondary" disabled={loading} onClick={open}>Send to agent</button>}
     {error && <p role="alert">Could not open Send to agent. Try again.</p>}
     {receipt && <p role="status">Sent to {receipt.name}. <a href={`#handoff/${encodeURIComponent(receipt.id)}`}>View</a></p>}
