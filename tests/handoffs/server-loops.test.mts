@@ -1,0 +1,141 @@
+import assert from 'node:assert/strict';
+import { after, test } from 'node:test';
+import { fixture, makeLoop, runLoop, loops, runner, db, flush, finish, reconcile, hdb, interrupted, cleanup } from './server-fixture.test.mts';
+after(cleanup);
+test('two Bot loop converges at pass three with durable outputs, suppressed replies and complete events', async () => {
+    const f = fixture(), l = makeLoop(f);
+    const done = await runLoop(f, l.id);
+    assert.equal(done.status, 'succeeded');
+    assert.equal(done.iteration, 3);
+    assert.equal(loops.resultText(done), 'Done in 3 passes: all checks passed.');
+    const steps = loops.loopSteps(f.userId, l.id);
+    assert.equal(steps.length, 6);
+    assert.equal(done.bestOutputId, steps[4].outputId);
+    for (const h of db.prepare('SELECT h.id,r.text FROM handoffs h JOIN coordination_requests r ON r.id=h.request_id WHERE h.loop_id=?').all(l.id) as any[])
+        assert.ok(h.text.startsWith(`[handoff ${h.id} `));
+    const secondMaker = db.prepare('SELECT packet FROM handoff_loop_dispatches WHERE loop_id=? AND iteration=2 AND step_id=?').get(l.id, 'maker') as any;
+    assert.ok(secondMaker.packet.includes(`swarm://output/${steps[1].outputId}`));
+    assert.equal((db.prepare("SELECT count(*) n FROM coordination_requests WHERE user_id=? AND kind='result'").get(f.userId) as any).n, 0);
+    assert.ok((db.prepare('SELECT depth,reply,from_bot_id,to_bot_id FROM coordination_requests WHERE user_id=?').all(f.userId) as any[]).every(r => r.depth === 0 && r.reply === 0 && r.from_bot_id === r.to_bot_id));
+    const sequence = hdb.events(f.userId, { loopId: l.id }).map(e => e.type);
+    const makerEvents = ['handoff.created', 'loop.step_dispatched', 'handoff.delivered', 'output.created', 'output.finalized', 'handoff.running', 'handoff.completed', 'loop.step_completed'];
+    const checkerEvents = ['handoff.created', 'loop.step_dispatched', 'handoff.delivered', 'loop.verdict', 'output.created', 'output.finalized', 'handoff.running', 'handoff.completed', 'loop.step_completed', 'loop.iteration_completed'];
+    assert.deepEqual(sequence, ['loop.created', 'loop.started', ...makerEvents, ...checkerEvents, ...makerEvents, ...checkerEvents, ...makerEvents, ...checkerEvents, 'loop.finished']);
+    assert.equal(sequence.filter(t => t === 'loop.step_dispatched').length, 6);
+    assert.equal(sequence.filter(t => t === 'loop.step_completed').length, 6);
+    assert.equal(sequence.filter(t => t === 'loop.verdict').length, 3);
+    assert.equal(sequence.at(-1), 'loop.finished');
+    const before = (db.prepare('SELECT count(*) n FROM run_outputs WHERE user_id=?').get(f.userId) as any).n;
+    for (let i = 0; i < 4; i++)
+        reconcile.recoverHandoffs();
+    assert.equal((db.prepare('SELECT count(*) n FROM run_outputs WHERE user_id=?').get(f.userId) as any).n, before);
+});
+test('capped loop selects the latest equally good output and extends only once', async () => {
+    const f = fixture(), l = makeLoop(f);
+    const capped = await runLoop(f, l.id, 'cap');
+    assert.equal(capped.status, 'capped');
+    assert.equal(capped.stopReason, 'max_iterations');
+    assert.equal(capped.iteration, 3);
+    assert.match(loops.resultText(capped), /^Stopped after 3 passes \(limit\)/);
+    assert.equal(loops.controlLoop(f.userId, l.id, 'extend').spec.limits.maxIterations, 5);
+    assert.equal(loops.controlLoop(f.userId, l.id, 'extend').spec.limits.maxIterations, 5);
+    assert.equal((await runLoop(f, l.id, 'cap')).iteration, 5);
+});
+test('identical maker output stalls at pass two', async () => { const f = fixture(), l = makeLoop(f); const done = await runLoop(f, l.id, 'stall'); assert.equal(done.status, 'stalled'); assert.equal(done.iteration, 2); });
+test('missing verdict nudges once then stops without guessing prose', async () => { const f = fixture(), l = makeLoop(f); const done = await runLoop(f, l.id, 'no-verdict'); assert.equal(done.stopReason, 'no_verdict'); assert.equal((db.prepare('SELECT count(*) n FROM handoff_loop_dispatches WHERE loop_id=?').get(l.id) as any).n, 3); });
+test('failed step retries once then fails', async () => { const f = fixture(), l = makeLoop(f); assert.equal((await runLoop(f, l.id, 'fail')).stopReason, 'step_failed'); assert.equal((db.prepare('SELECT count(*) n FROM handoff_loop_dispatches WHERE loop_id=?').get(l.id) as any).n, 2); });
+test('step timeout interrupts the exact job and prevents further dispatch', async () => { const f = fixture(), l = makeLoop(f); await flush(f); const step = loops.loopSteps(f.userId, l.id)[0]; db.prepare('UPDATE loop_steps SET started_at=? WHERE id=?').run(Date.now() - 700000, step.id); runner.driveLoop(f.userId, l.id); assert.equal(loops.getLoop(f.userId, l.id).stopReason, 'step_failed'); assert.ok(interrupted.includes(step.jobId!)); });
+test('first, each, cap, decline and expired gate paths are durable', async () => {
+    const f = fixture(), l = makeLoop(f, { gate: { before: 'each', onCap: 'ask' } });
+    assert.equal(l.status, 'awaiting_approval');
+    assert.equal(loops.loopSteps(f.userId, l.id).length, 0);
+    loops.controlLoop(f.userId, l.id, 'approve');
+    let state = await runLoop(f, l.id, 'cap');
+    assert.equal(state.status, 'awaiting_approval');
+    assert.equal(state.iteration, 1);
+    loops.controlLoop(f.userId, l.id, 'approve');
+    state = await runLoop(f, l.id, 'cap');
+    assert.equal(state.iteration, 2);
+    loops.controlLoop(f.userId, l.id, 'approve');
+    state = await runLoop(f, l.id, 'cap');
+    assert.equal(state.status, 'awaiting_approval');
+    assert.equal(state.iteration, 3);
+    loops.controlLoop(f.userId, l.id, 'extend');
+    assert.equal(loops.getLoop(f.userId, l.id).spec.limits.maxIterations, 5);
+    loops.controlLoop(f.userId, l.id, 'stop');
+    const decline = makeLoop(f, { gate: { before: 'first', onCap: 'stop' } });
+    assert.equal(loops.controlLoop(f.userId, decline.id, 'decline').stopReason, 'declined');
+    const expiry = makeLoop(f, { gate: { before: 'first', onCap: 'stop' } });
+    db.prepare('UPDATE handoff_loop_controls SET gate_at=? WHERE loop_id=?').run(Date.now() - 86400001, expiry.id);
+    runner.driveLoop(f.userId, expiry.id);
+    assert.equal(loops.getLoop(f.userId, expiry.id).stopReason, 'gate_expired');
+});
+test('pause lets the current job finish but starts no next job until resume', async () => { const f = fixture(), l = makeLoop(f); await flush(f); const step = loops.loopSteps(f.userId, l.id)[0]; loops.controlLoop(f.userId, l.id, 'pause'); finish(f, step.jobId!, 'Paused fixture draft.'); assert.equal(loops.loopSteps(f.userId, l.id).length, 1); loops.controlLoop(f.userId, l.id, 'resume'); assert.equal((await runLoop(f, l.id)).status, 'succeeded'); });
+test('expired lease recovery dispatches once and live lease blocks another driver', async () => { const f = fixture(), l = makeLoop(f, {}, false); db.prepare("UPDATE loops SET status='running',started_at=?,claim_token='crashed',claim_until=? WHERE id=?").run(Date.now(), Date.now() + 10000, l.id); runner.driveLoop(f.userId, l.id); assert.equal(loops.loopSteps(f.userId, l.id).length, 0); db.prepare('UPDATE loops SET claim_until=0 WHERE id=?').run(l.id); reconcile.recoverHandoffs(); reconcile.recoverHandoffs(); await flush(f); assert.equal(loops.loopSteps(f.userId, l.id).length, 1); assert.equal((await runLoop(f, l.id)).status, 'succeeded'); });
+test('measured cost and token caps stop before a second step and wall clock is bounded', async () => {
+    for (const kind of ['maxCostUsd', 'maxTokens'] as const) {
+        const f = fixture(), l = makeLoop(f, { limits: { maxIterations: 3, maxMinutes: 30, stepTimeoutMinutes: 10, [kind]: 1 } });
+        await flush(f);
+        const step = loops.loopSteps(f.userId, l.id)[0];
+        db.prepare("INSERT INTO usage_events(user_id,bot_id,job_id,kind,provider,model,input_tokens,output_tokens,cost_usd,created_at) VALUES(?,?,?,'chat','fixture','fixture',2,2,2,?)").run(f.userId, f.maker.id, step.jobId, Date.now());
+        finish(f, step.jobId!, 'Budget fixture.');
+        assert.equal(loops.getLoop(f.userId, l.id).stopReason, kind === 'maxCostUsd' ? 'max_cost' : 'max_tokens');
+        assert.equal(loops.loopSteps(f.userId, l.id).length, 1);
+    }
+    const f = fixture(), l = makeLoop(f);
+    db.prepare('UPDATE loops SET started_at=? WHERE id=?').run(Date.now() - 31 * 60000, l.id);
+    runner.driveLoop(f.userId, l.id);
+    assert.equal(loops.getLoop(f.userId, l.id).stopReason, 'max_minutes');
+});
+test('concurrency cap holds at gates', () => {
+    const f = fixture();
+    for (let i = 0; i < 3; i++)
+        makeLoop(f, { gate: { before: 'first', onCap: 'stop' } });
+    assert.throws(() => makeLoop(f), /Three loops/);
+});
+test('pipeline completes in order and manual review can mark its last output done', async () => {
+    const f = fixture(), s = (await import('./server-fixture.test.mts')).spec(f);
+    const l = makeLoop(f, { kind: 'pipeline', steps: s.steps.map((step: any) => ({ ...step, role: 'step' })), exit: { mode: 'manual' } });
+    const paused = await runLoop(f, l.id);
+    assert.equal(paused.status, 'awaiting_approval');
+    assert.equal(paused.iteration, 1);
+    const done = loops.controlLoop(f.userId, l.id, 'done');
+    assert.equal(done.status, 'succeeded');
+    assert.equal(done.bestOutputId, loops.loopSteps(f.userId, l.id).at(-1)?.outputId);
+});
+test('a separate judge alone submits the verdict and the maker output is selected', async () => {
+    const { createBot, jobs, spec } = await import('./server-fixture.test.mts');
+    const f = fixture(), judge = createBot(f.userId, { name: 'Judge fixture' });
+    db.prepare("UPDATE bot_setups SET onboarding_status='active' WHERE bot_id=?").run(judge.id);
+    const l = makeLoop(f, { exit: { mode: 'judge', judgeBotId: judge.id, rubric: 'Approve the fixture.' } });
+    await flush(f);
+    finish(f, loops.loopSteps(f.userId, l.id)[0].jobId!, 'Maker fixture.');
+    await flush(f);
+    const checker = loops.loopSteps(f.userId, l.id).at(-1)!;
+    assert.throws(() => loops.submitVerdict({ userId: f.userId, botId: f.checker.id, jobId: checker.jobId!, toolCallId: 'verdict' }, { pass: true, checklist: [], feedback: 'Approved.' }), /separate judge/);
+    finish(f, checker.jobId!, 'Checker feedback.');
+    await flush(f);
+    const review = loops.loopSteps(f.userId, l.id).at(-1)!;
+    assert.equal(review.botId, judge.id);
+    jobs.beginJob(review.jobId!);
+    loops.submitVerdict({ userId: f.userId, botId: judge.id, jobId: review.jobId!, toolCallId: 'judge' }, { pass: true, checklist: [], feedback: 'Approved.' });
+    finish(f, review.jobId!, 'Judge approved.');
+    assert.equal(loops.getLoop(f.userId, l.id).status, 'succeeded');
+    assert.equal(loops.loopSteps(f.userId, l.id).length, 3);
+});
+test('decision resumes retain loop lineage and include continuation usage in budgets', async () => {
+    const { requests, jobs, outputs } = await import('./server-fixture.test.mts');
+    const f = fixture(), l = makeLoop(f, { limits: { maxIterations: 3, maxMinutes: 30, stepTimeoutMinutes: 10, maxTokens: 2 } });
+    await flush(f);
+    const initial = loops.loopSteps(f.userId, l.id)[0];
+    jobs.beginJob(initial.jobId!);
+    jobs.finishJob(initial.jobId!, true);
+    requests.recordCoordinationJobOutcome({ userId: f.userId, botId: f.maker.id, jobId: initial.jobId!, status: 'waiting' });
+    const continuation = jobs.acceptJob(f.maker.id, { type: 'resume', parentJobId: initial.jobId });
+    db.prepare("INSERT INTO usage_events(user_id,bot_id,job_id,kind,provider,model,input_tokens,output_tokens,cost_usd,created_at) VALUES(?,?,?,'chat','fixture','fixture',2,2,NULL,?)").run(f.userId, f.maker.id, continuation.id, Date.now());
+    finish(f, continuation.id, 'Resumed fixture.');
+    assert.equal(loops.getLoop(f.userId, l.id).stopReason, 'max_tokens');
+    const o = outputs.outputByJob(f.userId, continuation.id);
+    assert.equal(o.provenance.loopId, l.id);
+    assert.equal(o.provenance.iteration, 1);
+});

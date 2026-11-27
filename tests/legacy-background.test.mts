@@ -205,9 +205,12 @@ test('cloud drain rejects foreign metadata and unresolved creation before any st
   const owner = account(), id = vm(owner.id), receipt = hold(owner.id); let stops = 0;
   t.mock.method(cloud.driver, 'list', async () => [{ id: 'ext-' + owner.id, vmId: id, userId: 'foreign', state: 'started' }]);
   t.mock.method(cloud.driver, 'stop', async () => { stops++; });
-  await assert.rejects(stopLegacyCloud(receipt, async () => {}, 1000), /ownership/);
+  // Measured held-fence checks: main 43.6ms (135 tables), HO-B 86.3ms (155 tables,
+  // before consolidating file selections). About ten checks precede cloud effects;
+  // this tests ownership refusal, not a 1s SLA. Dedicated deadline tests stay unchanged.
+  await assert.rejects(stopLegacyCloud(receipt, async () => {}, 5000), /ownership/);
   const late = account(); vm(late.id, 'pending-machine', 'creating');
-  await assert.rejects(stopLegacyCloud(hold(late.id), async () => {}, 1000), /reconciliation/);
+  await assert.rejects(stopLegacyCloud(hold(late.id), async () => {}, 5000), /reconciliation/);
   assert.equal(stops, 0);
 });
 
@@ -230,7 +233,8 @@ test('cloud drain rechecks authorization after inventory waits and never issues 
   let entered = false, revoked = false, stops = 0;
   t.mock.method(cloud.driver, 'list', async () => { entered = true; return inventory.promise; });
   t.mock.method(cloud.driver, 'stop', async () => { stops++; });
-  const stopping = stopLegacyCloud(receipt, async () => { if (revoked) throw new Error('lease revoked'); }, 1000);
+  // Allow the full fence checks measured above before testing authorization revocation.
+  const stopping = stopLegacyCloud(receipt, async () => { if (revoked) throw new Error('lease revoked'); }, 5000);
   const rejected = assert.rejects(stopping, /lease revoked/);
   await until(() => entered); revoked = true;
   inventory.resolve([{ id: 'revoked-machine', vmId: id, userId: owner.id, state: 'started' }]); await rejected;

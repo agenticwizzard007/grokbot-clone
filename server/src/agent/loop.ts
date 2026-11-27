@@ -45,6 +45,7 @@ import {contextRevision} from './context-refresh.js';
 import {recordJobCompletion,pendingJobCompletions,acknowledgeJobCompletion,deferJobCompletion} from '../native/job-completions.js';
 import { beforeForegroundTurn, onLearningTurn, learningForegroundEpoch, learningSourceSnapshot } from './learning.js';
 import { configureCoordinationRuntime, recordCoordinationJobOutcome, enqueueInternalMessage, onCoordinationJobFinished, coordinationPreTurn } from '../coordination/index.js';
+import { onJobFinished as onHandoffJobFinished } from '../handoffs/hooks.js';
 import { prepareDeliveryAction } from '../deliverables/approval.js';
 import { bindSetupHandoffRuntime, releaseReadySetupHandoffs } from '../bot-setup.js';
 
@@ -264,8 +265,8 @@ function scheduleAdmittedJob(jobId: string, userId: string, botId: string, trigg
       latency('queue', queuedAt, { botId });
       try {
         await withUsage({ userId,botId,jobId,reviewId:null,kind:'chat',audience:trigger.audience??(trigger.type==='bot'?'internal':'user') }, () => runTurn(botId,trigger,jobId,controller));
-        db.transaction(()=>{finishJob(jobId,true);const c=completions.get(jobId);if(c){recordCoordinationJobOutcome({userId,botId,jobId,status:c.status,finalText:c.finalText,trigger});recordJobCompletion({userId,botId,jobId,trigger,completion:c});}})();
-      } catch { db.transaction(()=>{finishJob(jobId,false);const c=completions.get(jobId);if(c){recordCoordinationJobOutcome({userId,botId,jobId,status:c.status,finalText:c.finalText,trigger});recordJobCompletion({userId,botId,jobId,trigger,completion:c});}})(); }
+        db.transaction(()=>{finishJob(jobId,true);const c=completions.get(jobId);if(c){recordCoordinationJobOutcome({userId,botId,jobId,status:c.status,finalText:c.finalText,trigger});onHandoffJobFinished({userId,botId,jobId,status:c.status,finalText:c.finalText,trigger});recordJobCompletion({userId,botId,jobId,trigger,completion:c});}})();
+      } catch { db.transaction(()=>{finishJob(jobId,false);const c=completions.get(jobId);if(c){recordCoordinationJobOutcome({userId,botId,jobId,status:c.status,finalText:c.finalText,trigger});onHandoffJobFinished({userId,botId,jobId,status:c.status,finalText:c.finalText,trigger});recordJobCompletion({userId,botId,jobId,trigger,completion:c});}})(); }
     } finally { release(); }
     completions.delete(jobId);
     await dispatchJobCompletions(jobId);
