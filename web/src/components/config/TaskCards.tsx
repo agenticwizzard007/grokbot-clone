@@ -1,13 +1,13 @@
 import { Card as LayoutCard } from '../layout';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { LabelWords } from '../ProviderMark';
 import type { Bot, Task } from '@shared/types';
 import type { NeedsYouItem } from '../../lib/api';
 import { queueImportedSetup } from '../../lib/setupApi';
 import { scrollToRow } from '../../lib/scrollToRow';
 import { relativeShort } from '../../lib/time';
-import { openConversation, useConfigUI } from '../../configStore';
+import { openConversation, useConfigUI, useVersion } from '../../configStore';
 import { botSlug, type WorkTab } from '../../lib/userRoutes';
 import { useStore } from '../../store';
 import { needsYouChip } from './settingsLogic';
@@ -18,6 +18,85 @@ import './ui';
 import './workArea.css';
 import '@fontsource-variable/instrument-sans/wght.css';
 import '../../styles/tasks.css';
+
+/** Optional task response enrichment supplied by the handoff service. */
+export type HandoffTask = Task & { handoff?: { loopId?: string; handoffId?: string; kind: 'loop' | 'gate' | 'receiver' } };
+const HandoffEnabled = createContext<{ enabled: boolean; links: Record<string, NonNullable<HandoffTask['handoff']>> }>({ enabled: false, links: {} });
+
+export function TaskHandoffProvider({ children }: { children: ReactNode }) {
+  const userId = useStore(s => s.user?.id);
+  const [enabledFor, setEnabledFor] = useState<string>();
+  const [linkSnapshot, setLinkSnapshot] = useState<{ userId: string; links: Record<string, NonNullable<HandoffTask['handoff']>> }>();
+  const version = useVersion('tasks');
+  const connected = useStore(s => s.sseConnected);
+  useEffect(() => {
+    if (!userId) return;
+    const controller = new AbortController();
+    fetch('/api/handoff-settings', { credentials: 'include', signal: controller.signal })
+      .then(async response => response.ok ? response.json() : undefined)
+      .then(async result => {
+        if (controller.signal.aborted) return;
+        const enabled = (result?.settings ?? result)?.enabled === true;
+        setEnabledFor(enabled ? userId : undefined);
+        if (!enabled) { setLinkSnapshot(undefined); return; }
+        const response = await fetch('/api/handoff-task-links', { credentials: 'include', signal: controller.signal });
+        if (response.ok) {
+          const data = await response.json();
+          if (!controller.signal.aborted) setLinkSnapshot({ userId, links: data.links ?? {} });
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [userId, version, connected]);
+  return <HandoffEnabled.Provider value={{ enabled: !!userId && enabledFor === userId, links: linkSnapshot && enabledFor === userId && linkSnapshot.userId === userId ? linkSnapshot.links : {} }}>{children}</HandoffEnabled.Provider>;
+}
+
+export function TaskLoopsLink() {
+  const { enabled } = useContext(HandoffEnabled);
+  return enabled ? <a className="cfg-btn cfg-btn--secondary" href="#loops">Loops</a> : null;
+}
+
+/** Public launch contract for the shared HO-D sheet. The feature stays hidden until that module ships. */
+const sendSheets = import.meta.glob('../../handoffs/SendSheet.tsx');
+type SheetProps = { open: boolean; source: { taskId: string }; senderId: string; title: string; onClose: () => void; onSent: (handoff: { id: string }, target: { name: string }) => void };
+type SendSheetComponent = (props: SheetProps) => ReactNode;
+
+export function TaskActions({ task, bot }: { task: HandoffTask; bot?: Bot }) {
+  const { enabled, links } = useContext(HandoffEnabled);
+  const handoff = links[task.id] ?? task.handoff;
+  const [Sheet, setSheet] = useState<SendSheetComponent>();
+  const [error, setError] = useState(false);
+  const [receipt, setReceipt] = useState<{ id: string; name: string }>();
+  const [loading, setLoading] = useState(false);
+  const alive = useRef(true);
+  const opener = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    if (Sheet || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    opener.current?.focus();
+  }, [Sheet]);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const open = async () => {
+    if (loading) return;
+    setLoading(true); setError(false); setReceipt(undefined);
+    try {
+      const module = await sendSheets['../../handoffs/SendSheet.tsx']() as { SendSheet: SendSheetComponent };
+      if (alive.current) setSheet(() => module.SendSheet);
+    } catch { if (alive.current) setError(true); }
+    finally { if (alive.current) setLoading(false); }
+  };
+  const close = () => { restoreFocus.current = true; setSheet(undefined); };
+  if (!enabled) return null;
+  return <div style={{ display: 'grid', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+    {handoff?.loopId && <><span className="pb-pill" style={{ justifySelf: 'start', borderRadius: 'var(--radius-full)', background: 'var(--color-bg-subtle)', padding: '2px 8px', fontSize: '12px' }}>Loop</span><a className="cfg-btn cfg-btn--secondary" href={`#loop/${encodeURIComponent(handoff.loopId)}`}>View</a></>}
+    {!handoff?.loopId && handoff?.handoffId && <a className="cfg-btn cfg-btn--secondary" href={`#handoff/${encodeURIComponent(handoff.handoffId)}`}>View</a>}
+    {task.state === 'done' && bot && bot.kind !== 'room' && sendSheets['../../handoffs/SendSheet.tsx'] && <button ref={opener} type="button" className="cfg-btn cfg-btn--secondary" disabled={loading} onClick={open}>Send to agent</button>}
+    {error && <p role="alert">Could not open Send to agent. Try again.</p>}
+    {receipt && <p role="status">Sent to {receipt.name}. <a href={`#handoff/${encodeURIComponent(receipt.id)}`}>View</a></p>}
+    {Sheet && bot && <Sheet open source={{ taskId: task.id }} senderId={bot.id} title={task.title} onClose={close} onSent={(handoff, target) => { setReceipt({ id: handoff.id, name: target.name }); }} />}
+  </div>;
+}
 
 export type Filter = 'all' | 'open' | Task['state'];
 export type WorkContext = { filter: Filter; caller?: string; report?: ReportLocation };
@@ -58,7 +137,7 @@ function TaskTitle({ title }: { title: string }) {
   return <span ref={ref} className="task-card__title"><LabelWords>{compact ? 'Task details' : title}</LabelWords></span>;
 }
 
-export function TaskCard({ task, bot, compact = false }: { task: Task; bot?: Bot; compact?: boolean }) {
+export function TaskCard({ task, bot, compact = false }: { task: HandoffTask; bot?: Bot; compact?: boolean }) {
   const status = STATUS[task.state];
   return (
     <LayoutCard className="task-card-frame"><button type="button" className={`task-card is-${task.state}${compact ? ' is-compact' : ''}`} onClick={() => bot && openWorkChat(bot.id)} disabled={!bot} title={`${task.title}. ${task.state === 'done' ? 'Completed' : 'Updated'} ${when(task)} (${new Date(task.updatedAt).toLocaleString()})`}
@@ -70,7 +149,7 @@ export function TaskCard({ task, bot, compact = false }: { task: Task; bot?: Bot
 
       </span>
 
-    </button></LayoutCard>
+    </button><TaskActions task={task} bot={bot} /></LayoutCard>
   );
 }
 
@@ -122,6 +201,10 @@ export function AttentionStatus({ attention }: { attention: ReturnType<typeof us
 
 /** The same task states remain visible in each bot’s details panel. */
 export function BotTasks({ bot }: { bot: Bot }) {
+  return <TaskHandoffProvider><BotTasksContent bot={bot} /></TaskHandoffProvider>;
+}
+
+function BotTasksContent({ bot }: { bot: Bot }) {
   const { tasks, error, retry } = useTasks(bot.id);
   const attention = useNeedsYou(bot.id);
   const waitingItems = attention.items ?? [];
