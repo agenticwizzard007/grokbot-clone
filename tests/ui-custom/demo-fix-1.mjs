@@ -16,8 +16,9 @@ fs.mkdirSync(output, { recursive: true });
 const app = await layoutServer();
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 const report = { checks: [], screenshots: [] };
+const widths = (process.env.FIX_1_WIDTHS || '320,390,500,768,1280').split(',').map(Number);
 try {
-  for (const width of [320, 390, 500, 768, 1280]) for (const theme of ['light', 'dark']) {
+  for (const width of widths) for (const theme of ['light', 'dark']) {
     const context = await browser.newContext({ viewport: { width, height: width <= 760 ? 844 : 900 }, colorScheme: theme, reducedMotion: 'reduce' });
     await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: app.base }]);
     await context.addInitScript(theme => { if (location.origin === 'null') return; localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
@@ -81,4 +82,4 @@ try {
   await browser.close(); await app.close();
   fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2));
 }
-console.log(`FIX-1 demo: ${report.checks.length}/40 passed, 0 failed. Output: ${path.join(output, 'report.json')}`);
+console.log(`FIX-1 demo: ${report.checks.length}/${widths.length * 8} passed, 0 failed. Output: ${path.join(output, 'report.json')}`);
