@@ -28,10 +28,10 @@
 :root[data-contrast='high'] :focus-visible { outline-width: 3px; }
 :root[data-motion='reduced'] *, :root[data-motion='reduced'] *::before, :root[data-motion='reduced'] *::after {
   animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
-  transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+  transition-duration: 0s !important; scroll-behavior: auto !important;
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0s !important; scroll-behavior: auto !important; }
 }
 @media (max-width: 760px), (pointer: coarse) {
   :root[data-density='compact'] { --control-h: 44px !important; }

@@ -22,22 +22,24 @@ export const TOKEN_NAMES = [...colors, ...TOKEN_VALUES.keys()];
 export function safeToken(name: string, value: unknown): value is string {
   return typeof value === 'string' && (colors.has(name as `--${string}`) ? /^#[0-9a-f]{6}$/i.test(value) : !!TOKEN_VALUES.get(name)?.includes(value));
 }
+const matches = (query: string) => typeof window !== 'undefined' && !!window.matchMedia?.(query).matches;
 export function resolvedMode(mode: UiConfig['theme']['mode']) {
-  return mode === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light' : mode;
+  return mode === 'system' ? matches('(prefers-color-scheme: dark)') ? 'dark' : 'light' : mode;
 }
 /** Derivation happens once per config/media change; DOM writes are a single batch. */
 export function applyAppearance(doc: UiConfig, fallbackMode?: UiConfig['theme']['mode']) {
   const root = document.documentElement, mode = resolvedMode(fallbackMode ?? doc.theme.mode);
-  const tokens = effectiveTokens(doc, mode), forced = matchMedia('(forced-colors: active)').matches;
+  const tokens = effectiveTokens(doc, mode), forced = matches('(forced-colors: active)');
   for (const name of TOKEN_NAMES) {
     const value = tokens[name as `--${string}`];
-    if (safeToken(name, value) && !(forced && colors.has(name as `--${string}`))) root.style.setProperty(name, value);
-    else root.style.removeProperty(name);
+    if (safeToken(name, value) && !(forced && colors.has(name as `--${string}`))) root.style.setProperty?.(name, value);
+    else root.style.removeProperty?.(name);
   }
   root.dataset.theme = mode;
   root.style.colorScheme = mode;
   root.dataset.density = doc.theme.density;
+  root.dataset.fontScale = doc.theme.font.scale;
   root.dataset.contrast = doc.theme.contrast;
-  root.dataset.motion = doc.theme.motion === 'reduced' || matchMedia('(prefers-reduced-motion: reduce)').matches ? 'reduced' : 'system';
+  root.dataset.motion = doc.theme.motion === 'reduced' || matches('(prefers-reduced-motion: reduce)') ? 'reduced' : 'system';
   ensureFonts(doc.theme.font);
 }

@@ -55,8 +55,8 @@
   --color-bot-purple: rgb(143 89 249);
   --color-bot-brown: rgb(160 107 57);
   --color-bot-gray: rgb(153 153 153);
-  --text-tab: calc(11px * var(--font-scale));
-  --line-tab: calc(14px * var(--font-scale));
+  --text-tab: 11px;
+  --line-tab: 14px;
   --text-xs: calc(12px * var(--font-scale));
   --text-sm: calc(13px * var(--font-scale));
   --text-base: calc(14px * var(--font-scale));
@@ -175,4 +175,9 @@
 /* Phones: page titles step down so they fit beside the back control. */
 @media (max-width: 760px) {
   :root { --text-page-title: calc(22px * var(--font-scale)); --line-title: calc(28px * var(--font-scale)); --page-gutter: 16px; }
+}
+
+:root[data-font-scale="large"], :root[data-font-scale="xlarge"] {
+  --text-tab: calc(11px * var(--font-scale));
+  --line-tab: calc(14px * var(--font-scale));
 }

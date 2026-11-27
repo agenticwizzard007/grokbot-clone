@@ -33,7 +33,7 @@ try {
       const result = await page.evaluate(() => {
         const root = getComputedStyle(document.documentElement), tokens = {};
         // Resolve CSS lengths, so calc(24px * 1) and 24px compare as rendered values.
-        const probe = document.createElement('div'); probe.style.position = 'fixed'; probe.style.visibility = 'hidden'; document.body.append(probe);
+        const probe = document.createElement('div'); probe.style.position = 'fixed'; probe.style.visibility = 'hidden'; probe.style.setProperty('transition', 'none', 'important'); document.body.append(probe);
         for (const name of [...root].filter(name => name.startsWith('--'))) {
           if (['--font-scale', '--stack-gap', '--card-pad', '--ui-sidebar-width', '--ui-content-width'].includes(name)) continue;
           const raw = root.getPropertyValue(name).trim();

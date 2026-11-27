@@ -17,6 +17,7 @@ try {
     {op:'replace',path:'/theme/mode',value:'dark'},
     {op:'add',path:'/theme/colors/light/primary',value:'#0F766E'},
     {op:'add',path:'/theme/colors/dark/primary',value:'#5EEAD4'},
+    {op:'add',path:'/theme/colors/dark/pane',value:'#142831'},
     {op:'replace',path:'/theme/font/ui',value:'serif'},
     {op:'replace',path:'/theme/font/scale',value:'xlarge'},
     {op:'replace',path:'/theme/density',value:'comfortable'},
@@ -36,7 +37,7 @@ try {
   await page.addInitScript(()=>{window.__firstAppearance=null;const record=()=>{if(document.body){const style=getComputedStyle(document.documentElement);window.__firstAppearance={pane:style.getPropertyValue('--color-bg-pane').trim(),font:style.getPropertyValue('--font-stack').trim(),scale:style.getPropertyValue('--font-scale').trim()};}else requestAnimationFrame(record);};requestAnimationFrame(record);});
   // Keep React from running until the classic boot script has painted.
   await page.route('**/src/main.tsx',async route=>{await new Promise(resolve=>setTimeout(resolve,150));await route.continue();});await page.reload();await page.locator('.shell-header').waitFor();
-  const first=await page.evaluate(()=>window.__firstAppearance);assert.match(first.font,/Georgia/);assert.equal(first.scale,'1.25');await page.unroute('**/src/main.tsx');pass('first animation frame already has cached custom font and scale');
+  const first=await page.evaluate(()=>window.__firstAppearance);assert.equal(first.pane,'#142831');assert.match(first.font,/Georgia/);assert.equal(first.scale,'1.25');await page.unroute('**/src/main.tsx');pass('first animation frame already has cached custom background font and scale');
   await page.goto(`${server.base}/#bot/${server.fixture.bot.id}`);await page.locator('.composer__input').waitFor();
   const before=await style(page,'--font-stack');await server.preview([{op:'replace',path:'/theme/font/ui',value:'mono'}],'Readable preview');
   const banner=page.getByRole('status',{name:'Appearance preview'});await banner.waitFor();await waitStyle(page,'--font-stack','ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace');assert.equal(await second.page.getByRole('status',{name:'Appearance preview'}).count(),0);pass('real preview SSE applies only to the matching conversation');

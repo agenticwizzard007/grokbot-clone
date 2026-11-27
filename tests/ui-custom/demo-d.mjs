@@ -10,7 +10,7 @@ const server = await clientFixture(), browser = await chromium.launch({ executab
 const images = [], results = [];
 try {
   const { page } = await signedInPage(browser, server);
-  const screenshot = async name => { await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(120); const file = `${name}.png`; await page.screenshot({ path: path.join(output, file) }); images.push(file); };
+  const screenshot = async name => { await page.locator('.shell-header').waitFor(); await page.waitForFunction(async () => (await import('/src/store.ts')).useStore.getState().botsLoaded); await page.locator('.message-skeleton').waitFor({ state: 'hidden' }); await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(400); const file = `${name}.png`; await page.screenshot({ path: path.join(output, file) }); images.push(file); };
   const teal = presetConfig('forest'); teal.theme.mode = 'dark';
   const serif = presetConfig('paper'); serif.theme.font.scale = 'xlarge'; serif.theme.density = 'comfortable';
   for (const [name, doc] of [['teal-dark', teal], ['serif-xlarge-comfortable', serif], ['high-contrast', presetConfig('contrast')]]) {
