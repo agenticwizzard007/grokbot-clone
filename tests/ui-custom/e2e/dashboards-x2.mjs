@@ -117,6 +117,7 @@ export async function runDashboards({ demo = false } = {}) {
     const outputRows = page.getByRole('region', { name: 'Recent outputs', exact: true }).locator('.dashboard-output-row');
     await outputRows.first().waitFor();
     assert.doesNotMatch(await outputRows.allTextContents().then(rows => rows.join('\n')), /Review this dashboard change|^Output$/m);
+    assert.ok(new Set(await outputRows.locator('strong').allTextContents()).size > 1, 'Demo outputs have distinct realistic titles');
     assert.deepEqual(await outputRows.evaluateAll(rows => rows.map(row => ({ decoration: getComputedStyle(row).textDecorationLine, size: getComputedStyle(row.querySelector('strong')).fontSize, weight: getComputedStyle(row.querySelector('strong')).fontWeight }))), Array.from({ length: await outputRows.count() }, () => ({ decoration: 'none', size: '14px', weight: '600' })));
     const outputRoute = await outputRows.first().getAttribute('href'); await outputRows.first().click();
     await page.waitForURL(url => url.hash === outputRoute); pass('output rows use plain readable titles and open on tap');

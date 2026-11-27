@@ -79,8 +79,11 @@ await server.listen();`);
     const fixture = JSON.parse(fs.readFileSync(fixtureFile, 'utf8'));
     const db = new Database(env.DB_PATH);
     const seedOutputTitles = account => {
-      const outputs = db.prepare("SELECT id FROM run_outputs WHERE user_id=? AND title IN ('Output','Review this dashboard change.') ORDER BY created_at,id").all(account.userId);
-      outputs.forEach((row, index) => db.prepare('UPDATE run_outputs SET title=? WHERE id=?').run(index % 2 ? 'Draft the launch email' : 'Daily summary', row.id));
+      const outputs = db.prepare('SELECT id,title FROM run_outputs WHERE user_id=? ORDER BY created_at,id').all(account.userId);
+      const titles = ['Daily summary', 'Draft the launch email', 'Launch plan review'];
+      outputs.forEach((row, index) => {
+        if (['Output', 'Review this dashboard change.'].includes(row.title)) db.prepare('UPDATE run_outputs SET title=? WHERE id=?').run(titles[index % titles.length], row.id);
+      });
     };
     const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
     let controlId = 0, accountId = 0; const contexts = [], sockets = [], transcript = [];
