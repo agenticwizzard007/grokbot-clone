@@ -1,0 +1,1787 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "sidebar-width-narrow",
+      "builder": "setValue",
+      "path": "/layout/sidebar/width",
+      "value": "narrow",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/width",
+          "value": "narrow"
+        }
+      ]
+    },
+    {
+      "id": "sidebar-width-default",
+      "builder": "setValue",
+      "path": "/layout/sidebar/width",
+      "value": "default",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/width",
+          "value": "default"
+        }
+      ]
+    },
+    {
+      "id": "sidebar-width-wide",
+      "builder": "setValue",
+      "path": "/layout/sidebar/width",
+      "value": "wide",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/width",
+          "value": "wide"
+        }
+      ]
+    },
+    {
+      "id": "sidebar-collapse-null",
+      "builder": "setValue",
+      "path": "/layout/sidebar/collapsed",
+      "value": null,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/collapsed",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "sidebar-collapse-true",
+      "builder": "setValue",
+      "path": "/layout/sidebar/collapsed",
+      "value": true,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/collapsed",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "sidebar-collapse-false",
+      "builder": "setValue",
+      "path": "/layout/sidebar/collapsed",
+      "value": false,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/collapsed",
+          "value": false
+        }
+      ]
+    },
+    {
+      "id": "hide-allBots",
+      "builder": "sidebarVisibility",
+      "idValue": "allBots",
+      "value": false,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/hidden",
+          "value": [
+            "allBots"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hide-tasks",
+      "builder": "sidebarVisibility",
+      "idValue": "tasks",
+      "value": false,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/hidden",
+          "value": [
+            "tasks"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hide-files",
+      "builder": "sidebarVisibility",
+      "idValue": "files",
+      "value": false,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/hidden",
+          "value": [
+            "files"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hide-dashboards",
+      "builder": "sidebarVisibility",
+      "idValue": "dashboards",
+      "value": false,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/hidden",
+          "value": [
+            "dashboards"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hide-yourBots",
+      "builder": "sidebarVisibility",
+      "idValue": "yourBots",
+      "value": false,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/hidden",
+          "value": [
+            "yourBots"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hide-createBot",
+      "builder": "sidebarVisibility",
+      "idValue": "createBot",
+      "value": false,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/hidden",
+          "value": [
+            "createBot"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hide-usage",
+      "builder": "sidebarVisibility",
+      "idValue": "usage",
+      "value": false,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/hidden",
+          "value": [
+            "usage"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sidebar-move",
+      "builder": "moveSidebar",
+      "from": 1,
+      "direction": -1,
+      "patch": [
+        {
+          "op": "move",
+          "from": "/layout/sidebar/order/1",
+          "path": "/layout/sidebar/order/0"
+        }
+      ]
+    },
+    {
+      "id": "home-default",
+      "builder": "setValue",
+      "path": "/layout/home",
+      "value": {
+        "kind": "default"
+      },
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/home",
+          "value": {
+            "kind": "default"
+          }
+        }
+      ]
+    },
+    {
+      "id": "home-bots",
+      "builder": "setValue",
+      "path": "/layout/home",
+      "value": {
+        "kind": "bots"
+      },
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/home",
+          "value": {
+            "kind": "bots"
+          }
+        }
+      ]
+    },
+    {
+      "id": "home-tasks",
+      "builder": "setValue",
+      "path": "/layout/home",
+      "value": {
+        "kind": "tasks"
+      },
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/home",
+          "value": {
+            "kind": "tasks"
+          }
+        }
+      ]
+    },
+    {
+      "id": "phone-tabs",
+      "builder": "setValue",
+      "path": "/layout/phoneTabs",
+      "value": [
+        "tasks",
+        "bots",
+        "search",
+        "settings"
+      ],
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/phoneTabs",
+          "value": [
+            "tasks",
+            "bots",
+            "search",
+            "settings"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sidebar.search-show",
+      "builder": "setValue",
+      "path": "/components/sidebar.search",
+      "value": "show",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/sidebar.search",
+          "value": "show"
+        }
+      ]
+    },
+    {
+      "id": "sidebar.search-hide",
+      "builder": "setValue",
+      "path": "/components/sidebar.search",
+      "value": "hide",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/sidebar.search",
+          "value": "hide"
+        }
+      ]
+    },
+    {
+      "id": "sidebar.usage-show",
+      "builder": "setValue",
+      "path": "/components/sidebar.usage",
+      "value": "show",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/sidebar.usage",
+          "value": "show"
+        }
+      ]
+    },
+    {
+      "id": "sidebar.usage-hide",
+      "builder": "setValue",
+      "path": "/components/sidebar.usage",
+      "value": "hide",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/sidebar.usage",
+          "value": "hide"
+        }
+      ]
+    },
+    {
+      "id": "sidebar.account-show",
+      "builder": "setValue",
+      "path": "/components/sidebar.account",
+      "value": "show",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/sidebar.account",
+          "value": "show"
+        }
+      ]
+    },
+    {
+      "id": "sidebar.account-hide",
+      "builder": "setValue",
+      "path": "/components/sidebar.account",
+      "value": "hide",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/sidebar.account",
+          "value": "hide"
+        }
+      ]
+    },
+    {
+      "id": "chat.runLog-show",
+      "builder": "setValue",
+      "path": "/components/chat.runLog",
+      "value": "show",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/chat.runLog",
+          "value": "show"
+        }
+      ]
+    },
+    {
+      "id": "chat.runLog-collapsed",
+      "builder": "setValue",
+      "path": "/components/chat.runLog",
+      "value": "collapsed",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/chat.runLog",
+          "value": "collapsed"
+        }
+      ]
+    },
+    {
+      "id": "chat.runLog-hide",
+      "builder": "setValue",
+      "path": "/components/chat.runLog",
+      "value": "hide",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/chat.runLog",
+          "value": "hide"
+        }
+      ]
+    },
+    {
+      "id": "chat.avatars-show",
+      "builder": "setValue",
+      "path": "/components/chat.avatars",
+      "value": "show",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/chat.avatars",
+          "value": "show"
+        }
+      ]
+    },
+    {
+      "id": "chat.avatars-hide",
+      "builder": "setValue",
+      "path": "/components/chat.avatars",
+      "value": "hide",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/chat.avatars",
+          "value": "hide"
+        }
+      ]
+    },
+    {
+      "id": "chat.safetyNote-show",
+      "builder": "setValue",
+      "path": "/components/chat.safetyNote",
+      "value": "show",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/chat.safetyNote",
+          "value": "show"
+        }
+      ]
+    },
+    {
+      "id": "chat.safetyNote-hide",
+      "builder": "setValue",
+      "path": "/components/chat.safetyNote",
+      "value": "hide",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/chat.safetyNote",
+          "value": "hide"
+        }
+      ]
+    },
+    {
+      "id": "chat.modelChip-show",
+      "builder": "setValue",
+      "path": "/components/chat.modelChip",
+      "value": "show",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/chat.modelChip",
+          "value": "show"
+        }
+      ]
+    },
+    {
+      "id": "chat.modelChip-hide",
+      "builder": "setValue",
+      "path": "/components/chat.modelChip",
+      "value": "hide",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/chat.modelChip",
+          "value": "hide"
+        }
+      ]
+    },
+    {
+      "id": "header.voiceButton-show",
+      "builder": "setValue",
+      "path": "/components/header.voiceButton",
+      "value": "show",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/header.voiceButton",
+          "value": "show"
+        }
+      ]
+    },
+    {
+      "id": "header.voiceButton-hide",
+      "builder": "setValue",
+      "path": "/components/header.voiceButton",
+      "value": "hide",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/header.voiceButton",
+          "value": "hide"
+        }
+      ]
+    },
+    {
+      "id": "bots.statusChips-show",
+      "builder": "setValue",
+      "path": "/components/bots.statusChips",
+      "value": "show",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/bots.statusChips",
+          "value": "show"
+        }
+      ]
+    },
+    {
+      "id": "bots.statusChips-hide",
+      "builder": "setValue",
+      "path": "/components/bots.statusChips",
+      "value": "hide",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/bots.statusChips",
+          "value": "hide"
+        }
+      ]
+    },
+    {
+      "id": "bots.roomsSection-show",
+      "builder": "setValue",
+      "path": "/components/bots.roomsSection",
+      "value": "show",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/bots.roomsSection",
+          "value": "show"
+        }
+      ]
+    },
+    {
+      "id": "bots.roomsSection-hide",
+      "builder": "setValue",
+      "path": "/components/bots.roomsSection",
+      "value": "hide",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/bots.roomsSection",
+          "value": "hide"
+        }
+      ]
+    },
+    {
+      "id": "tasks.filters-show",
+      "builder": "setValue",
+      "path": "/components/tasks.filters",
+      "value": "show",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/tasks.filters",
+          "value": "show"
+        }
+      ]
+    },
+    {
+      "id": "tasks.filters-hide",
+      "builder": "setValue",
+      "path": "/components/tasks.filters",
+      "value": "hide",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/tasks.filters",
+          "value": "hide"
+        }
+      ]
+    },
+    {
+      "id": "phone.tabLabels-show",
+      "builder": "setValue",
+      "path": "/components/phone.tabLabels",
+      "value": "show",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/phone.tabLabels",
+          "value": "show"
+        }
+      ]
+    },
+    {
+      "id": "phone.tabLabels-hide",
+      "builder": "setValue",
+      "path": "/components/phone.tabLabels",
+      "value": "hide",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/components/phone.tabLabels",
+          "value": "hide"
+        }
+      ]
+    },
+    {
+      "id": "shortcut-search",
+      "builder": "setValue",
+      "path": "/keybindings/search",
+      "value": "Alt+J",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/search",
+          "value": "Alt+J"
+        }
+      ]
+    },
+    {
+      "id": "shortcut-settings",
+      "builder": "setValue",
+      "path": "/keybindings/settings",
+      "value": "Alt+J",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/settings",
+          "value": "Alt+J"
+        }
+      ]
+    },
+    {
+      "id": "shortcut-newBot",
+      "builder": "setValue",
+      "path": "/keybindings/newBot",
+      "value": "Alt+J",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/newBot",
+          "value": "Alt+J"
+        }
+      ]
+    },
+    {
+      "id": "shortcut-focusComposer",
+      "builder": "setValue",
+      "path": "/keybindings/focusComposer",
+      "value": "Alt+J",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/focusComposer",
+          "value": "Alt+J"
+        }
+      ]
+    },
+    {
+      "id": "shortcut-toggleSidebar",
+      "builder": "setValue",
+      "path": "/keybindings/toggleSidebar",
+      "value": "Alt+J",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/toggleSidebar",
+          "value": "Alt+J"
+        }
+      ]
+    },
+    {
+      "id": "shortcut-toggleDetails",
+      "builder": "setValue",
+      "path": "/keybindings/toggleDetails",
+      "value": "Alt+J",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/toggleDetails",
+          "value": "Alt+J"
+        }
+      ]
+    },
+    {
+      "id": "shortcut-effort",
+      "builder": "setValue",
+      "path": "/keybindings/effort",
+      "value": "Alt+J",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/effort",
+          "value": "Alt+J"
+        }
+      ]
+    },
+    {
+      "id": "shortcut-fast",
+      "builder": "setValue",
+      "path": "/keybindings/fast",
+      "value": "Alt+J",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/fast",
+          "value": "Alt+J"
+        }
+      ]
+    },
+    {
+      "id": "shortcut-goBots",
+      "builder": "setValue",
+      "path": "/keybindings/goBots",
+      "value": "Alt+J",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/goBots",
+          "value": "Alt+J"
+        }
+      ]
+    },
+    {
+      "id": "shortcut-goTasks",
+      "builder": "setValue",
+      "path": "/keybindings/goTasks",
+      "value": "Alt+J",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/goTasks",
+          "value": "Alt+J"
+        }
+      ]
+    },
+    {
+      "id": "shortcut-goDashboard1",
+      "builder": "setValue",
+      "path": "/keybindings/goDashboard1",
+      "value": "Alt+J",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/goDashboard1",
+          "value": "Alt+J"
+        }
+      ]
+    },
+    {
+      "id": "shortcut-goDashboard2",
+      "builder": "setValue",
+      "path": "/keybindings/goDashboard2",
+      "value": "Alt+J",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/goDashboard2",
+          "value": "Alt+J"
+        }
+      ]
+    },
+    {
+      "id": "shortcut-goDashboard3",
+      "builder": "setValue",
+      "path": "/keybindings/goDashboard3",
+      "value": "Alt+J",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/goDashboard3",
+          "value": "Alt+J"
+        }
+      ]
+    },
+    {
+      "id": "clear-search",
+      "builder": "setValue",
+      "path": "/keybindings/search",
+      "value": null,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/search",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "clear-newBot",
+      "builder": "setValue",
+      "path": "/keybindings/newBot",
+      "value": null,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/newBot",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "clear-focusComposer",
+      "builder": "setValue",
+      "path": "/keybindings/focusComposer",
+      "value": null,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/focusComposer",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "clear-toggleSidebar",
+      "builder": "setValue",
+      "path": "/keybindings/toggleSidebar",
+      "value": null,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/toggleSidebar",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "clear-toggleDetails",
+      "builder": "setValue",
+      "path": "/keybindings/toggleDetails",
+      "value": null,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/toggleDetails",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "clear-effort",
+      "builder": "setValue",
+      "path": "/keybindings/effort",
+      "value": null,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/effort",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "clear-fast",
+      "builder": "setValue",
+      "path": "/keybindings/fast",
+      "value": null,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/fast",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "clear-goBots",
+      "builder": "setValue",
+      "path": "/keybindings/goBots",
+      "value": null,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/goBots",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "clear-goTasks",
+      "builder": "setValue",
+      "path": "/keybindings/goTasks",
+      "value": null,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/goTasks",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "clear-goDashboard1",
+      "builder": "setValue",
+      "path": "/keybindings/goDashboard1",
+      "value": null,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/goDashboard1",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "clear-goDashboard2",
+      "builder": "setValue",
+      "path": "/keybindings/goDashboard2",
+      "value": null,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/goDashboard2",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "clear-goDashboard3",
+      "builder": "setValue",
+      "path": "/keybindings/goDashboard3",
+      "value": null,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/keybindings/goDashboard3",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "dashboard-create",
+      "builder": "createDashboard",
+      "value": "QA-Temp-Board",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/dashboards/-",
+          "value": {
+            "id": "$new1",
+            "name": "QA-Temp-Board",
+            "icon": "layout-dashboard",
+            "widgets": []
+          }
+        }
+      ]
+    },
+    {
+      "id": "dashboard-rename",
+      "builder": "renameDashboard",
+      "base": {
+        "version": 1,
+        "preset": "swarm",
+        "theme": {
+          "mode": "system",
+          "colors": {
+            "light": {},
+            "dark": {}
+          },
+          "overrides": {
+            "light": {},
+            "dark": {}
+          },
+          "font": {
+            "ui": "inter",
+            "heading": "instrument",
+            "scale": "default"
+          },
+          "density": "default",
+          "radius": "default",
+          "motion": "system",
+          "contrast": "normal"
+        },
+        "layout": {
+          "sidebar": {
+            "collapsed": null,
+            "width": "default",
+            "order": [
+              "allBots",
+              "tasks",
+              "files",
+              "dashboards",
+              "yourBots",
+              "createBot",
+              "usage",
+              "settings"
+            ],
+            "hidden": []
+          },
+          "home": {
+            "kind": "default"
+          },
+          "phoneTabs": [
+            "bots",
+            "tasks",
+            "search",
+            "settings"
+          ],
+          "chat": {
+            "width": "default"
+          },
+          "pinned": []
+        },
+        "components": {},
+        "keybindings": {},
+        "dashboards": [
+          {
+            "id": "d_12345678",
+            "name": "QA-Temp-Board",
+            "icon": "layout-dashboard",
+            "widgets": []
+          }
+        ],
+        "device": {
+          "phone": {}
+        },
+        "policy": {}
+      },
+      "idValue": "d_12345678",
+      "value": "QA-Temp-Renamed",
+      "patch": [
+        {
+          "op": "test",
+          "path": "/dashboards/0/id",
+          "value": "d_12345678"
+        },
+        {
+          "op": "add",
+          "path": "/dashboards/0/name",
+          "value": "QA-Temp-Renamed"
+        }
+      ]
+    },
+    {
+      "id": "dashboard-delete",
+      "builder": "deleteDashboard",
+      "base": {
+        "version": 1,
+        "preset": "swarm",
+        "theme": {
+          "mode": "system",
+          "colors": {
+            "light": {},
+            "dark": {}
+          },
+          "overrides": {
+            "light": {},
+            "dark": {}
+          },
+          "font": {
+            "ui": "inter",
+            "heading": "instrument",
+            "scale": "default"
+          },
+          "density": "default",
+          "radius": "default",
+          "motion": "system",
+          "contrast": "normal"
+        },
+        "layout": {
+          "sidebar": {
+            "collapsed": null,
+            "width": "default",
+            "order": [
+              "allBots",
+              "tasks",
+              "files",
+              "dashboards",
+              "yourBots",
+              "createBot",
+              "usage",
+              "settings"
+            ],
+            "hidden": []
+          },
+          "home": {
+            "kind": "default"
+          },
+          "phoneTabs": [
+            "bots",
+            "tasks",
+            "search",
+            "settings"
+          ],
+          "chat": {
+            "width": "default"
+          },
+          "pinned": []
+        },
+        "components": {},
+        "keybindings": {},
+        "dashboards": [
+          {
+            "id": "d_12345678",
+            "name": "QA-Temp-Board",
+            "icon": "layout-dashboard",
+            "widgets": []
+          }
+        ],
+        "device": {
+          "phone": {}
+        },
+        "policy": {}
+      },
+      "idValue": "d_12345678",
+      "patch": [
+        {
+          "op": "test",
+          "path": "/dashboards/0/id",
+          "value": "d_12345678"
+        },
+        {
+          "op": "add",
+          "path": "/layout/pinned",
+          "value": []
+        },
+        {
+          "op": "add",
+          "path": "/layout/phoneTabs",
+          "value": [
+            "bots",
+            "tasks",
+            "search",
+            "settings"
+          ]
+        },
+        {
+          "op": "remove",
+          "path": "/dashboards/0"
+        }
+      ]
+    },
+    {
+      "id": "dashboard-home",
+      "builder": "setValue",
+      "base": {
+        "version": 1,
+        "preset": "swarm",
+        "theme": {
+          "mode": "system",
+          "colors": {
+            "light": {},
+            "dark": {}
+          },
+          "overrides": {
+            "light": {},
+            "dark": {}
+          },
+          "font": {
+            "ui": "inter",
+            "heading": "instrument",
+            "scale": "default"
+          },
+          "density": "default",
+          "radius": "default",
+          "motion": "system",
+          "contrast": "normal"
+        },
+        "layout": {
+          "sidebar": {
+            "collapsed": null,
+            "width": "default",
+            "order": [
+              "allBots",
+              "tasks",
+              "files",
+              "dashboards",
+              "yourBots",
+              "createBot",
+              "usage",
+              "settings"
+            ],
+            "hidden": []
+          },
+          "home": {
+            "kind": "default"
+          },
+          "phoneTabs": [
+            "bots",
+            "tasks",
+            "search",
+            "settings"
+          ],
+          "chat": {
+            "width": "default"
+          },
+          "pinned": []
+        },
+        "components": {},
+        "keybindings": {},
+        "dashboards": [
+          {
+            "id": "d_12345678",
+            "name": "QA-Temp-Board",
+            "icon": "layout-dashboard",
+            "widgets": []
+          }
+        ],
+        "device": {
+          "phone": {}
+        },
+        "policy": {}
+      },
+      "path": "/layout/home",
+      "value": {
+        "kind": "dashboard",
+        "dashboardId": "d_12345678"
+      },
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/home",
+          "value": {
+            "kind": "dashboard",
+            "dashboardId": "d_12345678"
+          }
+        }
+      ]
+    },
+    {
+      "id": "phone-swap",
+      "builder": "setValue",
+      "value": [
+        "tasks",
+        "bots",
+        "search",
+        "settings"
+      ],
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/phoneTabs",
+          "value": [
+            "tasks",
+            "bots",
+            "search",
+            "settings"
+          ]
+        }
+      ],
+      "path": "/layout/phoneTabs"
+    },
+    {
+      "id": "show-allBots",
+      "builder": "sidebarVisibility",
+      "base": {
+        "version": 1,
+        "preset": "swarm",
+        "theme": {
+          "mode": "system",
+          "colors": {
+            "light": {},
+            "dark": {}
+          },
+          "overrides": {
+            "light": {},
+            "dark": {}
+          },
+          "font": {
+            "ui": "inter",
+            "heading": "instrument",
+            "scale": "default"
+          },
+          "density": "default",
+          "radius": "default",
+          "motion": "system",
+          "contrast": "normal"
+        },
+        "layout": {
+          "sidebar": {
+            "collapsed": null,
+            "width": "default",
+            "order": [
+              "allBots",
+              "tasks",
+              "files",
+              "dashboards",
+              "yourBots",
+              "createBot",
+              "usage",
+              "settings"
+            ],
+            "hidden": [
+              "allBots"
+            ]
+          },
+          "home": {
+            "kind": "default"
+          },
+          "phoneTabs": [
+            "bots",
+            "tasks",
+            "search",
+            "settings"
+          ],
+          "chat": {
+            "width": "default"
+          },
+          "pinned": []
+        },
+        "components": {},
+        "keybindings": {},
+        "dashboards": [],
+        "device": {
+          "phone": {}
+        },
+        "policy": {}
+      },
+      "idValue": "allBots",
+      "value": true,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/hidden",
+          "value": []
+        }
+      ]
+    },
+    {
+      "id": "show-tasks",
+      "builder": "sidebarVisibility",
+      "base": {
+        "version": 1,
+        "preset": "swarm",
+        "theme": {
+          "mode": "system",
+          "colors": {
+            "light": {},
+            "dark": {}
+          },
+          "overrides": {
+            "light": {},
+            "dark": {}
+          },
+          "font": {
+            "ui": "inter",
+            "heading": "instrument",
+            "scale": "default"
+          },
+          "density": "default",
+          "radius": "default",
+          "motion": "system",
+          "contrast": "normal"
+        },
+        "layout": {
+          "sidebar": {
+            "collapsed": null,
+            "width": "default",
+            "order": [
+              "allBots",
+              "tasks",
+              "files",
+              "dashboards",
+              "yourBots",
+              "createBot",
+              "usage",
+              "settings"
+            ],
+            "hidden": [
+              "tasks"
+            ]
+          },
+          "home": {
+            "kind": "default"
+          },
+          "phoneTabs": [
+            "bots",
+            "tasks",
+            "search",
+            "settings"
+          ],
+          "chat": {
+            "width": "default"
+          },
+          "pinned": []
+        },
+        "components": {},
+        "keybindings": {},
+        "dashboards": [],
+        "device": {
+          "phone": {}
+        },
+        "policy": {}
+      },
+      "idValue": "tasks",
+      "value": true,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/hidden",
+          "value": []
+        }
+      ]
+    },
+    {
+      "id": "show-files",
+      "builder": "sidebarVisibility",
+      "base": {
+        "version": 1,
+        "preset": "swarm",
+        "theme": {
+          "mode": "system",
+          "colors": {
+            "light": {},
+            "dark": {}
+          },
+          "overrides": {
+            "light": {},
+            "dark": {}
+          },
+          "font": {
+            "ui": "inter",
+            "heading": "instrument",
+            "scale": "default"
+          },
+          "density": "default",
+          "radius": "default",
+          "motion": "system",
+          "contrast": "normal"
+        },
+        "layout": {
+          "sidebar": {
+            "collapsed": null,
+            "width": "default",
+            "order": [
+              "allBots",
+              "tasks",
+              "files",
+              "dashboards",
+              "yourBots",
+              "createBot",
+              "usage",
+              "settings"
+            ],
+            "hidden": [
+              "files"
+            ]
+          },
+          "home": {
+            "kind": "default"
+          },
+          "phoneTabs": [
+            "bots",
+            "tasks",
+            "search",
+            "settings"
+          ],
+          "chat": {
+            "width": "default"
+          },
+          "pinned": []
+        },
+        "components": {},
+        "keybindings": {},
+        "dashboards": [],
+        "device": {
+          "phone": {}
+        },
+        "policy": {}
+      },
+      "idValue": "files",
+      "value": true,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/hidden",
+          "value": []
+        }
+      ]
+    },
+    {
+      "id": "show-dashboards",
+      "builder": "sidebarVisibility",
+      "base": {
+        "version": 1,
+        "preset": "swarm",
+        "theme": {
+          "mode": "system",
+          "colors": {
+            "light": {},
+            "dark": {}
+          },
+          "overrides": {
+            "light": {},
+            "dark": {}
+          },
+          "font": {
+            "ui": "inter",
+            "heading": "instrument",
+            "scale": "default"
+          },
+          "density": "default",
+          "radius": "default",
+          "motion": "system",
+          "contrast": "normal"
+        },
+        "layout": {
+          "sidebar": {
+            "collapsed": null,
+            "width": "default",
+            "order": [
+              "allBots",
+              "tasks",
+              "files",
+              "dashboards",
+              "yourBots",
+              "createBot",
+              "usage",
+              "settings"
+            ],
+            "hidden": [
+              "dashboards"
+            ]
+          },
+          "home": {
+            "kind": "default"
+          },
+          "phoneTabs": [
+            "bots",
+            "tasks",
+            "search",
+            "settings"
+          ],
+          "chat": {
+            "width": "default"
+          },
+          "pinned": []
+        },
+        "components": {},
+        "keybindings": {},
+        "dashboards": [],
+        "device": {
+          "phone": {}
+        },
+        "policy": {}
+      },
+      "idValue": "dashboards",
+      "value": true,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/hidden",
+          "value": []
+        }
+      ]
+    },
+    {
+      "id": "show-yourBots",
+      "builder": "sidebarVisibility",
+      "base": {
+        "version": 1,
+        "preset": "swarm",
+        "theme": {
+          "mode": "system",
+          "colors": {
+            "light": {},
+            "dark": {}
+          },
+          "overrides": {
+            "light": {},
+            "dark": {}
+          },
+          "font": {
+            "ui": "inter",
+            "heading": "instrument",
+            "scale": "default"
+          },
+          "density": "default",
+          "radius": "default",
+          "motion": "system",
+          "contrast": "normal"
+        },
+        "layout": {
+          "sidebar": {
+            "collapsed": null,
+            "width": "default",
+            "order": [
+              "allBots",
+              "tasks",
+              "files",
+              "dashboards",
+              "yourBots",
+              "createBot",
+              "usage",
+              "settings"
+            ],
+            "hidden": [
+              "yourBots"
+            ]
+          },
+          "home": {
+            "kind": "default"
+          },
+          "phoneTabs": [
+            "bots",
+            "tasks",
+            "search",
+            "settings"
+          ],
+          "chat": {
+            "width": "default"
+          },
+          "pinned": []
+        },
+        "components": {},
+        "keybindings": {},
+        "dashboards": [],
+        "device": {
+          "phone": {}
+        },
+        "policy": {}
+      },
+      "idValue": "yourBots",
+      "value": true,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/hidden",
+          "value": []
+        }
+      ]
+    },
+    {
+      "id": "show-createBot",
+      "builder": "sidebarVisibility",
+      "base": {
+        "version": 1,
+        "preset": "swarm",
+        "theme": {
+          "mode": "system",
+          "colors": {
+            "light": {},
+            "dark": {}
+          },
+          "overrides": {
+            "light": {},
+            "dark": {}
+          },
+          "font": {
+            "ui": "inter",
+            "heading": "instrument",
+            "scale": "default"
+          },
+          "density": "default",
+          "radius": "default",
+          "motion": "system",
+          "contrast": "normal"
+        },
+        "layout": {
+          "sidebar": {
+            "collapsed": null,
+            "width": "default",
+            "order": [
+              "allBots",
+              "tasks",
+              "files",
+              "dashboards",
+              "yourBots",
+              "createBot",
+              "usage",
+              "settings"
+            ],
+            "hidden": [
+              "createBot"
+            ]
+          },
+          "home": {
+            "kind": "default"
+          },
+          "phoneTabs": [
+            "bots",
+            "tasks",
+            "search",
+            "settings"
+          ],
+          "chat": {
+            "width": "default"
+          },
+          "pinned": []
+        },
+        "components": {},
+        "keybindings": {},
+        "dashboards": [],
+        "device": {
+          "phone": {}
+        },
+        "policy": {}
+      },
+      "idValue": "createBot",
+      "value": true,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/hidden",
+          "value": []
+        }
+      ]
+    },
+    {
+      "id": "show-usage",
+      "builder": "sidebarVisibility",
+      "base": {
+        "version": 1,
+        "preset": "swarm",
+        "theme": {
+          "mode": "system",
+          "colors": {
+            "light": {},
+            "dark": {}
+          },
+          "overrides": {
+            "light": {},
+            "dark": {}
+          },
+          "font": {
+            "ui": "inter",
+            "heading": "instrument",
+            "scale": "default"
+          },
+          "density": "default",
+          "radius": "default",
+          "motion": "system",
+          "contrast": "normal"
+        },
+        "layout": {
+          "sidebar": {
+            "collapsed": null,
+            "width": "default",
+            "order": [
+              "allBots",
+              "tasks",
+              "files",
+              "dashboards",
+              "yourBots",
+              "createBot",
+              "usage",
+              "settings"
+            ],
+            "hidden": [
+              "usage"
+            ]
+          },
+          "home": {
+            "kind": "default"
+          },
+          "phoneTabs": [
+            "bots",
+            "tasks",
+            "search",
+            "settings"
+          ],
+          "chat": {
+            "width": "default"
+          },
+          "pinned": []
+        },
+        "components": {},
+        "keybindings": {},
+        "dashboards": [],
+        "device": {
+          "phone": {}
+        },
+        "policy": {}
+      },
+      "idValue": "usage",
+      "value": true,
+      "patch": [
+        {
+          "op": "add",
+          "path": "/layout/sidebar/hidden",
+          "value": []
+        }
+      ]
+    }
+  ],
+  "requests": [
+    {
+      "id": "agent-auto",
+      "method": "PATCH",
+      "path": "/api/account/preferences",
+      "body": {
+        "uiAgentApply": "auto"
+      }
+    },
+    {
+      "id": "agent-ask",
+      "method": "PATCH",
+      "path": "/api/account/preferences",
+      "body": {
+        "uiAgentApply": "ask"
+      }
+    }
+  ]
+}

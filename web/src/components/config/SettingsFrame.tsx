@@ -1,3 +1,4 @@
+import { useUiConfig } from '../../customization';
 import { Page, Section, Card } from '../layout';
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ChevronRight, Search } from 'lucide-react';
@@ -11,6 +12,7 @@ import '../../styles/access-settings.css';
 import '../../styles/settings-v3.css';
 
 // Only page contents wait for code or data. Navigation stays mounted and usable.
+const AppearanceSettings = lazy(() => import('./AppearanceSettings').then(m => ({ default: m.AppearanceSettings })));
 const ConfigLayer = lazy(() => import('./ConfigLayer').then(m => ({ default: m.ConfigLayer })));
 
 let settingsCaller: HTMLElement | null = null;
@@ -35,6 +37,8 @@ function restoreSettingsFocus(caller: HTMLElement | null) {
 
 /** Settings keeps the app navigation alongside its section list. */
 export function AppSettings() {
+  const { status: appearanceStatus } = useUiConfig();
+  const availableNav = appearanceStatus === 'disabled' ? NAV.map(group => ({ ...group, items: group.items.filter(item => item.id !== 'appearance') })) : NAV;
   const section = useConfigUI((s) => s.appSettings);
   const home = useConfigUI((s) => s.appSettingsHome);
   const close = useConfigUI((s) => s.closeAppSettings);
@@ -75,7 +79,7 @@ export function AppSettings() {
   if (!section) return null;
   const pick = (id: AppSection) => { open(id); setQuery(''); };
   const q = query.trim();
-  const groups = q ? NAV.map((g) => ({ ...g, items: g.items.filter((it) => matches(it, q)) })).filter((g) => g.items.length) : NAV;
+  const groups = q ? availableNav.map((g) => ({ ...g, items: g.items.filter((it) => matches(it, q)) })).filter((g) => g.items.length) : availableNav;
   // Up/Down move between sections, like a native sidebar.
   const arrows = (e: ReactKeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -119,7 +123,7 @@ export function AppSettings() {
       <span ref={heading} tabIndex={-1} className="sr-only">{showList ? 'Settings' : sectionLabel}</span>
       {showList ? <Page type="form">{nav}</Page> : <Page type="form" title={compact ? undefined : section === 'subscriptions' ? 'Models & access' : sectionLabel} className="app-settings__page" key={section}>
         <Suspense fallback={<div className="settings-page-loading" role="status">Loading settings</div>}>
-          <ConfigLayer />
+          {section === 'appearance' ? <AppearanceSettings /> : <ConfigLayer />}
         </Suspense>
       </Page>}
     </div>
