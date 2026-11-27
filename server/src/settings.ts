@@ -6,6 +6,7 @@ import { mintVoiceSecret } from './lib/voice-provider.js';
 import { isTenant } from './deployment.js';
 import { initUiPreferences } from './ui/db.js';
 import { uiMetric } from './ui/metrics.js';
+import { uiEnabled } from './ui/flags.js';
 
 /**
  * Provider keys set from the app (Settings → API keys). Stored in SQLite encrypted with a key
@@ -178,19 +179,20 @@ if (!(db.pragma('table_info(account_preferences)') as { name: string }[]).some(c
 
 initUiPreferences(db);
 
-export interface AccountPreferences { askBeforeComputer: boolean; apiApprovalLevel: 'standard' | 'every_action'; uiAgentApply: 'ask' | 'auto' }
+export interface AccountPreferences { askBeforeComputer: boolean; apiApprovalLevel: 'standard' | 'every_action'; uiAgentApply?: 'ask' | 'auto' }
 
 /** Defaults apply until the account saves a preference. */
 export function accountPreferences(userId: string): AccountPreferences {
   const row = db.prepare('SELECT ask_before_computer,api_approval_level,ui_agent_apply FROM account_preferences WHERE user_id=?').get(userId) as { ask_before_computer: number; api_approval_level: string; ui_agent_apply: string } | undefined;
-  return { askBeforeComputer: row?.ask_before_computer === 1, apiApprovalLevel: row?.api_approval_level === 'every_action' ? 'every_action' : 'standard', uiAgentApply: row?.ui_agent_apply === 'auto' ? 'auto' : 'ask' };
+  return { askBeforeComputer: row?.ask_before_computer === 1, apiApprovalLevel: row?.api_approval_level === 'every_action' ? 'every_action' : 'standard', ...(uiEnabled(db, userId) ? { uiAgentApply: row?.ui_agent_apply === 'auto' ? 'auto' as const : 'ask' as const } : {}) };
 }
 
 export function saveAccountPreferences(userId: string, patch: Partial<AccountPreferences>): AccountPreferences {
+  const currentMode = (db.prepare('SELECT ui_agent_apply FROM account_preferences WHERE user_id=?').get(userId) as { ui_agent_apply: string } | undefined)?.ui_agent_apply;
   const next = { ...accountPreferences(userId), ...patch };
   db.prepare(`INSERT INTO account_preferences(user_id,ask_before_computer,api_approval_level,ui_agent_apply,updated_at) VALUES (?,?,?,?,?)
     ON CONFLICT(user_id) DO UPDATE SET ask_before_computer=excluded.ask_before_computer, api_approval_level=excluded.api_approval_level, ui_agent_apply=excluded.ui_agent_apply, updated_at=excluded.updated_at`)
-    .run(userId, next.askBeforeComputer ? 1 : 0, next.apiApprovalLevel, next.uiAgentApply, now());
+    .run(userId, next.askBeforeComputer ? 1 : 0, next.apiApprovalLevel, next.uiAgentApply ?? (currentMode === 'auto' ? 'auto' : 'ask'), now());
   if (patch.uiAgentApply !== undefined) uiMetric('ui_agent_apply_mode', 1, next.uiAgentApply);
   return next;
 }

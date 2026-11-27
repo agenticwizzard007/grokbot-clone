@@ -30,6 +30,8 @@ export function initUiDatabase(db: Database.Database): void {
       result_doc TEXT NOT NULL,
       summary TEXT NOT NULL,
       violations TEXT NOT NULL,
+      id_map TEXT NOT NULL DEFAULT '{}',
+      applied_revision INTEGER,
       intent TEXT NOT NULL,
       actor TEXT NOT NULL,
       status TEXT NOT NULL CHECK(status IN ('pending','applied','discarded','expired','superseded')),

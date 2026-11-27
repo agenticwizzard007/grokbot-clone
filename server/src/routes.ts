@@ -42,6 +42,7 @@ import { currentSessionHash } from './security/request-context.js';
 import { onSessionRevoked } from './security/session-lifecycle.js';
 import { isTenant } from './deployment.js';
 import { appSuggestionsApi } from './routes-app-suggestions.js';
+import { uiApi } from './ui/index.js';
 
 export const api = new Hono<AuthVars>();
 
@@ -113,6 +114,7 @@ api.use('/bots', apiBodyLimit);
 api.use('/bots/*', apiBodyLimit);
 api.use('/approvals/*', apiBodyLimit);
 api.route('/', appSuggestionsApi);
+api.route('/ui', uiApi);
 
 // ---------- events (SSE) ----------
 
