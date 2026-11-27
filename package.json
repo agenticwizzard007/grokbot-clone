@@ -94,6 +94,7 @@
     "node": ">=22"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.1",
     "@playwright/mcp": "0.0.85"
   }
 }
