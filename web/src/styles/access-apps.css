@@ -38,7 +38,7 @@
 .access-apps-catalog :is(.app-row__desc, .app-row__error) { font-size: 13px; line-height: 1.45; letter-spacing: 0; }
 .access-apps-catalog .app-row__desc { color: var(--color-text-secondary); }
 .access-app-row__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; }
-.access-apps-catalog :is(.app-row__connect, .app-row__connected, .cfg-btn--secondary) { width: auto; max-width: 100%; min-height: 34px; height: auto; padding: 7px 12px; border-radius: var(--radius-full); background: var(--color-bg-tertiary); color: var(--color-text-primary); text-align: center; font-size: 13px; line-height: 1.35; white-space: normal; overflow-wrap: anywhere; }
+.access-apps-catalog :is(.app-row__connect, .app-row__connected, .cfg-btn--secondary) { width: auto; max-width: 100%; min-height: 34px; height: auto; padding: 7px 12px; border-radius: var(--radius-full); background: var(--color-bg-tertiary); color: var(--color-text-primary); text-align: center; font-size: 13px; line-height: 1.35; white-space: normal; overflow-wrap: normal; word-break: normal; }
 .access-apps-catalog .app-row:not(.app-row--expanded) :is(.app-row__connect, .app-row__connected) { min-width: 84px; }
 .access-apps-catalog :is(.app-row__connect, .cfg-btn--secondary):hover:not(:disabled) { background: var(--color-bg-secondary-hover); }
 .access-apps-catalog .app-row__connected.is-static { background: none; color: var(--color-text-secondary); }

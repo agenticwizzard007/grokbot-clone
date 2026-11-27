@@ -43,10 +43,10 @@
 }
 .setup-paper__subtitle { margin: var(--space-2) 0 0; color: var(--color-text-secondary); }
 .setup-paper__tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: var(--space-5) 0; }
-.setup-paper__tabs button { min-height: 44px; padding: var(--space-2) var(--space-3); border-radius: 8px; text-align: start; overflow-wrap: anywhere; }
+.setup-paper__tabs button { min-height: 44px; padding: var(--space-2) var(--space-3); border-radius: 8px; text-align: start; overflow-wrap: normal; word-break: normal; }
 /* Active tabs change colour, not weight, so the row never shifts width. */
 .setup-paper__tabs button[aria-current], .setup-paper__tabs button[aria-checked='true'] { background: var(--color-bg-active); color: var(--color-text-primary); }
-.setup-paper .cfg-btn { min-height: 44px; height: auto; max-width: 100%; padding: var(--space-2) var(--space-4); border-radius: var(--radius-md); white-space: normal; text-align: center; overflow-wrap: anywhere; }
+.setup-paper .cfg-btn { min-height: 44px; height: auto; max-width: 100%; padding: var(--space-2) var(--space-4); border-radius: var(--radius-md); white-space: normal; text-align: center; overflow-wrap: normal; word-break: normal; }
 .setup-paper .cfg-btn--secondary { background: var(--color-bg-active); box-shadow: none; }
 .setup-paper .cfg-btn--secondary:hover:not(:disabled) { background: var(--color-bg-secondary-active); }
 .setup-paper__actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -66,7 +66,7 @@
 .setup-create__chosen { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .bot-settings-page__content { min-width: 0; overflow-wrap: anywhere; }
 .bot-settings-page__content .cfg-page__head > div { min-width: 0; }
-.bot-settings-page__content .cfg-row__title { white-space: normal; overflow-wrap: anywhere; }
+.bot-settings-page__content .cfg-row__title { white-space: normal; overflow-wrap: normal; word-break: normal; }
 .bot-settings-page__content .cfg-savebar { margin-inline: 0; padding-inline: 0; }
 .bot-settings-page__intro { margin: 0 0 var(--space-5); }
 .bot-settings-page__content > .cfg-page, .bot-settings-page__memories > .cfg-page { padding: 0; max-width: none; min-width: 0; }

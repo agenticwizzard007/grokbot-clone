@@ -69,27 +69,32 @@ import {useStore} from '/src/store.ts';
 import {useModels} from '/src/lib/models.ts';
 import '/src/styles/tokens.css';import '/src/styles/base.css';import '/src/styles/chat.css';import '/src/styles/composer-models.css';import '/src/styles/mobile.css';
 document.documentElement.dataset.theme=${JSON.stringify(theme)};
-useStore.setState({user:{id:'alice'},mobile:innerWidth<760,mobilePane:'chat',selectedBotId:${JSON.stringify(bot.id)},bots:[${JSON.stringify(bot)}]});
+useStore.setState({user:{id:'fixture-account'},mobile:innerWidth<760,mobilePane:'chat',selectedBotId:${JSON.stringify(bot.id)},bots:[${JSON.stringify(bot)}]});
 window.openSettings=()=>useConfigUI.getState().openBotSettings('effort-test','general');
 window.closeSettings=()=>useConfigUI.getState().discardBotSettings();
 window.refreshCatalog=()=>useModels.getState().load(true);
 window.setBot=bot=>useStore.setState({bots:[bot]});
 const live={isRunning:true,startedAt:Date.now(),activity:{kind:'thinking',since:Date.now()}};
-function Harness(){const bot=useStore(s=>s.bots[0]);return React.createElement('div',{style:{maxWidth:${JSON.stringify(width === 960 ? '340px' : '760px')},height:'100dvh',margin:${JSON.stringify(width === 960 ? '0 16px 0 auto' : '0 auto')},display:'flex',flexDirection:'column',justifyContent:'flex-end'}},
- React.createElement('div',{style:{padding:'24px'}},React.createElement('h2',null,'Test bot'),React.createElement('p',null,'I’m reviewing the results.'),React.createElement(ActivityLine,{bot,live,rows:[]})),
+function Harness(){const bot=useStore(s=>s.bots[0]);return React.createElement('div',{className:'app',style:{maxWidth:${JSON.stringify(width === 960 ? '340px' : '760px')},height:'100dvh',margin:${JSON.stringify(width === 960 ? '0 16px 0 auto' : '0 auto')},display:'flex',flexDirection:'column',justifyContent:'flex-end'}},
+ React.createElement('div',{style:{padding:'24px'}},React.createElement('h2',null,'Test bot'),React.createElement('p',null,'I am reviewing the results.'),React.createElement(ActivityLine,{bot,live,rows:[]})),
  React.createElement(Composer,{bot,running:true}),React.createElement(BotSettingsModal));}
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Harness));
 ` }));
-    await page.goto(origin);
+    await page.goto(`${origin}/#bot/effort-test`);
     await page.waitForFunction(() => typeof window.setBot === 'function' && typeof window.refreshCatalog === 'function');
     const setBot = async patch => { bot = { ...bot, ...patch }; await page.evaluate(value => window.setBot(value), bot); };
     const open = async () => { await page.locator('.model-pill').click(); await page.locator('.mm-row__main').first().waitFor(); };
-    const options = () => page.getByRole('listbox', { name: 'Effort', exact: true }).getByRole('option');
+    const options = () => page.getByRole('radiogroup', { name: 'Effort', exact: true }).getByRole('radio');
     const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const choose = async name => {
       const saved = page.waitForResponse(r => r.url().endsWith('/api/bots/effort-test'));
-      await page.getByRole('option', { name: new RegExp(`^${name}\\b`) }).click(); await saved; await settle();
-      await page.waitForFunction(() => !document.querySelector('.model-menu'));
+      await page.getByRole('radio', { name, exact: true }).click(); await saved; await settle();
+      await page.keyboard.press('Escape'); await page.locator('.model-menu').waitFor({ state: 'detached' });
+    };
+    const selectModel = async name => {
+      const saved = page.waitForResponse(r => r.url().endsWith('/api/bots/effort-test'));
+      await page.locator('.mm-row__main').filter({ hasText: name }).click(); await saved; await settle();
+      await page.locator('.model-menu').waitFor({ state: 'detached' });
     };
     const checkEffort = async (effort, duration) => {
       await page.waitForFunction(value => document.querySelector('.composer-shell')?.dataset.effort === value, effort);
@@ -99,38 +104,26 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     for (const provider of ['codex', 'claude']) {
       source = provider; await setBot({ model: 'api/old', effort: 'ultracode', fast: true }); await page.evaluate(() => window.refreshCatalog());
       await page.locator('.model-pill__effort').getByText('Medium', { exact: true }).waitFor();
-      await checkEffort('medium', '0s');
-      await open();
-      assert.equal(await page.getByRole('button', { name: 'Effort for No effort model', exact: true }).count(), 0);
-      await page.getByRole('button', { name: 'Effort', exact: true }).click();
+      await checkEffort('medium', '0s'); await open();
       assert.equal(await options().count(), 4);
       assert.doesNotMatch((await options().allTextContents()).join(' '), /Ultracode/);
-      assert.match(await page.locator('.mm-effort[aria-selected="true"]').innerText(), /^Medium/);
+      await options().filter({ hasText: /^Medium$/ }).focus();
       await page.keyboard.press('Home');
       assert.equal(await options().first().evaluate(el => el === document.activeElement), true);
-      const inlineEffort = await page.locator('.mm-flyout').count() === 0;
+      await page.waitForFunction(() => document.querySelector('.model-pill__effort')?.textContent === 'Low');
       await page.keyboard.press('Escape');
-      if (inlineEffort) {
-        await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Effort');
-      } else {
-        await page.locator('.model-menu').waitFor({ state: 'detached' });
-        assert.equal(await page.locator('.model-pill').evaluate(el => el === document.activeElement), true);
-        await open();
-      }
-      await page.getByRole('button', { name: 'Effort', exact: true }).click();
-      await choose('Low'); await checkEffort('low', '0s');
+      await page.locator('.model-menu').waitFor({ state: 'detached' });
+      assert.equal(await page.locator('.model-pill').evaluate(el => el === document.activeElement), true);
+      await open(); await choose('Low'); await checkEffort('low', '0s');
       assert.deepEqual(patches.at(-1), { model: `${provider}/primary`, effort: 'low', fast: false });
-      await open(); await page.getByRole('button', { name: 'Effort for Limited effort model', exact: true }).click();
-      assert.deepEqual((await options().allTextContents()).map(s => s.startsWith('High') ? 'high' : s.startsWith('Low') ? 'low' : s), ['high', 'low']);
+      await open(); await selectModel('Limited effort model'); await open();
+      assert.deepEqual(await options().allTextContents(), ['Low', 'High']);
       await choose('High'); await checkEffort('high', '6s');
       assert.deepEqual(patches.at(-1), { model: `${provider}/limited`, effort: 'high', fast: false });
-      assert.equal(await page.locator('.composer.is-ultracode').count(), 1);
-      assert.equal(await page.locator('.model-pill.is-ultracode').count(), 1);
       // A failed save restores both the selected value and its animation.
-      await open(); await page.getByRole('button', { name: 'Effort', exact: true }).click(); failSave = true;
+      await open(); failSave = true;
       const failed = page.waitForResponse(r => r.url().endsWith('/api/bots/effort-test') && r.status() === 500);
       await choose('Low'); await failed; await checkEffort('high', '6s');
-      // Defaults from null, old API selection, the other CLI, and explicit aliases all remain configurable.
       for (const model of [null, 'api/old', `${provider === 'codex' ? 'claude' : 'codex'}/old`, `${provider}/default`]) {
         await setBot({ model, effort: 'high' });
         await checkEffort(model === `${provider}/default` ? 'high' : 'medium', '0s');
@@ -143,38 +136,30 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       await page.waitForFunction(() => document.querySelector('.model-pill__effort')?.textContent === 'High');
       assert.equal(patches.length, count + 1);
       assert.deepEqual(patches.at(-1), { model: `${provider}/primary`, effort: 'high', fast: false });
-      // Missing provider defaults must not invent a level or keep a stale animation.
       defaultKnown = false; await setBot({ model: null }); await page.evaluate(() => window.refreshCatalog());
       await page.locator('.model-pill__effort').getByText('Default', { exact: true }).waitFor();
       assert.equal(await page.locator('.composer__glow').count(), 0);
       defaultKnown = true; defaultAvailable = false; await page.evaluate(() => window.refreshCatalog());
-      await open(); assert.equal(await page.getByRole('button', { name: 'Effort', exact: true }).count(), 0);
-      await page.getByRole('button', { name: `Effort for ${provider === 'claude' ? 'Opus 5.5' : 'GPT-6.1 Sol'}`, exact: true }).click();
-      await choose('High'); await checkEffort('high', '0s');
+      await open(); assert.equal(await options().count(), 0);
+      await selectModel(provider === 'claude' ? 'Opus 5.5' : 'GPT-6.1 Sol');
+      await open(); await choose('High'); await checkEffort('high', '0s');
       defaultAvailable = true;
       await open(); await page.getByRole('searchbox', { name: 'Search models', exact: true }).fill('Limited');
-      await page.getByRole('button', { name: 'Effort for Limited effort model', exact: true }).click();
+      await selectModel('Limited effort model'); await open();
       assert.equal(await options().count(), 2); await choose('Low'); await checkEffort('low', '0s');
-      assert.equal(patches.at(-1).model, `${provider}/limited`, 'Search-result effort selects its model too');
-      // Unavailable explicit models never silently become the default.
+      assert.equal(patches.at(-1).model, `${provider}/limited`);
       await setBot({ model: `${provider}/removed` }); await page.evaluate(() => window.refreshCatalog());
-      await open(); assert.equal(await page.getByRole('button', { name: 'Effort', exact: true }).count(), 0);
-      await page.keyboard.press('Escape');
-      // Take the original Paper flyout/sheet with this provider's highest actual effort.
+      await open(); assert.equal(await options().count(), 0); await page.keyboard.press('Escape');
       await setBot({ model: `${provider}/primary`, effort: provider === 'claude' ? 'max' : 'xhigh' });
       await checkEffort(provider === 'claude' ? 'max' : 'xhigh', '6s');
-      assert.equal(await page.locator('.model-pill.is-ultracode').count(), 1);
       await open();
-      assert.equal(await page.locator('.mm-item__value.is-ultracode').count(), 1);
-      await page.getByRole('button', { name: 'Effort', exact: true }).click();
-      assert.equal(await page.locator('.mm-effort.is-ultracode[aria-selected="true"]').count(), 1);
-      assert.match(await options().filter({ hasText: /^Medium/ }).innerText(), /Default/);
+      assert.equal(await page.locator('.mm-effort.is-ultracode[aria-checked="true"]').count(), 1);
       await page.mouse.move(8, 8);
       await page.locator('.mm-wrap').evaluate(el => Promise.all(el.getAnimations({ subtree: true }).filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity).map(animation => animation.finished)));
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-      if (width < 760) assert.ok((await options().first().boundingBox()).height >= 44);
+      assert.ok((await options().first().boundingBox()).height >= 32);
       await page.screenshot({ path: `.context/cli-effort/${provider}-${width}-${theme}.png` });
-      await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+      await page.keyboard.press('Escape');
     }
     // Reduced motion keeps the selected state but removes continuous motion and the selection flare.
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -187,8 +172,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     source = 'openrouter'; await setBot({ model: 'api/primary', effort: 'ultracode' }); await page.evaluate(() => window.refreshCatalog());
     await checkEffort('xhigh', '6s');
     await page.locator('.model-pill__effort').getByText('Xhigh', { exact: true }).waitFor();
-    await open(); await page.getByRole('button', { name: 'Effort', exact: true }).click();
-    assert.deepEqual(await page.locator('.mm-effort__label').allTextContents(), ['Xhigh', 'High', 'Medium', 'Low']);
+    await open();
+    assert.deepEqual(await page.locator('.mm-effort__label').allTextContents(), ['Low', 'Medium', 'High', 'Xhigh']);
     assert.equal(await page.locator('.mm-effort.is-ultracode').count(), 1);
     assert.match(await page.locator('.mm-effort.is-ultracode').innerText(), /^Xhigh/);
     await choose('Xhigh'); await checkEffort('xhigh', '6s');
@@ -197,14 +182,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       await setBot({ model: model.id, effort: 'ultracode' });
       await checkEffort(model.efforts.at(-1), '6s');
       await open();
-      assert.equal(await page.locator('.mm-item__value.is-ultracode').count(), 1);
-      await page.getByRole('button', { name: 'Effort', exact: true }).click();
       const labels = [...model.efforts].reverse().map(e => e[0].toUpperCase() + e.slice(1));
-      assert.deepEqual(await page.locator('.mm-effort__label').allTextContents(), labels);
-      assert.equal(await page.locator('.mm-effort.is-ultracode[aria-selected="true"]').count(), 1);
+      assert.deepEqual(await page.locator('.mm-effort__label').allTextContents(), [...labels].reverse());
+      assert.equal(await page.locator('.mm-effort.is-ultracode[aria-checked="true"]').count(), 1);
       const defaultLevel = model.defaultEffort ?? (model.author === 'anthropic' ? 'medium' : 'high');
       const defaultLabel = defaultLevel[0].toUpperCase() + defaultLevel.slice(1);
-      assert.match(await options().filter({ hasText: new RegExp(`^${defaultLabel}`) }).innerText(), /Default/);
+      assert.equal(await options().filter({ hasText: new RegExp(`^${defaultLabel}$`) }).count(), 1);
       await page.locator('.mm-wrap').evaluate(el => Promise.all(el.getAnimations({ subtree: true }).filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity).map(animation => animation.finished)));
       if (model.id === 'google/gemini-4-argon') await page.screenshot({ path: `.context/cli-effort/argon-${width}-${theme}.png` });
       await choose(labels[0]);

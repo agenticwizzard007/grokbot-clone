@@ -59,7 +59,12 @@ export function assertComposerSlots(actual, before, label = '') {
   near(actual.action.width, before.action.width, 'send/voice width');
   near(actual.action.height, before.action.height, 'send/voice height');
   near(actual.action.bottom, actual.controls[0].bottom, 'send/voice shares the controls row');
-  near(actual.input.bottom, actual.controls[0].bottom, 'controls align with the field bottom');
+  if (actual.controls[0].row === '2') {
+    near(actual.controls[0].y - actual.input.bottom, 4, 'phone field above the controls');
+  } else {
+    near(actual.input.y - actual.composer.y, 14, 'desktop field inset');
+    near(actual.input.bottom - actual.controls[0].bottom, -6, 'desktop field bottom inset');
+  }
   near(actual.provider.x, before.provider.x, 'provider slot x');
   assert.equal(actual.provider.width, 16, `${label} reserved provider width`);
   assert.equal(actual.provider.height, 16, `${label} reserved provider height`);
@@ -71,5 +76,5 @@ export function assertComposerSlots(actual, before, label = '') {
     near(actual.composer.bottom - actual.logo.bottom, before.composer.bottom - before.logo.bottom, 'provider logo bottom inset');
   }
   assert.ok(actual.composer.height <= actual.max + 1, `${label} composer height bound`);
-  assert.ok(actual.clientHeight <= 200, `${label} field height bound`);
+  assert.ok(actual.clientHeight <= 144, `${label} field height bound`);
 }

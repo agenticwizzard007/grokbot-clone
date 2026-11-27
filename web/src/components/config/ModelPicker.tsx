@@ -1,4 +1,4 @@
-import { ProviderMark } from '../ProviderMark';
+import { LabelWords, ProviderMark } from '../ProviderMark';
 import { useStore } from '../../store';
 import { useModels } from '../../lib/models';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
@@ -81,7 +81,7 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
     <div className="model-picker" ref={box}>
       <button ref={trigger} type="button" className="model-picker__button text-input" disabled={disabled} onClick={() => { setQuery(''); setOpen((o) => !o); }} aria-controls={open ? panelId : undefined} aria-expanded={open} aria-label={label}>
         <ProviderMark provider={value ?? defaultLabel} fallbackProvider={provider ?? data?.provider} /><span className="model-picker__current">
-          {value ? modelDisplayName(value, selected?.name) : defaultLabel ? `Default · ${modelDisplayName('', defaultLabel)}` : 'Choose a model'}
+          <LabelWords>{value ? modelDisplayName(value, selected?.name) : defaultLabel ? `Default · ${modelDisplayName('', defaultLabel)}` : 'Choose a model'}</LabelWords>
         </span>
         {data?.billing && <span className="model-billing">{data.billing === 'plan' ? 'Plan' : 'API'}</span>}
         {selected && !selected.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}
@@ -96,25 +96,25 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
           const index = activeIndex < 0 ? e.key === 'ArrowDown' ? 0 : options.length - 1 : (activeIndex + (e.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
           options[index]?.focus();
         }}>
-          <input className="text-input model-picker__search" autoFocus placeholder={models.length ? `Search ${models.length} models…` : 'Search models…'} value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search models" />
+          <input className="text-input model-picker__search" autoFocus placeholder={models.length ? `Search ${models.length} models` : 'Search models'} value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search models" />
           {data?.error && <div className="model-picker__empty" role="alert"><span>{data.error}</span> <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(value => value + 1)}>Retry</button></div>}
-          {!data && <div className="model-picker__empty" role="status">Loading models…</div>}
+          {!data && <div className="model-picker__empty" role="status">Loading models</div>}
           {data && !data.error && !shown.length && <div className="model-picker__empty" role="status">{models.length ? 'No matching models.' : data.billing === 'plan' ? 'No models were reported by this CLI connection. Check Models & access.' : 'No models were reported. Check your connection in API keys.'}</div>}
           <div className="model-picker__list" role="listbox" aria-label={`${label} options`}>
             {defaultLabel && !query && (
               <button type="button" role="option" aria-selected={value === null} className={`model-picker__row${value === null ? ' is-selected' : ''}`} onClick={() => pick(null)}>
                 <span className="model-picker__name"><ProviderMark provider={defaultLabel} fallbackProvider={provider ?? data?.provider} />Default</span>
-                <span className="model-picker__meta">{modelDisplayName('', defaultLabel)}</span>
+                <span className="model-picker__meta"><LabelWords>{modelDisplayName('', defaultLabel)}</LabelWords></span>
               </button>
             )}
             {shown.map((m) => (
               <button type="button" role="option" aria-selected={m.id === value} key={m.id} className={`model-picker__row${m.id === value ? ' is-selected' : ''}`} onClick={() => pick(m.id)}>
-                <span className="model-picker__name"><ProviderMark provider={m.id} fallbackProvider={provider ?? data?.provider} />{modelDisplayName(m.id, m.name)}{(m.billing ?? data?.billing) && <span className="model-billing">{(m.billing ?? data?.billing) === 'plan' ? 'Plan' : 'API'}</span>}{!m.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}</span>
+                <span className="model-picker__name"><ProviderMark provider={m.id} fallbackProvider={provider ?? data?.provider} /><LabelWords>{modelDisplayName(m.id, m.name)}</LabelWords>{(m.billing ?? data?.billing) && <span className="model-billing">{(m.billing ?? data?.billing) === 'plan' ? 'Plan' : 'API'}</span>}{!m.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}</span>
                 {price(m) && <span className="model-picker__meta">{price(m)}</span>}
               </button>
             ))}
           </div>
-          <div className="model-picker__foot">Models marked “No images” can’t see screenshots, so browser work won’t go well with them.</div>
+          <div className="model-picker__foot">Models marked “No images” cannot see screenshots, so browser work will not go well with them.</div>
         </div>
       )}
     </div>

@@ -46,7 +46,7 @@ const counts = page => page.evaluate(() => ({ ...window.__renders, at: performan
 const diff = (a, b) => Object.fromEntries(Object.keys(b).filter(k => k !== 'at').map(k => [k, (b[k] || 0) - (a[k] || 0)]));
 const frame = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 try {
-  for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
+  for (const width of [320, 390, 480, 500, 768, 1280]) for (const theme of ['light', 'dark']) {
     const { page, fixture, errors, writes } = await fixturePage(browser, { width, height: 900 }, { timezoneId: 'America/Los_Angeles' });
     page.setDefaultTimeout(30000);
     // Exercise real animations and a non-UTC local waiting timestamp.

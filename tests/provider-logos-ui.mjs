@@ -1,5 +1,6 @@
 // Local production app and synthetic accounts only. Never contacts a live provider.
 import assert from 'node:assert/strict';
+import { readableWords } from './paper-label-geometry.mjs';
 import { boxFullyVisible } from './ui-box-assertions.mjs';
 import { cp, mkdir } from 'node:fs/promises';
 import { preview } from '../web/node_modules/vite/dist/node/index.js';
@@ -52,6 +53,7 @@ async function inspectMark(mark) {
   }));
   assert.equal(await mark.getAttribute('aria-hidden'), 'true', 'visible text supplies the accessible name');
   await boxFullyVisible(mark, { width: 16, height: 16 });
+  assert.equal(await mark.evaluate(el => getComputedStyle(el).color), await mark.evaluate(el => el.dataset.provider === 'claude' ? 'rgb(217, 119, 87)' : getComputedStyle(el.parentElement).color));
   return mark;
 }
 async function readable(scope) {
@@ -76,6 +78,7 @@ async function readable(scope) {
   for (const label of await scope.locator('.provider-label__text, .model-pill__name, .model-pill__effort, .mm-row__name, .mm-row__resolved, .mm-back > span, .model-picker__current, .model-picker__name, .model-picker__meta, .model-billing, .provider-effort [role="radio"], .usage-card__title, .usage-ranked__label').all()) {
     if (!await label.isVisible()) continue;
     const text = await label.innerText();
+    await readableWords(label);
     assert.equal(await label.evaluate(el => el.scrollWidth <= el.clientWidth && getComputedStyle(el).textOverflow !== 'ellipsis'), true, `complete label: ${text}`);
   }
 }
@@ -148,7 +151,7 @@ try {
       if (sample.name === 'claude-fable') assert.match(await pill.getAttribute('aria-label'), /Claude Fable 5\.2/);
       {
         const input = page.locator('.composer__input');
-        assert.ok((await input.boundingBox()).width >= (width === 320 ? 180 : 200), 'field has priority over the model chip');
+        assert.ok((await input.boundingBox()).width >= (width <= 480 ? width - 70 : 160), 'field has priority over the model chip');
         const before = await page.locator('.composer').boundingBox(), markBefore = await icon.boundingBox();
         await input.pressSequentially('Hi all.');
         assert.equal((await page.locator('.composer').boundingBox()).height, before.height, 'one-line sentence keeps composer height');
@@ -158,7 +161,7 @@ try {
       await page.screenshot({ path: `${evidence}/${sample.name}-${width}-${theme}-composer.png` });
       const readsBeforePicker = statusReads;
       await pill.click();
-      const picker = page.getByRole('dialog', { name: 'Choose a model', exact: true });
+      const picker = page.getByRole('dialog', { name: 'Model and effort', exact: true });
       await markVisible(picker, sample.mark);
       await readable(picker);
       if (sample.name === 'claude-fable') assert.equal(await picker.locator('.mm-row__resolved').innerText(), 'Claude Fable 5.2');
@@ -176,11 +179,8 @@ try {
       }
       if (sample.models.length) {
         await markVisible(picker.locator('.mm-row__main'), sample.mark);
-        await picker.getByRole('button', { name: 'Effort', exact: true }).first().click();
-        const effortHeading = page.locator('.mm-effort-model, .mm-sheet-head .mm-back').filter({ has: page.locator('.provider-icon') });
-        await markVisible(effortHeading, sample.mark);
-        if (sample.name === 'claude-fable') assert.match(await effortHeading.innerText(), /Claude Fable 5\.2/);
-        await page.keyboard.press('Escape');
+        await picker.getByRole('radiogroup', { name: 'Effort', exact: true }).waitFor();
+        await readableWords(picker.locator('.mm-effort-section'));
       }
       await page.keyboard.press('Escape');
       if (width <= 760) await page.getByRole('button', { name: 'All Bots', exact: true }).click();

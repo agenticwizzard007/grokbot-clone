@@ -51,10 +51,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(e(React.Fragment,nul
       await page.locator('.sidebar-usage strong').getByText(label, { exact: true }).waitFor();
       assert.match(await page.locator('.model-pill').getAttribute('title'), new RegExp(label));
       await page.locator('.model-pill').click();
-      const picker = page.getByRole('dialog', { name: 'Choose a model', exact: true });
-      if (provider === 'claude') await picker.getByText(`Uses your ${label} through Claude Code.`, { exact: true }).waitFor();
-      await picker.getByRole('button', { name: 'Plan & usage', exact: true }).click();
-      const heading = page.getByRole('heading', { name: `Your ${label}`, exact: true });
+      const picker = page.getByRole('dialog', { name: 'Model and effort', exact: true });
+      assert.equal(await picker.getByText(`Uses your ${label} through Claude Code.`, { exact: true }).count(), 0, 'repeated plan explanation is removed');
+      await picker.getByRole('button', { name: 'Usage', exact: true }).click();
+      const heading = page.getByRole('heading', { name: label, exact: true });
       await heading.waitFor();
       assert.ok(await heading.evaluate(el => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }), 'Plan heading fits the viewport');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

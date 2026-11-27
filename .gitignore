@@ -23,3 +23,9 @@ tests/out/
 apple/build*/
 xcuserdata/
 *.xcuserstate
+
+# Approved Paper design sources and build evidence.
+!docs/design/
+!docs/design/paper/
+!docs/design/paper/**
+docs/design/paper/**/__pycache__/

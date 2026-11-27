@@ -46,8 +46,8 @@
 .sidebar-usage__row { display: flex; align-items: center; gap: 8px; width: 100%; }
 .sidebar-usage__row > span { display: flex; flex-direction: column; flex: 1; gap: 2px; min-width: 0; }
 .sidebar-usage small { color: var(--color-text-secondary); font-size: 13px; }
-.sidebar-usage strong { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
-.sidebar-usage__detail { color: var(--color-text-secondary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.sidebar-usage strong { font-size: 14px; font-weight: 500; overflow-wrap: normal; word-break: normal; }
+.sidebar-usage__detail { color: var(--color-text-secondary); font-size: 12px; line-height: 18px; overflow-wrap: normal; word-break: normal; }
 .sidebar-usage progress { appearance: none; border: 0; width: 100%; height: 5px; border-radius: 4px; overflow: hidden; background: var(--color-bg-active); }
 .sidebar-usage progress::-webkit-progress-bar { background: var(--color-bg-active); }
 .sidebar-usage progress::-webkit-progress-value { background: var(--color-primary); }

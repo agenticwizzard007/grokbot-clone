@@ -20,7 +20,7 @@ import { takeComposerHold, whenTypingIdle } from '../lib/typingGuard';
 import { observeComposerInput, resetInputLatency } from '../lib/inputLatency';
 import { useDisplayText } from '../lib/useDisplayText';
 
-const MAX_H = 200;
+const MAX_H = 144;
 const drafts = new Map<string, string>();
 const prefilledDrafts = new Set<string>();
 const pendingSends = new Map<string, symbol>();
@@ -132,21 +132,20 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
     // Geometry and fonts change on resize, pane/catalog changes or font load,
     // not on each keystroke. Keep their style writes out of the typing path.
     if (refreshGeometry || !measure.max) {
-      const px = (value: string) => parseFloat(value) || 0;
-      const style = getComputedStyle(composer);
       const fieldStyle = getComputedStyle(el);
       // Mirror the rendered field, including fractional widths and padding.
       // A single isolated measure avoids resetting the visible field's height
       // on each key, which would also lay out the conversation above it.
       Object.assign(measure.field.style, { font: fieldStyle.font, letterSpacing: fieldStyle.letterSpacing,
         padding: fieldStyle.padding, width: `${el.getBoundingClientRect().width}px` });
-      const base = px(style.paddingTop) + px(style.paddingBottom) + px(style.borderTopWidth) + px(style.borderBottomWidth) + px(style.getPropertyValue('--composer-chip-row'));
-      measure.max = Math.max(px(fieldStyle.minHeight), Math.min(MAX_H, px(style.maxHeight) - base));
+      measure.max = MAX_H;
     }
     const max = measure.max;
     measure.field.value = el.value;
     const desired = measure.field.scrollHeight;
-    el.style.height = `${Math.min(desired, max)}px`;
+    const height = Math.max(24, Math.min(Math.ceil(desired / 24) * 24, max));
+    el.style.height = `${height}px`;
+    composer.style.setProperty('--composer-field-height', `${height}px`);
     el.style.overflowY = desired > max ? 'auto' : 'hidden';
   }, []);
   useLayoutEffect(() => grow(true), [onScreen, mobile, grow]);
@@ -291,7 +290,7 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
   const dictation = useDictation(insertText, setError, bot.voiceLanguage, {
     contextKey: `${bot.id}:${bot.generation}`, enabled: !anyCall && onScreen,
   });
-  const voiceLabel = connecting ? 'Connecting…' : inCall ? `End call with ${bot.name}` : switchingCall ? `Switch call to ${bot.name}` : `Start live voice with ${bot.name}`;
+  const voiceLabel = connecting ? 'Connecting' : inCall ? `End call with ${bot.name}` : switchingCall ? `Switch call to ${bot.name}` : `Start live voice with ${bot.name}`;
   const wasDictating = useRef(false);
   useEffect(() => {
     const active = dictation.state !== 'idle';
@@ -325,7 +324,7 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
       {error && <div className="composer__error" role="alert">{clean(error)} <button type="button" className="link-btn" onClick={() => { sendErrors.delete(draftKey); setError(null); }}>Dismiss</button></div>}
       {dictation.state !== 'idle' && (
         <div className="composer__dictation">
-          <span role="status">{dictation.state === 'starting' ? 'Opening microphone…' : dictation.state === 'recording' ? 'Dictating a message…' : 'Transcribing message…'}</span>
+          <span role="status">{dictation.state === 'starting' ? 'Opening microphone' : dictation.state === 'recording' ? 'Dictating a message' : 'Transcribing message'}</span>
           <div className="composer__dictation-actions">
             {dictation.state === 'recording' && <button type="button" className="link-btn" onClick={dictation.stop} aria-label="Use transcript · stop dictation">Use transcript</button>}
             <button ref={dictationCancelRef} type="button" className="link-btn" onClick={dictation.cancel} aria-label="Cancel dictation">Cancel</button>
@@ -386,7 +385,7 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
             aria-pressed={inCall}
             aria-busy={connecting}
             disabled={connecting}
-            title={connecting ? 'Connecting…' : switchingCall ? `End the current call and talk to ${bot.name}` : inCall ? 'End the call; Bot work continues in chat' : `Talk to ${bot.name} live to coordinate work and hear results`}
+            title={connecting ? 'Connecting' : switchingCall ? `End the current call and talk to ${bot.name}` : inCall ? 'End the call; Bot work continues in chat' : `Talk to ${bot.name} live to coordinate work and hear results`}
             onClick={voice}
           >
             {connecting ? <LoaderCircle size={16} className="composer__voice-spinner" aria-hidden /> : inCall ? <PhoneOff size={16} aria-hidden /> : <Icon name="mic" />}
@@ -411,6 +410,7 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
         </div>
       </div>
       </div>
+      <p className="composer__note">External actions ask first.</p>
     </div>
   );
 }, (previous, next) => previous.running === next.running && composerBotKeys.every(key => previous.bot[key] === next.bot[key]));
@@ -421,5 +421,5 @@ const composerBotKeys = ['id', 'name', 'model', 'effort', 'fast', 'voiceLanguage
 
 /** The same live-call action is always available, including with a saved draft. */
 export function liveVoiceMenuItem(onSelect: () => void, inCall: boolean, switchTo?: string, connecting = false) {
-  return { label: connecting ? 'Connecting…' : inCall ? 'End live call' : 'Talk live', hint: switchTo ? `Switch to ${switchTo}` : undefined, icon: connecting ? LoaderCircle : inCall ? PhoneOff : Mic, onSelect };
+  return { label: connecting ? 'Connecting' : inCall ? 'End live call' : 'Talk live', hint: switchTo ? `Switch to ${switchTo}` : undefined, icon: connecting ? LoaderCircle : inCall ? PhoneOff : Mic, onSelect };
 }

@@ -1,0 +1,92 @@
+[
+  {
+    "width": 320,
+    "theme": "light",
+    "composer": 6,
+    "picker": 23,
+    "closedMain": 28,
+    "openMain": 51,
+    "pickerText": "Model and effort\nYour plans\nSonnet 4.5\nPlan\nOpus 4.1\nPlan\nManage plans\nAPI billing\nManage API keys\nEffort\nLow\nMedium\nHigh\nUsage"
+  },
+  {
+    "width": 320,
+    "theme": "dark",
+    "composer": 6,
+    "picker": 23,
+    "closedMain": 28,
+    "openMain": 51,
+    "pickerText": "Model and effort\nYour plans\nSonnet 4.5\nPlan\nOpus 4.1\nPlan\nManage plans\nAPI billing\nManage API keys\nEffort\nLow\nMedium\nHigh\nUsage"
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "composer": 6,
+    "picker": 23,
+    "closedMain": 28,
+    "openMain": 51,
+    "pickerText": "Model and effort\nYour plans\nSonnet 4.5\nPlan\nOpus 4.1\nPlan\nManage plans\nAPI billing\nManage API keys\nEffort\nLow\nMedium\nHigh\nUsage"
+  },
+  {
+    "width": 390,
+    "theme": "dark",
+    "composer": 6,
+    "picker": 23,
+    "closedMain": 28,
+    "openMain": 51,
+    "pickerText": "Model and effort\nYour plans\nSonnet 4.5\nPlan\nOpus 4.1\nPlan\nManage plans\nAPI billing\nManage API keys\nEffort\nLow\nMedium\nHigh\nUsage"
+  },
+  {
+    "width": 500,
+    "theme": "light",
+    "composer": 6,
+    "picker": 20,
+    "closedMain": 28,
+    "openMain": 48,
+    "pickerText": "Your plans\nSonnet 4.5\nPlan\nOpus 4.1\nPlan\nManage plans\nAPI billing\nManage API keys\nEffort\nLow\nMedium\nHigh\nUsage"
+  },
+  {
+    "width": 500,
+    "theme": "dark",
+    "composer": 6,
+    "picker": 20,
+    "closedMain": 28,
+    "openMain": 48,
+    "pickerText": "Your plans\nSonnet 4.5\nPlan\nOpus 4.1\nPlan\nManage plans\nAPI billing\nManage API keys\nEffort\nLow\nMedium\nHigh\nUsage"
+  },
+  {
+    "width": 768,
+    "theme": "light",
+    "composer": 6,
+    "picker": 20,
+    "closedMain": 29,
+    "openMain": 49,
+    "pickerText": "Your plans\nSonnet 4.5\nPlan\nOpus 4.1\nPlan\nManage plans\nAPI billing\nManage API keys\nEffort\nLow\nMedium\nHigh\nUsage"
+  },
+  {
+    "width": 768,
+    "theme": "dark",
+    "composer": 6,
+    "picker": 20,
+    "closedMain": 29,
+    "openMain": 49,
+    "pickerText": "Your plans\nSonnet 4.5\nPlan\nOpus 4.1\nPlan\nManage plans\nAPI billing\nManage API keys\nEffort\nLow\nMedium\nHigh\nUsage"
+  },
+  {
+    "width": 1280,
+    "theme": "light",
+    "composer": 8,
+    "picker": 20,
+    "closedMain": 31,
+    "openMain": 51,
+    "pickerText": "Your plans\nSonnet 4.5\nPlan\nOpus 4.1\nPlan\nManage plans\nAPI billing\nManage API keys\nEffort\nLow\nMedium\nHigh\nUsage"
+  },
+  {
+    "width": 1280,
+    "theme": "dark",
+    "composer": 8,
+    "picker": 20,
+    "closedMain": 31,
+    "openMain": 51,
+    "pickerText": "Your plans\nSonnet 4.5\nPlan\nOpus 4.1\nPlan\nManage plans\nAPI billing\nManage API keys\nEffort\nLow\nMedium\nHigh\nUsage"
+  }
+]

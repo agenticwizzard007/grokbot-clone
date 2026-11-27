@@ -127,17 +127,17 @@ try {
   await composer.fill('');
   console.log('PASS R2F-031 composer focus returns after an approval');
 
-  // R2F-030: Escape closes the model picker in one press, also with the effort flyout open.
+  // R2F-030: Escape closes the model picker in one press, also with the effort segments focused.
   const pill = page.getByRole('button', { name: /^Model: Test Model/ });
   await pill.click();
-  const picker = page.getByRole('dialog', { name: 'Choose a model' });
+  const picker = page.getByRole('dialog', { name: 'Model and effort' });
   await picker.waitFor();
-  await picker.getByRole('button', { name: 'Effort', exact: true }).click();
-  await page.getByRole('listbox', { name: 'Effort' }).waitFor();
+  await picker.getByRole('radiogroup', { name: 'Effort' }).waitFor();
+  await picker.getByRole('radio', { name: 'Medium', exact: true }).focus();
   await page.keyboard.press('Escape');
   await picker.waitFor({ state: 'detached' });
   await pill.click(); await picker.waitFor();
-  await picker.getByRole('button', { name: 'Effort', exact: true }).focus();
+  await picker.getByRole('radio', { name: 'Medium', exact: true }).focus();
   await page.keyboard.press('Escape');
   await picker.waitFor({ state: 'detached' });
   assert.equal(await pill.evaluate(el => document.activeElement === el), true, 'focus returns to the model pill');

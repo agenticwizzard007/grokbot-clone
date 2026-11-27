@@ -144,7 +144,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     await call.getByText('Waiting for microphone permission', { exact: true }).waitFor({ timeout: 1000 });
     const assertConnecting = async () => {
       assert.equal(await mic.isDisabled(), true);
-      assert.equal(await mic.getAttribute('aria-label'), 'Connecting…');
+      assert.equal(await mic.getAttribute('aria-label'), 'Connecting');
       assert.equal(await mic.getAttribute('aria-busy'), 'true');
       assert.equal(await call.getByRole('button', { name: 'End call', exact: true }).count(), 0);
       assert.equal(await call.getByRole('button', { name: 'Mute', exact: true }).count(), 0);
@@ -154,7 +154,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     };
     await assertConnecting();
     await page.getByRole('button', { name: 'More actions', exact: true }).click();
-    await page.getByRole('menuitem', { name: 'Connecting…', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Connecting', exact: true }).click();
     assert.equal(await page.evaluate(() => window.voiceState().status), 'connecting');
     assert.equal(await page.evaluate(() => window.micRequests), 1);
     assert.equal(sessionRequests, 0);
@@ -212,7 +212,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     await page.getByRole('menuitem', { name: 'Talk live', exact: true }).click();
     await call.getByText('Connecting…', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'More actions', exact: true }).click();
-    await page.getByRole('menuitem', { name: 'Connecting…', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Connecting', exact: true }).click();
     assert.equal(await page.evaluate(() => window.voiceState().status), 'connecting');
     await call.getByRole('button', { name: 'Cancel call setup', exact: true }).click();
     assert.equal(await page.evaluate(() => window.voiceState().status), 'idle');

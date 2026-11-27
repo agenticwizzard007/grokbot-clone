@@ -7,9 +7,13 @@
   flex: 0 0 16px;
   border-radius: 0;
   vertical-align: -3px;
-  color: inherit;
+  color: currentColor;
+  overflow: visible;
 }
+.provider-icon[data-provider="claude"] { color: #D97757; }
 .provider-label { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; vertical-align: bottom; }
 .provider-label > .provider-icon { align-self: center; }
-.provider-label__text { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.provider-label__text { min-width: 0; white-space: normal; overflow-wrap: normal; word-break: normal; hyphens: none; }
 .provider-effort { display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+.label-word { white-space: nowrap; }

@@ -93,7 +93,7 @@ try {
     assert.equal(await chip.evaluate(el => el === document.activeElement), true, 'field Tab reaches model');
     await focused(page);
     await page.keyboard.press('Enter');
-    const picker = page.getByRole('dialog', { name: 'Choose a model', exact: true });
+    const picker = page.getByRole('dialog', { name: 'Model and effort', exact: true });
     await picker.waitFor(); await picker.locator('.mm-row__main').waitFor(); await walkDialog(page, picker);
     await page.keyboard.press('Escape');
     assert.equal(await chip.evaluate(el => el === document.activeElement), true, 'Escape returns to chip');

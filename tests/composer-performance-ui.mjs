@@ -25,7 +25,7 @@ const { fixturePage, origin } = await import('./qa-r3-work-fixture.mjs');
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 const results = [];
 try {
-  for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
+  for (const width of [320, 390, 480, 500, 768, 1280]) for (const theme of ['light', 'dark']) {
     const { page, fixture, errors, writes } = await fixturePage(browser, { width, height: 900 });
     page.setDefaultTimeout(30000);
     await page.emulateMedia({ colorScheme: theme });
@@ -117,5 +117,5 @@ try {
     assert.ok(result.p95Ms < 16, `${result.width} ${result.theme}: 95% of keystrokes commit within 16 ms: ${result.p95Ms}`);
     assert.ok(result.maxMs < 100, `${result.width} ${result.theme}: no keystroke stalls: ${result.maxMs}`);
   }
-  console.log('PASS composer typing and growth in all four viewport/theme combinations');
+  console.log('PASS composer typing and growth in all viewport/theme combinations');
 } finally { await browser.close(); await new Promise(resolve => vite.httpServer.close(resolve)); }

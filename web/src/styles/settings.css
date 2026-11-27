@@ -60,7 +60,7 @@
 .app-settings .settings-nav__item.is-active .settings-nav__icon { color: var(--color-text-primary); }
 .app-settings .settings-nav__item:active .settings-nav__icon { transform: scale(0.92); }
 .app-settings .settings-nav__item:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--color-border-focus); }
-.settings-nav__empty { padding: 20px 10px; font-size: 13px; line-height: 18px; color: var(--color-text-tertiary); overflow-wrap: anywhere; }
+.settings-nav__empty { padding: 20px 10px; font-size: 13px; line-height: 18px; color: var(--color-text-tertiary); overflow-wrap: normal; word-break: normal; }
 
 /* ---------- page ---------- */
 .app-settings .app-settings__main { background: var(--color-bg-pane); scrollbar-width: thin; }
@@ -90,7 +90,7 @@
   content: ''; position: absolute; top: 0; left: var(--settings-inset); right: var(--settings-inset); height: 1px; background: var(--color-border-tertiary);
 }
 .app-settings .cfg-row__text { gap: 2px; margin-right: 8px; }
-.app-settings .cfg-row__title { font-size: 14px; line-height: 20px; white-space: normal; overflow-wrap: anywhere; }
+.app-settings .cfg-row__title { font-size: 14px; line-height: 20px; white-space: normal; overflow-wrap: normal; word-break: normal; }
 .app-settings .cfg-row__sub { font-size: 13px; line-height: 18px; letter-spacing: 0; color: var(--color-text-secondary); }
 .app-settings .cfg-row__sub.is-error { color: var(--color-danger-text); }
 /* A row's buttons travel together: right-aligned beside the text, or on their own line when they don't fit. */
