@@ -59,4 +59,4 @@
 .requirements-card p { margin: 0; }
 .requirements-card .layout-row__title { font-size: 14px; line-height: 20px; }
 .requirements-card .layout-row__subtitle { margin-top: 8px; font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }
-.requirements-card .cfg-btn { min-height: 44px; border-radius: var(--radius-sm); padding: 8px 16px; font-size: 14px; line-height: 20px; }
+.requirements-card .cfg-btn { gap: 8px; min-height: 44px; border-radius: var(--radius-sm); padding: 8px 16px; font-size: 14px; line-height: 20px; }

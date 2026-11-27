@@ -32,11 +32,11 @@ export async function runAboutYouUi(output = 'shots/polish/after') {
         const style = await section.locator('.requirements-card').evaluate(card => {
           const css = getComputedStyle(card), button = card.querySelector('button');
           return { padding: css.padding, radius: css.borderTopLeftRadius, font: css.fontSize,
-            buttonHeight: button.getBoundingClientRect().height, buttonFont: getComputedStyle(button).fontSize,
+            buttonHeight: button.getBoundingClientRect().height, buttonFont: getComputedStyle(button).fontSize, buttonGap: getComputedStyle(button).gap,
             subtitleFont: card.querySelector('.layout-row__subtitle') ? getComputedStyle(card.querySelector('.layout-row__subtitle')).fontSize : null };
         });
         assert.equal(style.padding, '16px'); assert.equal(style.radius, '12px'); assert.equal(style.font, '14px');
-        assert.ok(style.buttonHeight >= 44); assert.equal(style.buttonFont, '14px');
+        assert.ok(style.buttonHeight >= 44); assert.equal(style.buttonFont, '14px'); assert.equal(style.buttonGap, '8px');
         if (style.subtitleFont) assert.equal(style.subtitleFont, '13px');
         if (width <= 760) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1);
         const filename = path.join(directory, `${name}-${width}-${theme}.png`);
