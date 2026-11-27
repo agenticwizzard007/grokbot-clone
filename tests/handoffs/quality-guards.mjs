@@ -14,6 +14,8 @@ export async function checkQualityGuards(fixture, inspect) {
     ['e.overflow', el => { el.style.width='2000px'; }],
     ['f.spacing', el => { const list=document.createElement('div'); list.style.display='grid'; list.style.gap='5px'; for(let i=0;i<3;i++){const row=document.createElement('div');row.dataset.layout='row';row.textContent='Release note';list.append(row);} el.append(list); }],
     ['g.unique-title', el => { const p=document.createElement('p'); p.textContent=el.querySelector('.layout-row__title').textContent; el.prepend(p); }],
+    ['g.viewer-title', el => { const title=document.createElement('h1'); title.className='ho-heading'; title.textContent='Release note'; const p=document.createElement('p'); p.className='ho-output-summary'; p.textContent=title.textContent; el.append(title,p); }],
+    ['g.unique-goal', el => { const wrapper=document.createElement('div'); wrapper.className='ho-loops'; const goal=document.createElement('p'); goal.className='ho-loop-goal'; goal.textContent='Review the release note.'; const subtitle=document.createElement('div'); subtitle.className='layout-row__subtitle'; subtitle.textContent=goal.textContent; wrapper.append(goal,subtitle); el.append(wrapper); }],
     ['h.copy', el => { el.append(document.createTextNode('mock: review')); }],
     ['i.finished', el => { const pending=document.createElement('div');pending.className='first-response';el.append(pending); }],
     ['j.icon', el => { el.querySelector('.layout-row__leading').style.transform='translateY(8px)'; }],

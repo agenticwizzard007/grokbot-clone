@@ -5,6 +5,7 @@ import { ProviderLabel } from '../components/ProviderMark';
 import { handoffApi, type OutputPart, type RunOutput } from './api';
 import { HandoffState } from './HandoffRow';
 import { handoffText, outputHref, useHandoffResource } from './useHandoffs';
+import { outputPreview } from './presentation';
 import './handoffs.css';
 
 export function BackControl({ onBack = () => history.back() }: { onBack?: () => void }) {
@@ -64,12 +65,14 @@ export function OutputViewer({ outputId, partId, onBack, onSend, onStartLoop }: 
   const resource = useHandoffResource(`output:${outputId}`, signal => handoffApi.output(outputId, signal));
   const [selected, setSelected] = useState<{ outputId: string; partId: string } | null>(null);
   const output = resource.data?.output;
+  const summary = output ? outputPreview(handoffText(output.title), handoffText(output.summary)) : '';
   const activePart = output?.parts.find(part => part.id === (selected?.outputId === outputId ? selected.partId : partId) && (part.kind === 'text' || part.kind === 'data'));
   return <Page className="ho" type="form">
     <BackControl onBack={onBack} /><h1 className="ho-heading">{output ? handoffText(output.title) : 'Output'}</h1>
     <HandoffState loading={!output && resource.loading} error={resource.error} retry={resource.retry} empty={!resource.loading && !resource.error && !output ? 'No output yet' : undefined} />
     {output && <>
-      <Section title="Summary"><Card><p className="ho-prose">{handoffText(output.summary)}</p>{output.status !== 'final' && <span className="ho-chip">{output.status === 'draft' ? 'Incomplete' : 'Earlier output'}</span>}</Card></Section>
+      {summary && <Section title="Summary"><Card><p className="ho-prose ho-output-summary">{summary}</p></Card></Section>}
+      {output.status !== 'final' && <div className="ho-chips"><span className="ho-chip">{output.status === 'draft' ? 'Incomplete' : 'Earlier output'}</span></div>}
       <ButtonGroup><button className="ho-button ho-button--primary" onClick={() => onSend(output)}>Send to agent</button>{onStartLoop && <button className="ho-button" onClick={() => onStartLoop(output)}>Start loop</button>}</ButtonGroup>
       <Section title="Parts"><OutputParts output={output} onOpen={part => setSelected({ outputId, partId: part.id })} /></Section>
       {activePart && <PartReader key={`${outputId}:${activePart.id}`} outputId={outputId} part={activePart} />}

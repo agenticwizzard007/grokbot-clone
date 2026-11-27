@@ -28,6 +28,8 @@ export function inspectQuality({ selector, finished = false }) {
       check('h.copy', !forbidden.test(node.textContent), el);
     }
     if (el.matches('input,textarea')) check('h.copy', !forbidden.test(el.value) && !forbidden.test(el.getAttribute('placeholder') || ''), el);
+    if (el.matches('.ho-output-summary')) { const title = el.closest('.ho')?.querySelector('.ho-heading'); if (title) check('g.viewer-title', !el.textContent.trim().toLowerCase().startsWith(title.textContent.trim().toLowerCase()), el); }
+    if (el.matches('.ho-loop-goal')) { const subtitles = [...el.closest('.ho-loops').querySelectorAll('.layout-row__subtitle')].filter(visible); check('g.unique-goal', subtitles.every(node => node.textContent.trim() !== el.textContent.trim()), el); }
     if (el.matches('[data-layout="row"],button,[role="button"],summary,a[href]:not(.flow-sr)')) check('b.target', r.height >= minimum - 1, el, `${r.height}px`);
     if (el.matches('[data-layout="button-group"]')) {
       const children = [...el.children].filter(visible), rects = children.map(x => x.getBoundingClientRect());
