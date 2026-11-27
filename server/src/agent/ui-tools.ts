@@ -292,8 +292,6 @@ export function createUiTools(deps: UiToolDependencies): ToolDef[] {
                 else { deps.service.discardPreview(user, args.previewId); deps.syncCards?.(ctx); result = { ok: true }; }
                 break;
               case 'undo_ui_change': {
-                // Outside content cannot silently restore a saved phishing layout either.
-                if (deps.tainted(ctx)) { result = { status: 'awaiting_user', message: 'Use Undo in Appearance history.' }; break; }
                 const undo = deps.service.undo(user, args.steps ?? 1, actor);
                 result = undo.ok ? { revision: undo.revision, summary: undo.summary } : undo; break;
               }

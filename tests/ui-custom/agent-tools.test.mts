@@ -58,6 +58,7 @@ test('ask mode waits even when the tool is explicitly called; auto applies and u
   f.service.mode = 'auto';
   assert.deepEqual(await f.call('apply_ui_patch', { previewId: preview.previewId }), { status: 'applied', revision: 1 });
   assert.equal(f.service.get(f.ctx.userId).doc.theme.mode, 'dark');
+  f.setTainted(true); // Undo remains available without another preview or Apply.
   assert.equal((await f.call('undo_ui_change', {})).revision, 2);
   assert.equal(f.service.get(f.ctx.userId).doc.theme.mode, 'system');
 });
