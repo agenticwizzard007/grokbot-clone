@@ -1,0 +1,494 @@
+{
+  "390": {
+    "width": 390,
+    "height": 684,
+    "mode": "stacked",
+    "column": {
+      "x": 0,
+      "width": 390
+    },
+    "lanes": [
+      {
+        "id": "triggers",
+        "label": "Triggers",
+        "x": 0,
+        "y": 0,
+        "w": 390,
+        "h": 96,
+        "nodes": [
+          {
+            "id": "triggers:message",
+            "laneId": "triggers",
+            "kind": "node",
+            "node": {
+              "id": "triggers:message",
+              "kind": "message",
+              "label": "You message me",
+              "target": {
+                "hash": "#bot/bot_maker"
+              },
+              "state": "ok"
+            },
+            "label": "You message me",
+            "x": 0,
+            "y": 32,
+            "w": 390,
+            "h": 64
+          }
+        ]
+      },
+      {
+        "id": "inputs",
+        "label": "Inputs",
+        "x": 0,
+        "y": 128,
+        "w": 390,
+        "h": 96,
+        "nodes": [
+          {
+            "id": "inputs:empty",
+            "laneId": "inputs",
+            "kind": "empty",
+            "label": "None yet",
+            "x": 0,
+            "y": 160,
+            "w": 390,
+            "h": 64
+          }
+        ]
+      },
+      {
+        "id": "steps",
+        "label": "Steps",
+        "x": 0,
+        "y": 256,
+        "w": 390,
+        "h": 96,
+        "nodes": [
+          {
+            "id": "steps:1",
+            "laneId": "steps",
+            "kind": "node",
+            "node": {
+              "id": "steps:1",
+              "kind": "step",
+              "label": "Draft a test report",
+              "target": {
+                "hash": "#bot/bot_maker/details/setup/responsibilities"
+              },
+              "state": "ok"
+            },
+            "label": "Draft a test report",
+            "x": 0,
+            "y": 288,
+            "w": 390,
+            "h": 64
+          }
+        ]
+      },
+      {
+        "id": "outputs",
+        "label": "Outputs",
+        "x": 0,
+        "y": 384,
+        "w": 390,
+        "h": 96,
+        "nodes": [
+          {
+            "id": "outputs:report",
+            "laneId": "outputs",
+            "kind": "node",
+            "node": {
+              "id": "outputs:report",
+              "kind": "report",
+              "label": "Reports",
+              "target": {
+                "hash": "#bot/bot_maker/details/files/reports"
+              },
+              "state": "ok"
+            },
+            "label": "Reports",
+            "x": 0,
+            "y": 416,
+            "w": 390,
+            "h": 64
+          }
+        ]
+      },
+      {
+        "id": "handoffs",
+        "label": "Handoffs",
+        "x": 0,
+        "y": 512,
+        "w": 390,
+        "h": 96,
+        "nodes": [
+          {
+            "id": "handoffs:checker",
+            "laneId": "handoffs",
+            "kind": "node",
+            "node": {
+              "id": "handoffs:checker",
+              "kind": "handoff_to",
+              "label": "Checker",
+              "badge": "Suggest",
+              "target": {
+                "hash": "#bot/bot_maker/details/flow?link=test"
+              },
+              "state": "ok"
+            },
+            "label": "Checker",
+            "x": 0,
+            "y": 544,
+            "w": 390,
+            "h": 64
+          }
+        ]
+      }
+    ],
+    "nodes": [
+      {
+        "id": "triggers:message",
+        "laneId": "triggers",
+        "kind": "node",
+        "node": {
+          "id": "triggers:message",
+          "kind": "message",
+          "label": "You message me",
+          "target": {
+            "hash": "#bot/bot_maker"
+          },
+          "state": "ok"
+        },
+        "label": "You message me",
+        "x": 0,
+        "y": 32,
+        "w": 390,
+        "h": 64
+      },
+      {
+        "id": "inputs:empty",
+        "laneId": "inputs",
+        "kind": "empty",
+        "label": "None yet",
+        "x": 0,
+        "y": 160,
+        "w": 390,
+        "h": 64
+      },
+      {
+        "id": "steps:1",
+        "laneId": "steps",
+        "kind": "node",
+        "node": {
+          "id": "steps:1",
+          "kind": "step",
+          "label": "Draft a test report",
+          "target": {
+            "hash": "#bot/bot_maker/details/setup/responsibilities"
+          },
+          "state": "ok"
+        },
+        "label": "Draft a test report",
+        "x": 0,
+        "y": 288,
+        "w": 390,
+        "h": 64
+      },
+      {
+        "id": "outputs:report",
+        "laneId": "outputs",
+        "kind": "node",
+        "node": {
+          "id": "outputs:report",
+          "kind": "report",
+          "label": "Reports",
+          "target": {
+            "hash": "#bot/bot_maker/details/files/reports"
+          },
+          "state": "ok"
+        },
+        "label": "Reports",
+        "x": 0,
+        "y": 416,
+        "w": 390,
+        "h": 64
+      },
+      {
+        "id": "handoffs:checker",
+        "laneId": "handoffs",
+        "kind": "node",
+        "node": {
+          "id": "handoffs:checker",
+          "kind": "handoff_to",
+          "label": "Checker",
+          "badge": "Suggest",
+          "target": {
+            "hash": "#bot/bot_maker/details/flow?link=test"
+          },
+          "state": "ok"
+        },
+        "label": "Checker",
+        "x": 0,
+        "y": 544,
+        "w": 390,
+        "h": 64
+      }
+    ],
+    "loopBack": {
+      "id": "loop-back",
+      "x": 0,
+      "y": 640,
+      "w": 390,
+      "h": 44,
+      "label": "Waits for the next trigger: back to Triggers",
+      "path": ""
+    }
+  },
+  "1280": {
+    "width": 1280,
+    "height": 172,
+    "mode": "columns",
+    "column": {
+      "x": 80,
+      "width": 1120
+    },
+    "lanes": [
+      {
+        "id": "triggers",
+        "label": "Triggers",
+        "x": 80,
+        "y": 0,
+        "w": 198.4,
+        "h": 96,
+        "nodes": [
+          {
+            "id": "triggers:message",
+            "laneId": "triggers",
+            "kind": "node",
+            "node": {
+              "id": "triggers:message",
+              "kind": "message",
+              "label": "You message me",
+              "target": {
+                "hash": "#bot/bot_maker"
+              },
+              "state": "ok"
+            },
+            "label": "You message me",
+            "x": 80,
+            "y": 32,
+            "w": 198.4,
+            "h": 64
+          }
+        ]
+      },
+      {
+        "id": "inputs",
+        "label": "Inputs",
+        "x": 310.4,
+        "y": 0,
+        "w": 198.4,
+        "h": 96,
+        "nodes": [
+          {
+            "id": "inputs:empty",
+            "laneId": "inputs",
+            "kind": "empty",
+            "label": "None yet",
+            "x": 310.4,
+            "y": 32,
+            "w": 198.4,
+            "h": 64
+          }
+        ]
+      },
+      {
+        "id": "steps",
+        "label": "Steps",
+        "x": 540.8,
+        "y": 0,
+        "w": 198.4,
+        "h": 96,
+        "nodes": [
+          {
+            "id": "steps:1",
+            "laneId": "steps",
+            "kind": "node",
+            "node": {
+              "id": "steps:1",
+              "kind": "step",
+              "label": "Draft a test report",
+              "target": {
+                "hash": "#bot/bot_maker/details/setup/responsibilities"
+              },
+              "state": "ok"
+            },
+            "label": "Draft a test report",
+            "x": 540.8,
+            "y": 32,
+            "w": 198.4,
+            "h": 64
+          }
+        ]
+      },
+      {
+        "id": "outputs",
+        "label": "Outputs",
+        "x": 771.2,
+        "y": 0,
+        "w": 198.4,
+        "h": 96,
+        "nodes": [
+          {
+            "id": "outputs:report",
+            "laneId": "outputs",
+            "kind": "node",
+            "node": {
+              "id": "outputs:report",
+              "kind": "report",
+              "label": "Reports",
+              "target": {
+                "hash": "#bot/bot_maker/details/files/reports"
+              },
+              "state": "ok"
+            },
+            "label": "Reports",
+            "x": 771.2,
+            "y": 32,
+            "w": 198.4,
+            "h": 64
+          }
+        ]
+      },
+      {
+        "id": "handoffs",
+        "label": "Handoffs",
+        "x": 1001.6,
+        "y": 0,
+        "w": 198.4,
+        "h": 96,
+        "nodes": [
+          {
+            "id": "handoffs:checker",
+            "laneId": "handoffs",
+            "kind": "node",
+            "node": {
+              "id": "handoffs:checker",
+              "kind": "handoff_to",
+              "label": "Checker",
+              "badge": "Suggest",
+              "target": {
+                "hash": "#bot/bot_maker/details/flow?link=test"
+              },
+              "state": "ok"
+            },
+            "label": "Checker",
+            "x": 1001.6,
+            "y": 32,
+            "w": 198.4,
+            "h": 64
+          }
+        ]
+      }
+    ],
+    "nodes": [
+      {
+        "id": "triggers:message",
+        "laneId": "triggers",
+        "kind": "node",
+        "node": {
+          "id": "triggers:message",
+          "kind": "message",
+          "label": "You message me",
+          "target": {
+            "hash": "#bot/bot_maker"
+          },
+          "state": "ok"
+        },
+        "label": "You message me",
+        "x": 80,
+        "y": 32,
+        "w": 198.4,
+        "h": 64
+      },
+      {
+        "id": "inputs:empty",
+        "laneId": "inputs",
+        "kind": "empty",
+        "label": "None yet",
+        "x": 310.4,
+        "y": 32,
+        "w": 198.4,
+        "h": 64
+      },
+      {
+        "id": "steps:1",
+        "laneId": "steps",
+        "kind": "node",
+        "node": {
+          "id": "steps:1",
+          "kind": "step",
+          "label": "Draft a test report",
+          "target": {
+            "hash": "#bot/bot_maker/details/setup/responsibilities"
+          },
+          "state": "ok"
+        },
+        "label": "Draft a test report",
+        "x": 540.8,
+        "y": 32,
+        "w": 198.4,
+        "h": 64
+      },
+      {
+        "id": "outputs:report",
+        "laneId": "outputs",
+        "kind": "node",
+        "node": {
+          "id": "outputs:report",
+          "kind": "report",
+          "label": "Reports",
+          "target": {
+            "hash": "#bot/bot_maker/details/files/reports"
+          },
+          "state": "ok"
+        },
+        "label": "Reports",
+        "x": 771.2,
+        "y": 32,
+        "w": 198.4,
+        "h": 64
+      },
+      {
+        "id": "handoffs:checker",
+        "laneId": "handoffs",
+        "kind": "node",
+        "node": {
+          "id": "handoffs:checker",
+          "kind": "handoff_to",
+          "label": "Checker",
+          "badge": "Suggest",
+          "target": {
+            "hash": "#bot/bot_maker/details/flow?link=test"
+          },
+          "state": "ok"
+        },
+        "label": "Checker",
+        "x": 1001.6,
+        "y": 32,
+        "w": 198.4,
+        "h": 64
+      }
+    ],
+    "loopBack": {
+      "id": "loop-back",
+      "x": 80,
+      "y": 128,
+      "w": 1120,
+      "h": 44,
+      "label": "Waits for the next trigger",
+      "path": "M 1184 136 V 160 H 96 V 136"
+    }
+  }
+}

@@ -103,7 +103,7 @@ export interface Row {
   createdAt: number;
 }
 
-export type RowKind = 'message' | 'tool-call' | 'card' | 'event' | 'notice';
+export type RowKind = 'message' | 'tool-call' | 'card' | 'event' | 'notice' | 'handoff';
 
 export type RowBody = (
   | MessageBody
@@ -298,6 +298,10 @@ export interface Toolkit {
 
 /** Server-sent events on GET /api/events */
 export type ServerEvent = (
+  | { type: 'handoff'; id: string; status: import('./handoffs/contracts.js').HandoffStatus }
+  | { type: 'loop'; id: string; status: import('./handoffs/contracts.js').LoopStatus; iteration: number }
+  | { type: 'flow'; botId: string; version: number }
+  | { type: 'output'; id: string; botId: string }
   | { type: 'ui_config'; revision: number }
   | { type: 'ui_preview'; previewId: string; botId: string; state: 'pending' | 'applied' | 'discarded' | 'expired' }
   | { type: 'native'; cursor: number }
