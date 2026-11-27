@@ -154,14 +154,8 @@ export async function runDashboards({ demo = false } = {}) {
       await page.getByRole('button', { name: 'Settings: Daily summary', exact: true }).click(); screenshots.push(await screenshot(page, `settings-${width}-${theme}`)); await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
       await page.getByRole('button', { name: 'Add widget', exact: true }).click(); screenshots.push(await screenshot(page, `add-${width}-${theme}`)); await page.getByRole('button', { name: /Ask your agent Answers/ }).click(); screenshots.push(await screenshot(page, `add-agent-${width}-${theme}`)); await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
     }
-    // Main 24f4787 fetches this disabled endpoint from AllSections on every
-    // config revision. UC-Y owns its removal. Keep this inherited failure in
-    // the report; every other console error still fails this workstream.
-    const baselineConsoleErrors = errors.filter(error => error.includes('status of 404') && error.endsWith('/api/ui/requirements'));
-    assert.deepEqual(errors.filter(error => !baselineConsoleErrors.includes(error)), []);
-    if (baselineConsoleErrors.length) console.log(`BASELINE ${baselineConsoleErrors.length} console 404s from /api/ui/requirements (UC-Y)`);
-    pass(baselineConsoleErrors.length ? 'no new console errors versus main' : 'no console errors');
-    fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ passed: results.length, results, screenshots, baselineConsoleErrors }, null, 2));
+    assert.deepEqual(errors, []); pass('no console errors');
+    fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ passed: results.length, results, screenshots, consoleErrors: errors }, null, 2));
     console.log(`${results.length}/${results.length} dashboard client checks passed`);
   } finally { await server.close(); }
 }
