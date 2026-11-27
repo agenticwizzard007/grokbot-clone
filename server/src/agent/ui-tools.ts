@@ -189,12 +189,12 @@ export function buildUiPatch(name: UiToolName, args: any, doc: UiConfig, deps: P
         return { patch: deleteDashboardPatch(doc, args.dashboardId), intent: 'Reset dashboard. Removes 1 dashboard' };
       }
       if (args.scope === 'dashboards') {
-        // Remove backwards so each reference cleanup uses the current array indices.
-        const copy = structuredClone(doc), patch: PatchOp[] = [];
-        for (const dashboard of [...copy.dashboards].reverse()) {
-          patch.push(...deleteDashboardPatch(copy, dashboard.id));
-          copy.dashboards.pop();
-        }
+        const patch: PatchOp[] = [replace('/dashboards', [])];
+        if (doc.layout.home.kind === 'dashboard') patch.push(replace('/layout/home', { kind: 'default' }));
+        patch.push(replace('/layout/pinned', doc.layout.pinned.filter(p => p.type !== 'dashboard')));
+        const tabs = doc.layout.phoneTabs.filter(tab => !tab.startsWith('dashboard:'));
+        for (const tab of ['bots', 'tasks', 'search']) if (tabs.length < 3 && !tabs.includes(tab)) tabs.splice(tabs.indexOf('settings'), 0, tab);
+        patch.push(replace('/layout/phoneTabs', tabs));
         return { patch, intent: `Reset dashboards. Removes ${doc.dashboards.length} dashboards` };
       }
       const keys = args.scope === 'all' ? ['preset', 'theme', 'layout', 'components', 'keybindings', 'device', 'dashboards'] : args.scope === 'appearance' ? ['preset', 'theme', 'layout', 'components', 'keybindings', 'device'] : [args.scope];
