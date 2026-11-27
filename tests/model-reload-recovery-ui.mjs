@@ -18,7 +18,7 @@ try {
       window.badLoadingLabels = [];
       new MutationObserver(() => {
         const chip = document.querySelector('.model-pill__name')?.textContent || '';
-        const footer = document.querySelector('.sidebar-usage')?.getAttribute('aria-label') || '';
+        const footer = document.querySelector('.sidebar-usage')?.textContent || '';
         if (/Models unavailable|Unavailable|Retry provider details/.test(chip + footer)) window.badLoadingLabels.push(chip + footer);
       }).observe(document, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-label'] });
     }, theme);
@@ -41,7 +41,7 @@ try {
       assert.equal(await name.innerText(), 'Codex · ChatGPT plan', 'cached resolved label survives reload');
       await page.waitForFunction(() => document.querySelector('.model-pill')?.getAttribute('aria-busy') === 'false', null, { timeout: 30_000 });
       assert.equal(await name.innerText(), 'Codex · ChatGPT plan');
-      assert.match(await page.locator('.sidebar-usage').getAttribute('aria-label'), /Codex plan.*Usage limits not reported/);
+      assert.match(await page.locator('.sidebar-usage').textContent(), /Codex plan.*Limits unavailable/);
       assert.ok(calls >= 2, `${scenario} retried automatically`);
       assert.equal(await page.locator('.model-menu').count(), 0, 'picker was never opened');
       assert.deepEqual(await page.evaluate(() => window.badLoadingLabels), []);
@@ -55,7 +55,7 @@ try {
     if (width === 390) {
       await page.getByRole('button', { name: 'All Bots', exact: true }).click();
       await page.locator('.sidebar-usage').waitFor({ state: 'visible' });
-      assert.match(await page.locator('.sidebar-usage').innerText(), /Codex plan[\s\S]*Usage limits not reported/);
+      assert.match(await page.locator('.sidebar-usage').innerText(), /Codex plan[\s\S]*Limits unavailable/);
       await page.screenshot({ path: `.context/r6-z-ui/${width}-${theme}-sidebar.png` });
     }
     assert.deepEqual(errors, []); assert.deepEqual(writes, []);

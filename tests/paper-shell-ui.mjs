@@ -71,7 +71,7 @@ try {
    assert.deepEqual(await page.locator('.sidebar__nav button').allTextContents(), ['All Bots','Tasks','Files']);
    await page.keyboard.press('Control+b');
    assert.equal(await page.locator('.sidebar').evaluate(el => el.getBoundingClientRect().width), 76);
-   await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+   await page.getByRole('button', { name: /Account & settings$/ }).click();
    assert.deepEqual(await page.getByRole('menuitem').allTextContents(), ['SettingsCtrl+,','Usage','Models and access','Connect apps','Log out']);
    await audit(page, '.sidebar, .menu');
    await screenshot(page, 'rail-account-menu', width, theme);
@@ -79,7 +79,7 @@ try {
    await page.locator('.sidebar__nav').getByRole('button', { name: 'Files', exact: true }).click();
    await page.waitForFunction(() => location.hash === '#reports');
    assert.deepEqual(await page.locator('.sidebar__nav .is-active').allTextContents(), ['Files']);
-   assert.equal(await page.locator('.sidebar__nav').getByRole('button', { name: 'Tasks', exact: true }).getAttribute('aria-pressed'), 'false');
+   assert.equal(await page.locator('.sidebar__nav').getByRole('button', { name: /^Tasks(?: \d|$)/ }).getAttribute('aria-pressed'), 'false');
    await page.locator('.sidebar__search').click();
    await page.locator('.search-modal').waitFor();
    assert.equal(await page.locator('.sidebar .is-selected, .sidebar__nav .is-active').count(), 0);

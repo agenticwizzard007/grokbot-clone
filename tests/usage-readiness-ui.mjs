@@ -72,9 +72,9 @@ try {
     // Settings can be the first catalog consumer on a cold link.
     await page.evaluate(async () => (await import('/src/lib/models.ts')).useModels.getState().load());
     const footer = page.locator('.sidebar-usage');
-    await page.waitForFunction(() => document.querySelector('.sidebar-usage')?.textContent.includes('Usage limits not reported'));
+    await page.waitForFunction(() => document.querySelector('.sidebar-usage')?.textContent.includes('Limits unavailable'));
     assert.match(await footer.innerText(), /Codex plan/);
-    assert.match(await footer.getAttribute('aria-label'), /Usage limits not reported/);
+    assert.match(await footer.textContent(), /Limits unavailable/);
     const rangeLabel = page.locator('.usage-head__span');
     assert.equal(await rangeLabel.innerText(), 'Nov 19 to Nov 25 · Asia/Dubai');
     assert.ok(await rangeLabel.isVisible());

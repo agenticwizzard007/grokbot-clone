@@ -128,7 +128,7 @@ try {
   console.log('PASS R2F-031 composer focus returns after an approval');
 
   // R2F-030: Escape closes the model picker in one press, also with the effort segments focused.
-  const pill = page.getByRole('button', { name: /^Model: Test Model/ });
+  const pill = page.getByRole('button', { name: /Model: Test Model/ });
   await pill.click();
   const picker = page.getByRole('dialog', { name: 'Model and effort' });
   await picker.waitFor();
@@ -164,13 +164,13 @@ try {
   await page.keyboard.press('Escape');
   await openChat('Nia').click();
   await wait(async () => (await chatName()) === 'Nia', 'Nia opened on the first click after Escape');
-  await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+  await page.getByRole('button', { name: /Account & settings$/ }).click();
   await page.getByRole('menuitem', { name: 'Connect apps', exact: true }).click();
   await page.getByRole('dialog', { name: 'Connect Apps' }).waitFor();
   await page.getByRole('dialog', { name: 'Connect Apps' }).getByRole('button', { name: 'Close', exact: true }).click();
   await openChat('Wren').click();
   await wait(async () => (await chatName()) === 'Wren', 'Wren opened on the first click after closing a modal');
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByRole('button', { name: /^Search(?: |$)/ }).click();
   await page.getByRole('textbox', { name: 'Search', exact: true }).waitFor();
   // A click on the backdrop closes the palette and lands on the row underneath.
   const row = await openChat('Nia').boundingBox();
@@ -205,7 +205,7 @@ try {
   console.log('PASS R2F-008 group picker disables setup Bots and shows the server message inline');
 
   // R2F-032: after choosing a setup file the native input is replaced by the file name and "Choose another file".
-  await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+  await page.getByRole('button', { name: 'Create a Bot', exact: true }).click();
   const create = page.getByRole('main', { name: 'Create a Bot' });
   await page.locator('.setup-create .pb-disclosure > summary').click();
   await create.getByRole('button', { name: 'Import saved setup' }).click();
@@ -236,7 +236,7 @@ try {
   const scroller = sidebar.locator('.sidebar__scroll');
   await scroller.evaluate(el => { el.scrollTop = el.scrollHeight; });
   await page.waitForTimeout(100);
-  const island = sidebar.getByRole('button', { name: 'Tasks', exact: true });
+  const island = sidebar.getByRole('button', { name: /^Tasks(?: \d|$)/ });
   const [islandBox, scrollBox] = [await island.boundingBox(), await scroller.boundingBox()];
   assert.ok(await scroller.evaluate(el => el.scrollTop > 0), 'the Bot list scrolled');
   assert.ok(islandBox && islandBox.y >= 0 && islandBox.y + islandBox.height <= scrollBox.y + 1, `Tasks island stays in view ${JSON.stringify({ islandBox, scrollBox })}`);

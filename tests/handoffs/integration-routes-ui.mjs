@@ -143,7 +143,7 @@ export async function runIntegrationDemo({ settingsFlow, outputFlow } = {}) {
       await page.locator('.shell-back:visible').click();
       await page.locator('.shell-back:visible').click();
       if (width === 390) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
-      await page.locator('.sidebar').getByRole('button', { name: 'Account & settings', exact: true }).click();
+      await page.locator('.sidebar').getByRole('button', { name: /Account & settings$/ }).click();
       await page.getByRole('menuitem', { name: 'Loops', exact: true }).click();
       await page.getByRole('button', { name: 'Done', exact: true }).click();
       await page.getByText('Release note review', { exact: true }).click();
@@ -205,7 +205,7 @@ export async function runIntegrationDemo({ settingsFlow, outputFlow } = {}) {
       await page.waitForFunction(() => window.handoffEvents.includes('loop'));
       check('Suggested Send to Keep improving starts a loop with Pause, Resume and Stop');
       await openSidebar();
-      await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
+      await page.locator('.sidebar').getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
       await page.locator('.task-filters .is-done').click();
       await page.locator('.task-card-frame').filter({ hasText: 'Release note draft' }).getByRole('button', { name: 'Send to agent', exact: true }).click();
       await sheet.waitFor(); await page.keyboard.press('Escape'); check('Done task card opens Send to agent');

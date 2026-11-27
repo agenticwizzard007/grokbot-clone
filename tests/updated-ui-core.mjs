@@ -100,7 +100,7 @@ try {
     const searchInput = page.getByRole('textbox', { name: 'Search', exact: true });
     const create = page.getByRole('main', { name: 'Create a Bot', exact: true });
     const group = page.getByRole('main', { name: 'New group chat', exact: true });
-    const openCreate = () => page.getByRole('button', { name: 'New Bot', exact: true }).click();
+    const openCreate = () => page.getByRole('button', { name: 'Create a Bot', exact: true }).click();
     const openGroup = () => create.getByRole('button', { name: 'New group chat instead', exact: true }).click();
     const documentStart = await page.evaluate(() => performance.timeOrigin);
     if (width <= 760) {
@@ -121,7 +121,7 @@ try {
     }
     await page.locator('.composer__input').waitFor();
     await page.getByText('I drafted the brief around timing, ownership, and the two decisions still open.', { exact: true }).waitFor();
-    await page.getByRole('button', { name: /^Model: Test Model/ }).waitFor();
+    await page.getByRole('button', { name: /Model: Test Model/ }).waitFor();
     await page.evaluate(() => document.fonts.ready);
     assert.equal(await page.locator('.traffic-lights:visible').count(), 0);
     assert.equal(await page.locator('#app-settings-sidebar-slot').count(), 1);

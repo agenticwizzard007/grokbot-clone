@@ -150,7 +150,7 @@ function Harness(){
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Harness));
 ` }));
   await page.goto(origin);
-  const button=page.getByRole('button',{name:'Bot model',exact:true});
+  const button=page.getByRole('button',{name: /^Bot model:/});
   await page.locator('.model-picker__current').getByText('Model old',{exact:true}).waitFor();
   await button.click();await page.getByRole('option').filter({hasText:'Model old'}).waitFor();
   await page.keyboard.press('Escape');await settle();

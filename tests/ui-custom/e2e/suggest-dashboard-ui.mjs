@@ -230,7 +230,7 @@ export async function runSuggestionUi(directory = '.context/ui-custom/suggest-da
       assert.equal(await page.getByRole('button', { name: 'All sections', exact: true }).count(), 0);
     }
     if (await page.getByRole('button', { name: 'Open navigation', exact: true }).isVisible()) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
-    await page.waitForFunction(() => !document.querySelector('.sidebar:has([aria-label="Tasks"]) [aria-label="Tasks"]')?.getAttribute('title')?.startsWith('Pending'));
+    await page.waitForFunction(() => !document.querySelector('.sidebar-island[aria-label^="Tasks"]')?.getAttribute('title')?.startsWith('Pending'));
     const sidebar = await page.locator('.sidebar:visible .sidebar-island:not(.sidebar__dashboards *)').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label') || node.textContent));
     return { state, tabs, sidebar };
   };

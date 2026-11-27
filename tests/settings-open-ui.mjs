@@ -11,7 +11,7 @@ try {
     try {
       await page.goto(origin);
       const open = async () => {
-        await page.getByRole('button', { name: 'Account & settings', exact: true }).click({ timeout: 2000 });
+        await page.getByRole('button', { name: /Account & settings$/ }).click({ timeout: 2000 });
         await page.getByRole('menuitem', { name: /^Settings/ }).click({ timeout: 2000 });
         await page.getByRole('menu').waitFor({ state: 'detached', timeout: 2000 });
       };

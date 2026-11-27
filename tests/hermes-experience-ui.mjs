@@ -210,7 +210,7 @@ try {
   await until(async () => (await api(`/deliverables/deliveries/${fixture.uncertain.id}`)).delivery.status === 'failed', 'unknown verification');
   assert.equal((await api(`/deliverables/deliveries/${fixture.uncertain.id}`)).delivery.attempts.length, 1, 'verification must not send');
   console.log('PASS stable delivery after response loss/reload and unknown verification without send');
-  await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
+  await page.locator('.sidebar').getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
   const workSections = page.getByRole('navigation', { name: 'Work sections' });
   await workSections.getByRole('button', { name: 'Goals', exact: true }).click();
   const workflows = page.getByRole('region', { name: 'Goals and workflows', exact: true });

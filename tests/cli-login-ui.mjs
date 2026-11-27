@@ -177,7 +177,7 @@ try {
     await fixture(`connect-${width}`);
     await page.setViewportSize({ width, height: 900 });
     await page.goto(base);
-    await page.getByRole('button', { name: 'Account & settings', exact: true }).waitFor();
+    await page.getByRole('button', { name: /Account & settings$/ }).waitFor();
     await page.keyboard.press('Control+,');
     await page.locator('.app-settings').waitFor();
     const sections = page.getByRole('navigation', { name: 'Settings sections', exact: true });
@@ -402,7 +402,7 @@ try {
   assert.notEqual(accountId, previousAccount);
   await resumeAt('codex', 'login', Date.now() - 1);
   await page.goto(`${base}/?fixture=expired-resume`);
-  await page.getByRole('button', { name: 'Account & settings', exact: true }).waitFor();
+  await page.getByRole('button', { name: /Account & settings$/ }).waitFor();
   assert.equal(await page.getByRole('heading', { name: 'Choose how models are billed', exact: true }).count(), 0);
   assert.deepEqual(errors, []);
   console.log('CLI login UI passed: aged sessions, both providers at 390 and 1280, clipboard and PTY input, verified subscription success, reset, session recovery, automatic resume and account isolation.');

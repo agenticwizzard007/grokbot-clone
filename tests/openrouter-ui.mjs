@@ -75,7 +75,7 @@ try {
   const first = (await (await context.request.get(`${base}/api/auth/me`)).json()).user;
   assert.ok(first.id);
   assert.equal((await (await context.request.get(`${base}/api/settings/models`)).json()).provider, 'openrouter');
-  await page.getByRole('button', { name: 'Default API model', exact: true }).click();
+  await page.getByRole('button', { name: /^Default API model:/ }).click();
   await page.getByRole('option').filter({ hasText: 'Alternate model' }).click();
   await until(async () => (await (await context.request.get(`${base}/api/providers/openrouter`)).json()).model === 'test/alternate');
   assert.equal((await (await context.request.get(`${base}/api/providers/openrouter`)).json()).model, 'test/alternate');

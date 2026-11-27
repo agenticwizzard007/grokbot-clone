@@ -91,9 +91,9 @@ try {
    if (width <= 760) await click(page.getByRole('button', { name: 'Open navigation', exact: true }));
    const sidebar = page.locator(width <= 760 ? '.phone-drawer .sidebar' : '.sidebar');
    if (['Settings', 'Connect apps'].includes(target)) {
-    await click(sidebar.getByRole('button', { name: 'Account & settings', exact: true }));
+    await click(sidebar.getByRole('button', { name: /Account & settings$/ }));
     await click(page.getByRole('menuitem', { name: new RegExp(`^${target}`) }));
-   } else await click(sidebar.getByRole('button', { name: target === 'Create a Bot' ? 'New Bot' : target, exact: true }));
+   } else await click(sidebar.getByRole('button', { name: target === 'Search' ? /^Search(?: |$)/ : target === 'Tasks' ? /^Tasks(?: \d|$)/ : target, exact: true }));
    assert.ok(clicks <= 3, `${target}: reachable in at most three clicks`);
   };
   const historyFlows = async () => {
@@ -157,7 +157,7 @@ try {
      if (method === 'Escape') assert.ok(await trigger.evaluate(el => el === document.activeElement), `${selector}: Escape returns focus`);
     }
     if (width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
-    await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+    await page.getByRole('button', { name: /Account & settings$/ }).click();
     await page.getByRole('menu').waitFor();
     await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
     if (method === 'Escape') await page.keyboard.press('Escape');

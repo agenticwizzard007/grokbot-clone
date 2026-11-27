@@ -31,7 +31,7 @@ try {
   assert.equal(order[0], 'Pinned'); assert.ok(order[1].includes('sidebar__footer')); assert.equal(order[2], 'Dashboards');
   await page.waitForFunction(() => Math.round(document.querySelector('.sidebar').getBoundingClientRect().width) === 320);
   pass('sidebar ordering, hidden items, width and Pinned group');
-  await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+  await page.getByRole('button', { name: /Account & settings$/ }).click();
   await page.getByRole('menuitem', { name: /^Settings/ }).click();
   await page.waitForURL('**/#settings/general');
   pass('Settings menu stays reachable when reordered near the top');
@@ -80,8 +80,8 @@ try {
   await page.locator('.chat__voice').waitFor({ state: 'detached' });
   for (const selector of ['.agent-message__heading > .bot-avatar', '.composer__note', '.model-pill__name', '.sidebar__search', '.sidebar-usage']) assert.equal(await page.locator(selector).first().isVisible(), false, selector);
   assert.ok(await page.locator('.composer__input').isVisible());
-  assert.ok(await page.getByRole('button', { name: /^Model:/ }).isVisible());
-  await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+  assert.ok(await page.getByRole('button', { name: /Model:/ }).isVisible());
+  await page.getByRole('button', { name: /Account & settings$/ }).click();
   assert.ok(await page.getByRole('menuitem', { name: /^Log out/ }).isVisible());
   await page.keyboard.press('Escape');
   assert.deepEqual(await page.evaluate(inspectAlignment), []);

@@ -110,7 +110,7 @@ export async function polishFixture() {
       if (name === 'loop-graph') await page.getByRole('tab', { name: 'Graph', exact: true }).click();
       if (name === 'send-sheet') { await page.locator('.ho-output-card').getByRole('button', { name: 'Send to agent', exact: true }).first().click(); selector = 'dialog[open]'; }
       if (name === 'link-sheet' || name === 'link-edit') { await page.getByRole('button', { name: 'Add handoff', exact: true }).click(); selector = '.flow-sheet'; if (name === 'link-edit') await page.getByRole('button', { name: /^Edit handoff/ }).first().click(); }
-      if (name === 'sidebar-loops') { if (width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click(); await page.getByRole('button', { name: 'Account & settings', exact: true }).click(); selector = '.sidebar .menu__item:has(.lucide-git-branch)'; }
+      if (name === 'sidebar-loops') { if (width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click(); await page.getByRole('button', { name: /Account & settings$/ }).click(); selector = '.sidebar .menu__item:has(.lucide-git-branch)'; }
       await page.locator(selector).first().waitFor();
       if (receiptView && process.env.HO_POLISH_PHASE !== 'before') {
         await page.locator('.ho-receipt--loop').getByRole('status').filter({hasText: name === 'receipt-running' ? 'Running' : 'Completed'}).waitFor();

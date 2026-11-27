@@ -48,7 +48,7 @@ try {
       await check(route.includes('details') ? 'files-from-details' : 'files-from-chat', async () => {
         // On phones, return to the Bot list to reach the work navigation.
         if (width === 390) await hash('#bots');
-        await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
+        await page.locator('.sidebar').getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
         await page.locator('.work-tabs').getByRole('button', { name: 'Files', exact: true }).click();
         assert.equal(await page.locator('.work-reports-owner select').inputValue(), 'research-bot');
         await page.getByText('research-bot-notes.txt', { exact: true }).first().waitFor();

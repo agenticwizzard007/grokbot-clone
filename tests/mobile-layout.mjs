@@ -76,7 +76,7 @@ try {
       await page.screenshot({ path: `.context/apple/iphone-${width}.png` });
       const toList = async () => { await page.getByRole('button', { name: /^All Bots/ }).first().click(); await page.locator('.sidebar').waitFor(); };
       await toList();
-      await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+      await page.getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
       assert.equal(await page.locator('.sidebar').isVisible(), false);
       await page.getByText('No tasks yet', { exact: true }).waitFor();
       await toList();
@@ -85,7 +85,7 @@ try {
       await checkWidth('.details');
       await page.locator('.details .setup-paper__close').click();
       await toList();
-      await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+      await page.getByRole('button', { name: 'Create a Bot', exact: true }).click();
       await page.getByRole('main', { name: 'Create a Bot' }).waitFor();
       await checkWidth('.setup-create');
       await page.keyboard.press('Escape');
@@ -151,7 +151,7 @@ try {
     await fixture(page);
     await page.goto(origin);
     await page.locator('.composer__input').waitFor();
-    await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+    await page.getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
     await goals(page).click();
     await page.locator('.pinned__tile').click();
     await page.locator('.composer__input').waitFor();
@@ -161,11 +161,11 @@ try {
     await page.getByRole('button', { name: /^All Bots/ }).click();
     await listShown(page, '393 after desktop Goals');
     // Phone: list > Tasks > Goals > back; list > chat > back; list > chat > browser Back.
-    await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+    await page.getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
     await goals(page).click();
     await page.getByRole('button', { name: 'Bot list', exact: true }).click();
     await listShown(page, '393 Goals back');
-    await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+    await page.getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
     await goals(page).click();
     await page.locator('.tasks-view').waitFor();
     await page.goBack();

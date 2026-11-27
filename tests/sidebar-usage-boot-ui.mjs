@@ -68,7 +68,7 @@ try {
       window.footerLabels = [];
       const record = () => {
         for (const footer of document.querySelectorAll('.sidebar-usage')) {
-          window.footerLabels.push(footer.getAttribute('aria-label'));
+          window.footerLabels.push((footer.getAttribute('aria-label') || footer.textContent));
         }
       };
       new MutationObserver(record).observe(document, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-label'] });
@@ -111,7 +111,7 @@ try {
 
     const footer = page.locator('.sidebar-usage');
     await footer.waitFor({ state: 'attached' });
-    await page.waitForFunction(() => document.querySelector('.sidebar-usage')?.getAttribute('aria-label')?.includes('Loading usage...'));
+    await page.waitForFunction(() => document.querySelector('.sidebar-usage')?.textContent?.includes('Loading'));
     // An empty account keeps the catalog idle until a consumer requests it.
     await page.evaluate(async () => {
       const { useModels } = await import('/src/lib/models.ts');
@@ -119,14 +119,14 @@ try {
     });
     for (let attempt = 0; !held && attempt < 100; attempt++) await delay(20);
     assert.ok(held, 'catalog request is held during normal boot');
-    assert.match(await footer.getAttribute('aria-label'), /Loading usage/);
+    assert.match(await footer.textContent(), /Loading/);
     await held.fulfill({ json: { provider: 'direct', billing: 'api', models: [], favourites: [], canFast: false } });
-    await page.waitForFunction(() => document.querySelector('.sidebar-usage')?.getAttribute('aria-label')?.includes('API credits'));
+    await page.waitForFunction(() => document.querySelector('.sidebar-usage')?.textContent?.includes('API credits'));
     const labels = await page.evaluate(() => window.footerLabels);
     assert.ok(labels.length > 0);
-    assert.ok(labels.some(label => label.includes('Loading usage...')));
+    assert.ok(labels.some(label => label.includes('Loading')));
     assert.ok(labels.some(label => label.includes('API credits')));
-    assert.ok(labels.every(label => !/Check connection|Checking connection|unavailable/i.test(label)), 'first paint through ready stays neutral');
+    assert.ok(labels.every(label => !/Unavailable|Retry provider details/i.test(label)), 'first paint through ready stays neutral');
 
     // Exercise idle explicitly so an effect starting the fetch cannot hide a first-render regression.
     for (const status of ['idle', 'loading', 'error', 'ready']) {
@@ -134,15 +134,15 @@ try {
         const { useModels } = await import('/src/lib/models.ts');
         useModels.setState({ status, provider: null, billing: null, error: status === 'error' ? 'Fixture failure' : null });
       }, status);
-      const expected = status === 'idle' || status === 'loading' ? 'Loading usage...' : 'Check connection';
-      await page.waitForFunction(expected => document.querySelector('.sidebar-usage')?.getAttribute('aria-label')?.includes(expected), expected);
+      const expected = status === 'idle' || status === 'loading' ? 'Loading' : 'Unavailable';
+      await page.waitForFunction(expected => document.querySelector('.sidebar-usage')?.textContent?.includes(expected), expected);
     }
     // A completed response with a provider but no billing is also unknown.
     await page.evaluate(async () => {
       const { useModels } = await import('/src/lib/models.ts');
       useModels.setState({ status: 'ready', provider: 'direct', billing: null });
     });
-    assert.match(await footer.getAttribute('aria-label'), /Check connection/);
+    assert.match(await footer.textContent(), /Unavailable/);
     assert.deepEqual(unexpected, [], 'no page errors, live requests, or unexpected API calls');
     await page.close();
   }

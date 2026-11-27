@@ -124,7 +124,7 @@ try {
           else {
             await page.goto(`${origin}/#bots`); await page.locator('.sidebar').waitFor(); await page.evaluate(() => document.fonts.ready);
             if (route.startsWith('#settings')) {
-              await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+              await page.getByRole('button', { name: /Account & settings$/ }).click();
               await page.evaluate(() => window.ggReset());
               await page.getByRole('menuitem', { name: /^Settings/ }).click();
               if (route === '#settings' && width === 1280) await page.locator('.access-settings__bar').getByRole('button', { name: 'Back to Settings', exact: true }).click();
@@ -144,7 +144,7 @@ try {
               const tab = route.split('/').at(-1);
               await page.locator('.setup-paper__tabs').getByRole('button', { name: tab[0].toUpperCase() + tab.slice(1), exact: true }).click();
             } else {
-              await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+              await page.getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
               await page.evaluate(() => window.ggReset());
               if (route === '#team') await page.locator('.work-tabs').getByRole('button', { name: 'Team', exact: true }).click();
               else if (width === 1280) await page.locator('.sidebar__brand').click();

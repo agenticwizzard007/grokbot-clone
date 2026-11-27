@@ -19,7 +19,7 @@ try {
       : { json: { ok: true } };
   };
   await page.goto(origin);
-  await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
+  await page.locator('.sidebar').getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
   const work = page.locator('.tasks-view');
   const tab = name => work.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name, exact: true });
   const heading = work.locator('.work-heading');
@@ -56,7 +56,7 @@ try {
   assert.match(await heading.innerText(), /Research Bot/);
   await work.getByRole('button', { name: 'Routines', exact: true }).click();
   const routines = work.getByRole('region', { name: 'Routines', exact: true });
-  const run = routines.getByRole('button', { name: 'Run Daily check now', exact: true });
+  const run = routines.getByRole('button', { name: 'Run now: Daily check', exact: true });
   await run.waitFor();
   assert.match(await routines.innerText(), /Next run .*Asia\/Dubai/);
 
@@ -131,7 +131,7 @@ try {
   const record = id => ({ id, seq: 1, slotKey: 'manual:fixture', slotCount: 1, timezone: 'Asia/Dubai', windowStart: 0, windowEnd: Date.now(), sourceCount: 105, status: 'saved', artifactId: null, gaps: [], coverage: { snapshotComplete: true, summaryComplete: false, pages: 2 }, delivery: null, generationNote: null, lastError: null });
   fixture.reports = [record('first-report')];
   fixture.sources = ['routine', 'goal', 'internal_snapshot_revision'].map((kind, ordinal) => ({ kind, ordinal, id: `source-${ordinal}`, title: 'Saved work', owner: 'Team', state: 'saved', revision: '1', details: '', changed: false }));
-  await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
+  await page.locator('.sidebar').getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
   await tab('Tasks').click();
   await work.getByRole('combobox', { name: 'Filter tasks by bot' }).selectOption('all');
   await tab('Files').click();

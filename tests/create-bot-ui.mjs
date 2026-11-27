@@ -94,7 +94,7 @@ try {
         if (n % 5 === 0) window.__emit({ type: 'bot', bot: { id: `bot-${n % 24}`, name: `Helper ${n % 24}`, label: '', description: '', instructions: '', mode: 'personal', pinned: false, effort: 'medium', model: null, generation: 1, unread: n % 3, lastPreview: `Update ${n}`, lastActivityAt: Date.now(), createdAt: 0, kind: 'agent', avatarColor: 'green', avatarShape: 'clover', onboarding: { status: 'active' } } });
       }, 40);
     });
-    await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+    await page.getByRole('button', { name: 'Create a Bot', exact: true }).click();
     const form = page.getByRole('main', { name: 'Create a Bot', exact: true });
     const input = form.getByRole('textbox', { name: 'Bot name' });
     await input.waitFor();

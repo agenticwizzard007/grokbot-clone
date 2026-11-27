@@ -156,7 +156,7 @@ try {
   assert.notEqual(new URL(duplicateUrl).hash.split('/')[1], new URL(settingsUrl).hash.split('/')[1]);
   state.reads = [];
   await page.reload(); await title('Coordinator Bot · General');
-  const model = page.getByRole('button', { name: 'Bot model', exact: true });
+  const model = page.getByRole('button', { name: /^Bot model:/ });
   await model.getByText('Grok 4.7', { exact: true }).waitFor();
   assert.ok(state.reads.includes(`/api/bots/${duplicate.id}/settings`), 'reload restores the correct duplicate Bot');
   assert.ok(!(await model.innerText()).includes('x-ai/grok-4.7'));
@@ -167,7 +167,7 @@ try {
   assert.ok(!(await model.innerText()).includes('x-ai/grok-4.7'));
   duplicate.model = bot.model;
   await page.keyboard.press('Escape'); await title('Coordinator Bot');
-  await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+  await page.getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
   for (const tab of ['Goals', 'Reports']) {
     await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: tab === 'Reports' ? 'Files' : tab, exact: true }).click();
     await title(tab === 'Reports' ? 'Files' : tab);
@@ -255,7 +255,7 @@ try {
     await details.getByRole('tab', { name: tab, exact: true }).click(); await title(expected);
     await assertLine('Computer: Asleep');
   }
-  await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+  await page.getByRole('button', { name: 'Create a Bot', exact: true }).click();
   await page.locator('main.setup-create').waitFor(); await title('Create a Bot');
   await page.locator('main.setup-create').getByRole('button', { name: 'Close', exact: true }).click();
   await title('Coordinator Bot · History');
@@ -316,7 +316,7 @@ try {
   // Back button and browser Back at phone width, with clean and dirty drafts.
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('.app.is-mobile.pane-list').waitFor({ state: 'visible' });
-  await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+  await page.getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
   await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: 'Goals', exact: true }).click();
   await title('Goals');
   await page.evaluate(() => { location.hash = '#reports'; }); await title('Files');

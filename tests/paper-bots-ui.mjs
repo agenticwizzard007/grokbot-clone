@@ -63,7 +63,7 @@ try {
       }
       if (route.name === 'create-bot') {
         assert.ok(await page.getByRole('button', { name: 'Start a room instead', exact: true }).isVisible());
-        assert.ok(await page.getByRole('button', { name: 'Bot model', exact: true }).isVisible());
+        assert.ok(await page.getByRole('button', { name: /^Bot model:/ }).isVisible());
       }
       if (route.name === 'bot-files') assert.ok(await page.getByText('Saved reports', { exact: true }).isVisible());
       if (route.name === 'bot-activity') {
