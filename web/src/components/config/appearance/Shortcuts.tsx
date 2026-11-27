@@ -8,7 +8,7 @@ export function Shortcuts({ doc, patch }: { doc: UiConfig; patch: Patch }) {
   const [recording, setRecording] = useState<string | null>(null);
   return <AppearanceSection title="Shortcuts">
     {REGISTRY.shortcuts.map(shortcut => <Row key={shortcut.id} title={shortcut.label} subtitle={<kbd>{Object.hasOwn(doc.keybindings, shortcut.id) ? doc.keybindings[shortcut.id] ?? 'None' : shortcut.default ?? 'None'}</kbd>} trailing={<ButtonGroup>
-      <button type="button" className="cfg-btn cfg-btn--secondary" aria-label={`Change ${shortcut.label} shortcut`} aria-pressed={recording === shortcut.id} onClick={() => setRecording(recording === shortcut.id ? null : shortcut.id)} onBlur={() => setRecording(null)} onKeyDown={e => {
+      <button type="button" className="cfg-btn cfg-btn--secondary" aria-label={`${recording === shortcut.id ? 'Press keys for' : 'Change'} ${shortcut.label} shortcut`} aria-pressed={recording === shortcut.id} onClick={() => setRecording(recording === shortcut.id ? null : shortcut.id)} onBlur={() => setRecording(null)} onKeyDown={e => {
         if (recording !== shortcut.id) return;
         if (e.key === 'Tab') { setRecording(null); return; }
         if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setRecording(null); return; }

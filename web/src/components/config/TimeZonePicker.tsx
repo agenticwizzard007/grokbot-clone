@@ -14,6 +14,7 @@ export function TimeZonePicker({ value, options, disabled, onChange }: {
     || option.value.toLowerCase().includes(query.trim().toLowerCase())), [options, query]);
   const close = () => { setOpen(false); trigger.current?.focus(); };
   const choose = (zone: string) => { close(); onChange(zone); };
+  const currentLabel = value ? options.find(option => option.value === value)?.label ?? value : 'Not set (using UTC)';
   const move = (index: number) => {
     setActive(index);
     document.getElementById(`${id}-${index}`)?.scrollIntoView({ block: 'nearest' });
@@ -21,9 +22,9 @@ export function TimeZonePicker({ value, options, disabled, onChange }: {
   return <div className="settings-timezone" onBlur={event => {
     if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
   }}>
-    <button ref={trigger} type="button" className="text-input settings-timezone__trigger" aria-label="Time zone" aria-describedby={`${id}-value`} aria-haspopup="listbox" aria-expanded={open} disabled={disabled}
+    <button ref={trigger} type="button" className="text-input settings-timezone__trigger" aria-label={`Time zone: ${currentLabel}`} aria-haspopup="listbox" aria-expanded={open} disabled={disabled}
       onClick={() => { setOpen(!open); setQuery(''); setActive(0); }}>
-      <span id={`${id}-value`}>{value ? options.find(option => option.value === value)?.label ?? value : 'Not set (using UTC)'}</span>
+      <span id={`${id}-value`}>{currentLabel}</span>
     </button>
     {open && <div className="settings-timezone__panel">
       <input autoFocus type="search" className="text-input" role="combobox" aria-label="Search time zones" placeholder="Search city or time zone" aria-autocomplete="list"

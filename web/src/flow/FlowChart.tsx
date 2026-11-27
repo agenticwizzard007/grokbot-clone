@@ -27,7 +27,7 @@ export function FlowChart({ model, onNode = node => openFlowNode(model.botId, no
     <ol className="flow-lanes">{model.lanes.map((lane, index) => <li key={lane.id} className="flow-lane">
       <Section title={<><span className="flow-lane__number" aria-hidden>{index + 1}</span>{lane.label}</>}>
         <ol className="flow-nodes">{lane.nodes.map(node => <li key={node.id}><Card className={`flow-node flow-node--${node.state}`}>
-          <button type="button" data-flow-node={node.id} data-kind={node.kind} onClick={() => onNode(node)} aria-label={`${node.label}, ${KIND[node.kind]}${node.badge ? `, ${node.badge}` : ''}`}>
+          <button type="button" data-flow-node={node.id} data-kind={node.kind} onClick={() => onNode(node)} aria-description={KIND[node.kind]}>
             <span className="flow-node__logo" aria-hidden>{node.logo?.kind === 'toolkit' ? <ToolkitLogo slug={node.logo.id} name={node.label} size={20} /> : node.logo?.kind === 'bot' ? (() => { const bot = bots.find(b => b.id === node.logo?.id); return bot ? <BotAvatar shape={bot.avatarShape} color={bot.avatarColor} size={20} /> : <GitBranch size={20} />; })() : node.kind.includes('mcp') ? <Server size={20} /> : <Circle size={20} />}</span>
             <span className="flow-node__text"><strong>{node.label}</strong>{node.detail && <span>{node.detail}</span>}{node.badge && <small className="flow-badge">{node.badge}</small>}</span>
           </button>

@@ -30,7 +30,7 @@ export function BotsView() {
         const setup = isInSetup(bot);
         const status = state?.awaiting ? 'Needs you' : state?.isRunning ? 'Working' : setup ? 'Setup' : 'Ready';
         return <Card key={bot.id} className="pb-bot-card">
-          <button type="button" className="pb-bot-card__open" onClick={() => openConversation(bot.id)} aria-label={`Open ${displayName(bot)}`}>
+          <button type="button" className="pb-bot-card__open" onClick={() => openConversation(bot.id)} aria-description="Open conversation">
             <span className="pb-bot-card__identity"><BotAvatarFor bot={bot} size={44} /><span className="pb-bot-card__name"><strong>{displayName(bot)}</strong>{bot.isPrimary && <span className="pb-pill">Primary</span>}<small>{bot.label || (bot.mode === 'personal' ? 'Personal assistant' : 'Teammate')}</small></span><span className={`pb-pill pb-pill--${state?.awaiting ? 'warn' : state?.isRunning ? 'success' : 'neutral'}`}>{status}</span></span>
             <span className="pb-bot-card__status">{state?.awaiting ? 'Needs approval' : state?.isRunning ? 'Working' : setup ? 'Continue setup' : 'Idle'}</span>
           </button>

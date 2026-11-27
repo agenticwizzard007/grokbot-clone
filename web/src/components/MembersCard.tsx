@@ -6,7 +6,6 @@ import { useStore } from '../store';
 import { Icon } from './Icon';
 import { Card, Page } from './layout';
 import { Modal } from './modals/Modal';
-import { palette } from '../lib/colors';
 import { userFacingLive } from '../lib/audience';
 import '../styles/bot-details.css';
 import { ACTIVATE_FIRST, activateBeforeGroup, isInSetup } from '../lib/botSetupState';
@@ -100,7 +99,7 @@ export function RoomMembersHeader({ room }: { room: Bot }) {
     <Page type="chat" className="pb-room-header"><div className="pb-room-members" aria-label="Room members">
       <div className="pb-room-members__list">{members.map(member => {
         const bot = bots.find(bot => bot.id === member.id);
-        return <span key={member.id} className="pb-room-member" style={{ color: palette(bot?.avatarColor).action }}>
+        return <span key={member.id} className="pb-room-member">
           {bot && <BotAvatarFor bot={bot} size={24} />}<span>{member.name}</span>
         </span>;
       })}</div>
