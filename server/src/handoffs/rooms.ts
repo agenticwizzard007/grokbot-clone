@@ -2,6 +2,7 @@ import { db } from '../db.js';
 import { isConfiguring } from '../bot-setup.js';
 import { appendRow, updateRow } from '../store.js';
 import { transactionWithEffects } from '../lib/commit-effects.js';
+import { syncLoopTasks, syncHandoffTasks } from './tasks.js';
 import type { LoopSpec, StopReason } from './contracts.js';
 import type { EventBody, RowBody } from '../types.js';
 type HandoffBody = Extract<RowBody, { type: 'handoff' }>;
@@ -95,5 +96,23 @@ export function postRoomHandoff(userId: string, handoffId: string) {
       return existing.seq;
     }
     return appendRow(room.id, 'handoff', { ...body, audience: 'user' }).seq;
+  });
+}
+
+/** HO-B calls this after a durable transition and replays event seqs during recovery. */
+export function projectHandoffEvent(userId: string, eventSeq: number) {
+  return transactionWithEffects(() => {
+    const event = db.prepare('SELECT type,loop_id,handoff_id FROM handoff_events WHERE seq=? AND user_id=?').get(eventSeq, userId) as {
+      type: string; loop_id: string | null; handoff_id: string | null;
+    } | undefined;
+    if (!event) return;
+    if (event.loop_id && transitions.has(event.type)) {
+      syncLoopTasks(userId, event.loop_id);
+      postLoopRoomEvent(userId, eventSeq);
+    }
+    if (event.handoff_id && ['handoff.created', 'handoff.approved', 'handoff.declined', 'handoff.delivered', 'handoff.completed', 'handoff.failed', 'handoff.cancelled', 'handoff.expired'].includes(event.type)) {
+      syncHandoffTasks(userId, event.handoff_id);
+      postRoomHandoff(userId, event.handoff_id);
+    }
   });
 }

@@ -213,3 +213,24 @@ test('task links API requires a session, scopes results, and honors both feature
   process.env.HANDOFFS_DISABLED = '1';
   try { assert.equal((await get(b)).status, 503); } finally { delete process.env.HANDOFFS_DISABLED; }
 });
+
+
+test('owned implementation files contain no em or en dash copy', () => {
+  for (const file of ['server/src/handoffs/rooms.ts', 'server/src/handoffs/tasks.ts', 'web/src/components/config/TaskCards.tsx', 'web/src/components/config/TasksView.tsx', 'web/src/components/config/BotTasksPage.tsx']) {
+    assert.doesNotMatch(fs.readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8'), /[\u2013\u2014]/, file);
+  }
+});
+
+
+test('single event projection entry point updates room and tasks and is replay safe', () => {
+  const f = fixture();
+  db.prepare("UPDATE loops SET status='awaiting_approval' WHERE id=?").run(f.loopId);
+  const seq = event(f, 'loop.approval_requested', { iteration: 1 });
+  rooms.projectHandoffEvent(f.userId, seq); rooms.projectHandoffEvent(f.userId, seq);
+  assert.equal(f.task().state, 'needs_input');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM rows WHERE bot_id=? AND kind='event'").get(f.roomId).n, 1);
+  const handoffSeq = Number(db.prepare("INSERT INTO handoff_events(user_id,handoff_id,type,data,created_at) VALUES(?,?,'handoff.created','{}',?)").run(f.userId, f.handoffId, Date.now()).lastInsertRowid);
+  rooms.projectHandoffEvent(f.userId, handoffSeq); rooms.projectHandoffEvent(f.userId, handoffSeq);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM handoff_task_links WHERE handoff_id=? AND kind='receiver'").get(f.handoffId).n, 1);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM rows WHERE bot_id=? AND kind='handoff'").get(f.roomId).n, 1);
+});

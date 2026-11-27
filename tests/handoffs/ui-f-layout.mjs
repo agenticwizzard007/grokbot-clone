@@ -27,6 +27,7 @@ export async function runRoomsTasksDemo() {
       const target = roster.find(bot => bot.id !== from.id && bot.kind !== 'room');
       assert.ok(target);
       const activeRoster = roster.map(bot => ({ ...bot, onboarding: { status: 'active' } }));
+      activeRoster.push({ ...target, id: 'outside_fixture', name: 'Other agent' });
       const now = Date.now();
       let tasks = [
         { id: 'task_done_fixture', botId: from.id, title: 'Draft ready for a careful review', state: 'done', note: 'Test summary', updatedAt: now },
@@ -117,6 +118,26 @@ export async function runRoomsTasksDemo() {
       await page.getByText('Draft ready for a careful review', { exact: true }).waitFor();
       assert.equal(await page.getByRole('button', { name: 'Send to agent', exact: true }).count(), 0);
       assert.equal(await page.getByText('Loop', { exact: true }).count(), 0);
+      // Mount the shared sheet with a room scope exactly as HO-I's message action does.
+      await page.evaluate(async ({ from, target, roomId }) => {
+        const reactModule = await import('/node_modules/.vite/deps/react.js');
+        const React = reactModule.default ?? reactModule;
+        const dom = await import('/node_modules/.vite/deps/react-dom_client.js');
+        const createRoot = (dom.default ?? dom).createRoot;
+        const { SendSheet } = await import('/src/handoffs/SendSheet.tsx');
+        const host = document.createElement('div'); document.body.append(host);
+        const root = createRoot(host);
+        const close = () => { root.unmount(); host.remove(); };
+        root.render(React.createElement(SendSheet, { open: true, senderId: from, roomId, roomMemberIds: [from, target],
+          source: { taskId: 'task_done_fixture' }, title: 'Room test output', onClose: close, onSent: () => {} }));
+      }, { from: from.id, target: target.id, roomId: room.id });
+      const roomSheet = page.getByRole('dialog', { name: 'Send to agent', exact: true });
+      await roomSheet.getByRole('button', { name: new RegExp(target.name) }).waitFor();
+      assert.equal(await roomSheet.locator('.ho-target').count(), 1, 'Room scope lists its member first');
+      assert.equal(await roomSheet.getByRole('button', { name: /Other agent|Project room/ }).count(), 0, 'Rooms and nonmembers cannot be selected');
+      await screenshot('room-send');
+      await page.keyboard.press('Escape'); await roomSheet.waitFor({ state: 'hidden' });
+      results.push({ width, case: 'room member targets and room refusal', pass: true });
       assert.deepEqual(errors, []);
       results.push({ width, case: 'disabled handoffs hide task actions', pass: true });
       await context.close();
