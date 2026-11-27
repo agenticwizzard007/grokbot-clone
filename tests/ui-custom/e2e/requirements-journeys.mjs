@@ -48,6 +48,9 @@ export async function adapt(args, useCase) {
   assert.equal(saved.doc.layout.home.kind, 'dashboard');
   await open(page, server.base, '');
   await until(() => page.evaluate(() => location.hash.startsWith('#dash/')), 'Adapted home did not open');
+  const firstWidget = page.locator('[data-widget-id]').first();
+  await firstWidget.waitFor();
+  await until(async () => (await firstWidget.getAttribute('data-widget-state')) === 'ready', 'Adapted home content did not resolve');
   await capture(`${useCase}-home`);
   await open(page, server.base, '#settings/appearance/use');
   await page.getByLabel('Role', { exact: true }).waitFor();
