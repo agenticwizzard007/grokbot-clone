@@ -10,7 +10,7 @@ const server = await clientFixture(), browser = await chromium.launch({ executab
 const images = [], results = [];
 try {
   const { page } = await signedInPage(browser, server);
-  const screenshot = async name => { await page.locator('.shell-header').waitFor(); await page.waitForFunction(async () => (await import('/src/store.ts')).useStore.getState().botsLoaded); await page.locator('.message-skeleton').waitFor({ state: 'hidden' }); await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(400); const file = `${name}.png`; await page.screenshot({ path: path.join(output, file) }); images.push(file); };
+  const screenshot = async name => { await page.locator('.shell-header').waitFor(); await page.waitForFunction(async () => (await import('/src/store.ts')).useStore.getState().botsLoaded); await page.locator('.message-skeleton').waitFor({ state: 'hidden' }); await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(400); assert.equal(await page.locator('.app').evaluate(el => el.classList.contains('is-mobile')), page.viewportSize().width <= 760, 'Viewport uses the correct shell'); const file = `${name}.png`; await page.screenshot({ path: path.join(output, file) }); images.push(file); };
   const teal = presetConfig('forest'); teal.theme.mode = 'dark';
   const serif = presetConfig('paper'); serif.theme.font.scale = 'xlarge'; serif.theme.density = 'comfortable';
   for (const [name, doc] of [['teal-dark', teal], ['serif-xlarge-comfortable', serif], ['high-contrast', presetConfig('contrast')]]) {
@@ -30,7 +30,7 @@ try {
   await page.getByRole('status', { name: 'Appearance preview' }).getByRole('button', { name: 'Discard', exact: true }).click();
   await page.getByRole('status', { name: 'Appearance preview' }).waitFor({ state: 'hidden' }); console.log('PASS demo discard');
   await page.goto(`${server.base}/?ui=safe#bots`); await page.getByRole('status', { name: 'Appearance recovery' }).waitFor();
-  for (const width of [390, 1280]) { await page.setViewportSize({ width, height: width < 760 ? 844 : 900 }); await page.goto(`${server.base}/?ui=safe#bots`); await page.getByRole('status', { name: 'Appearance recovery' }).waitFor(); await screenshot(`safe-mode-${width}`); }
+  for (const width of [390, 1280]) { await page.setViewportSize({ width, height: width < 760 ? 844 : 900 }); await page.goto('about:blank'); await page.goto(`${server.base}/?ui=safe#bots`); await page.getByRole('status', { name: 'Appearance recovery' }).waitFor(); await screenshot(`safe-mode-${width}`); }
   console.log('PASS demo safe mode');
   fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ passed: 15, configs: results, screenshots: images }, null, 2));
   const sheet = await browser.newPage({ viewport: { width: 1560, height: 1200 } });

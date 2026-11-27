@@ -34,6 +34,15 @@ test('cache is schema validated, revision validated and account scoped', async (
     values.set(store.CACHE_KEY,JSON.stringify({userId:'QA-Temp-Alpha',revision:3,doc})); assert.equal(store.readCachedConfig('QA-Temp-Alpha'),null);
   }
 });
+test('startup validates cached revisions with a full response', async () => {
+  await reset(); store.setUiUser(null);
+  values.set(store.CACHE_KEY, JSON.stringify({ userId: 'QA-Temp-Alpha', revision: 4, doc: DEFAULT_CONFIG }));
+  const requests: unknown[] = [];
+  globalThis.fetch = async (_url, init) => { requests.push(init?.headers); return Response.json({ ...body(DEFAULT_CONFIG, 4), status: 'invalid_stored' }); };
+  store.setUiUser('QA-Temp-Alpha'); await store.refreshUiConfig();
+  assert.equal(requests[0]['If-None-Match'], undefined);
+  assert.equal(store.useCustomization.getState().invalidStored, true);
+});
 test('patch sends If-Match and returns structured validation errors', async () => {
   await reset(DEFAULT_CONFIG,3); let headers;
   globalThis.fetch = async (_url,init) => { headers=init?.headers; return Response.json({code:'accessibility',message:'Low contrast.',details:[{path:'/theme/colors/light/primary',code:'accessibility',message:'Low contrast.'}]},{status:422}); };

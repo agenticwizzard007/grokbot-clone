@@ -77,7 +77,9 @@ export async function refreshUiConfig(): Promise<void> {
     do {
       refreshAgain = false;
       try {
-        const result = await uiRequest<{ doc: UiConfig; revision: number; status?: string }>('/config', { etag: useCustomization.getState().revision || undefined });
+        const state = useCustomization.getState();
+        // Startup must see invalid_stored even if a cached revision still matches.
+        const result = await uiRequest<{ doc: UiConfig; revision: number; status?: string }>('/config', { etag: state.status === 'loading' ? undefined : state.revision || undefined });
         if (epoch !== generation) return;
         if (result) accept(result); else update({ status: 'ready' });
       } catch (error) {
