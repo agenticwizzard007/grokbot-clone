@@ -45,3 +45,22 @@ Visible words exclude the app sidebar, phone tabs, and accessibility-only text. 
 | Tasks | 39 / 33 | 45 / 39 |
 
 Tasks adds exactly six words: `1 task needs your input` and `Review`. The existing PB-E copy-budget assertion permits these six words only while the approved waiting notice is visible. No other copy budget changes.
+
+## Browser and build verification
+
+- All 208 alignment route/width/theme views pass.
+- All 60 changed-screen and equal-control cases pass at 320, 390, 500, 768 and 1280 in both themes after fetching and rebasing on main.
+- All 10 layout primitive cases pass.
+- The phone/tablet sweep passes 416 views across 13 sizes. It reports eight small-link tap-target warnings on Models and access, outside these fixes.
+- Navigation passes 770 route/width/theme cases. The final production build also passes all 308 navigation cases at 390 and 1280, including task and approval chat returns.
+- All four API approval browser cases pass, covering both settings surfaces, pending/denied/allowed cards, reloads, CLI history and decisions.
+- All 10 PB-E Tasks layout and copy-budget cases pass.
+- Web production build and server/web typecheck pass.
+
+The optional `tasks-attention-ui.mjs` fails identically on untouched main and this branch at line 237: it expects the old `Pending input could not load.` alert in Bot details, while that page now uses `Could not refresh`. Its first eight cases pass in each run. The existing test is not skipped or changed. The new banner and task/approval navigation are covered separately above.
+
+The complete unit suite has identical results on untouched main and this branch: 2,950 tests, 2,856 passed, 70 failed, 24 existing skips, zero cancelled and zero todo. The 70 failure names match exactly after normalizing Node file-level failures to repository-relative paths. There are no new failure names. See `verification.json` for the names and the full comparison.
+
+Main advanced to `6fa7cf928bf6b4e67699ce126c431fd841608cd7` during verification. That commit adds only `docs/customization/SPEC.md`; application code, tests and dependencies are identical to the measured baseline. The branch was rebased on it, and targeted alignment, primitive, navigation and phone checks were rerun.
+
+After that rebase, all 60 layout cases, 10 primitive cases, 64 phone/desktop views and 308 navigation cases pass again.
