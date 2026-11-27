@@ -158,6 +158,8 @@ export function controlHandoff(userId: string, id: string, action: 'approve' | '
                 afterCommit(() => coordinationRuntime()?.interrupt(h.toBotId, activeJob));
         }
         emitEvent(userId, `handoff.${action === 'approve' ? 'approved' : status}`, { actor: userId }, { handoffId: id }, { type: 'handoff', id, status });
+        if (status !== 'queued')
+            db.prepare("UPDATE tasks SET state='needs_input',updated_at=? WHERE id IN (SELECT task_id FROM handoff_task_links WHERE handoff_id=?)").run(now(), id);
         const result = getHandoff(userId, id);
         syncHandoffRows(result);
         return result;

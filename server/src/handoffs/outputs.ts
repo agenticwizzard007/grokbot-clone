@@ -67,9 +67,15 @@ function provenance(userId: string, botId: string, jobId: string | null, declare
         const previous = db.prepare('SELECT output_id FROM loop_steps WHERE loop_id=? AND output_id IS NOT NULL ORDER BY iteration DESC,rowid DESC LIMIT 2').all(d.loop_id) as any[];
         consumed.push(...previous.map(p => p.output_id));
     }
-    return { producer: { botId, botName: b.name }, jobId, trigger: d ? 'loop' : h ? 'handoff' : t.type === 'bot' ? 'internal' : ['user', 'routine', 'event'].includes(t.type) ? t.type : 'user',
-        model: b.model ?? null, effort: b.reasoning_effort ?? null, startedAt: j?.started_at ?? null, finishedAt: j?.finished_at ?? null, consumed: [...new Set(consumed)].slice(0, 10), handoffId: h?.id ?? null,
-        loopId: d?.loop_id ?? h?.loop_id ?? null, iteration: d?.iteration ?? null, stepId: d?.step_id ?? null, tools: [], declaredBy };
+    const tools = jobId ? db.prepare(`SELECT json_extract(body,'$.name') name,COUNT(*) count FROM rows
+ WHERE bot_id=? AND kind='tool-call' AND json_extract(body,'$.jobId')=? AND json_extract(body,'$.name') IS NOT NULL GROUP BY name ORDER BY count DESC,name LIMIT 8`).all(botId, jobId) as {
+        name: string;
+        count: number;
+    }[] : [];
+    const usage = jobId && db.prepare("SELECT 1 FROM sqlite_master WHERE name='usage_events'").get() ? db.prepare('SELECT model FROM usage_events WHERE user_id=? AND job_id=? ORDER BY id DESC LIMIT 1').get(userId, jobId) as any : null;
+    return { producer: { botId, botName: b.name }, jobId, trigger: d ? 'loop' : h ? 'handoff' : t.routineId ? 'routine' : t.type === 'bot' ? 'internal' : ['user', 'routine', 'event'].includes(t.type) ? t.type : 'user',
+        model: usage?.model ?? b.model ?? null, effort: b.effort ?? null, startedAt: j?.started_at ?? null, finishedAt: j?.finished_at ?? null, consumed: [...new Set(consumed)].slice(0, 10), handoffId: h?.id ?? null,
+        loopId: d?.loop_id ?? h?.loop_id ?? null, iteration: d?.iteration ?? null, stepId: d?.step_id ?? null, tools, declaredBy };
 }
 function filesFor(userId: string, botId: string, jobId: string | null, selected?: string[]): OutputPart[] {
     if (!jobId) {
@@ -150,7 +156,7 @@ export function saveOutput(input: {
         const hash = contentHash(parts, Object.fromEntries(parts.filter(p => p.kind === 'text' || p.kind === 'data').map(p => [p.id, originalParts.find(o => o.id === p.id)?.display ?? (prior ? rawBody(input.userId, id, p.id) : '')])));
         const title = clean(input.declared?.title ?? prior?.title ?? raw.split('\n')[0] ?? 'Output').slice(0, 120) || 'Output';
         const summary = clean(input.declared?.summary ?? (p.declaredBy === 'agent' ? prior?.summary : undefined) ?? summaryOf(raw)).slice(0, 1200);
-        const stamp = now(), status = input.final ? 'final' : 'draft', source = p.loopId ? 'loop_step' : input.source ?? prior?.source ?? 'run';
+        const stamp = now(), status = input.final ? 'final' : 'draft', source = p.loopId ? 'loop_step' : input.source ?? prior?.source ?? (p.trigger === 'routine' ? 'routine' : 'run');
         if (input.body && input.body.length > OUTPUT_LIMITS.bodyChars)
             Object.assign(p, { truncated: true });
         if (originalParts.some(part => part.body !== part.display))

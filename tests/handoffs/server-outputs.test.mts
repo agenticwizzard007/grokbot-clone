@@ -94,6 +94,7 @@ test('finished update_task tool links the output to its owned task', () => {
     db.prepare("INSERT INTO rows(bot_id,generation,seq,kind,body,created_at,updated_seq) VALUES(?,?,901,'tool-call',?,?,901)").run(f.maker.id, generation, JSON.stringify({ type: 'tool-call', name: 'update_task', status: 'done', jobId: j.id, args: { task_id: 'linked-task-fixture', state: 'done' } }), Date.now());
     finish(f, j.id, 'Linked task output.');
     assert.equal(outputs.outputByJob(f.userId, j.id).taskId, 'linked-task-fixture');
+    assert.deepEqual(outputs.outputByJob(f.userId, j.id).provenance.tools, [{ name: 'update_task', count: 1 }]);
 });
 test('structured secrets remain valid redacted JSON and selected files stay bounded on reads', async () => {
     const f = fixture(), j = jobs.acceptJob(f.maker.id, { type: 'user' }), ctx = { userId: f.userId, botId: f.maker.id, jobId: j.id, toolCallId: 'output' };
