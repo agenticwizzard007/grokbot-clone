@@ -1,9 +1,10 @@
+import { SETTINGS_LABELS } from '../../lib/navigation';
 import { useUiConfig } from '../../customization';
 import { Page, Section, Card } from '../layout';
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ChevronRight, Search } from 'lucide-react';
 import { NAV, matches, SettingsNavButton } from './settingsNavigation';
-import { useConfigUI, type AppSection } from '../../configStore';
+import { navigation, useConfigUI, type AppSection } from '../../configStore';
 import { useStore } from '../../store';
 import { useCompactLayout } from '../../lib/useCompactLayout';
 import '../../styles/config.css';
@@ -13,6 +14,7 @@ import '../../styles/settings-v3.css';
 
 // Only page contents wait for code or data. Navigation stays mounted and usable.
 const AppearanceSettings = lazy(() => import('./AppearanceSettings').then(m => ({ default: m.AppearanceSettings })));
+const Requirements = lazy(() => import('./appearance/Requirements').then(m => ({ default: m.Requirements })));
 const AgentsSettings = lazy(() => import('./AppSettings').then(m => ({ default: m.AgentsSection })));
 const ConfigLayer = lazy(() => import('./ConfigLayer').then(m => ({ default: m.ConfigLayer })));
 
@@ -41,6 +43,8 @@ export function AppSettings() {
   const { status: appearanceStatus } = useUiConfig();
   const availableNav = appearanceStatus === 'disabled' ? NAV.map(group => ({ ...group, items: group.items.filter(item => item.id !== 'appearance') })) : NAV;
   const section = useConfigUI((s) => s.appSettings);
+  const currentScreen = navigation.screen;
+  const aboutUse = currentScreen?.kind === 'settings' && currentScreen.use;
   const home = useConfigUI((s) => s.appSettingsHome);
   const close = useConfigUI((s) => s.closeAppSettings);
   const open = useConfigUI((s) => s.openAppSettings);
@@ -67,8 +71,8 @@ export function AppSettings() {
     return () => window.removeEventListener('keydown', k);
   }, [close]);
   useEffect(() => { setQuery(''); }, [home, section]);
-  useEffect(() => { main.current?.scrollTo({ top: 0 }); }, [section, listView]);
-  useLayoutEffect(() => { heading.current?.focus({ preventScroll: true }); }, [compact, listView, section]);
+  useEffect(() => { main.current?.scrollTo({ top: 0 }); }, [section, listView, aboutUse]);
+  useLayoutEffect(() => { heading.current?.focus({ preventScroll: true }); }, [compact, listView, section, aboutUse]);
   useLayoutEffect(() => {
     const caller = settingsCaller;
     return () => {
@@ -76,7 +80,7 @@ export function AppSettings() {
     };
   }, []);
 
-  const sectionLabel = NAV.flatMap(group => group.items).find(item => item.id === section)?.label;
+  const sectionLabel = aboutUse ? 'About your use' : NAV.flatMap(group => group.items).find(item => item.id === section)?.label ?? (section ? SETTINGS_LABELS[section] : 'Settings');
   if (!section) return null;
   const pick = (id: AppSection) => { open(id); setQuery(''); };
   const q = query.trim();
@@ -122,9 +126,9 @@ export function AppSettings() {
     {!compact && <aside className="app-settings__nav">{nav}</aside>}
     <div className="app-settings__main" ref={main}>
       <span ref={heading} tabIndex={-1} className="sr-only">{showList ? 'Settings' : sectionLabel}</span>
-      {showList ? <Page type="form">{nav}</Page> : <Page type="form" title={compact ? undefined : section === 'subscriptions' ? 'Models & access' : sectionLabel} className="app-settings__page" key={section}>
+      {showList ? <Page type="form">{nav}</Page> : <Page type="form" title={compact ? undefined : section === 'subscriptions' ? 'Models & access' : sectionLabel} className="app-settings__page" key={aboutUse ? 'appearance/use' : section}>
         <Suspense fallback={<div className="settings-page-loading" role="status">Loading settings</div>}>
-          {section === 'appearance' ? <AppearanceSettings /> : section === 'agents' ? <AgentsSettings key={user?.id} /> : <ConfigLayer />}
+          {aboutUse ? <Requirements /> : section === 'appearance' ? <AppearanceSettings /> : section === 'agents' ? <AgentsSettings key={user?.id} /> : <ConfigLayer />}
         </Suspense>
       </Page>}
     </div>

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { uiConfigSchema, uiConfigShape, LIMITS, type UiConfig } from './schema.js';
+import { uiConfigSchema, uiConfigShape, LIMITS, DEFAULT_CONFIG, type UiConfig } from './schema.js';
 import { WIDGET_OPTIONS } from './registry-widgets.js';
 import { SOURCE_PARAMS } from './registry-sources.js';
 import { checkAccessibility } from './contrast.js';
@@ -142,6 +142,10 @@ export function previewPatch(current: UiConfig, ops: PatchOp[], opts: { autofix?
     const parsed = uiConfigSchema.safeParse(doc);
     if (!parsed.success) return fail(schemaErrors(parsed.error));
     doc = parsed.data;
+    // All sections is a fixed recovery destination. Only resetting the entire
+    // arrangement may restore the original phone tabs without the More entry.
+    if (current.layout.phoneTabs.includes('more') && !doc.layout.phoneTabs.includes('more') && !equal(doc.layout, DEFAULT_CONFIG.layout))
+      return fail([violation('/layout/phoneTabs', 'required_item', 'More keeps All sections available. Reset the arrangement to restore default tabs.')]);
     if (opts.ctx?.botIds) {
       const botIds = new Set(opts.ctx.botIds);
       doc.layout.pinned = doc.layout.pinned.filter(p => { if (p.type !== 'bot' || botIds.has(p.id)) return true; warnings.push(violation('/layout/pinned', 'not_found', 'Removed a pin for an unavailable Bot.')); return false; });

@@ -18,6 +18,8 @@ import { coordinationPrompt } from '../coordination/index.js';
 import { platformContext } from './platform-state.js';
 import { currentUserMessageRef } from '../knowledge/sessions.js';
 import { uiPromptSection } from './ui-prompt.js';
+import { REQUIREMENTS_PROMPT } from './ui-requirements-tools.js';
+import { uiAdaptEnabled } from '../ui/flags.js';
 import { uiToolsOffered } from './ui-runtime.js';
 import { handoffPrompt } from './handoff-prompt.js';
 import { enabled as handoffsEnabled } from '../handoffs/db.js';
@@ -27,7 +29,7 @@ export async function systemPrompt(userId: string, botId: string, jobId?:string)
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(userId) as any;
   const setup = getSetup(botId);
   const currentSource = currentUserMessageRef(userId, botId, jobId);
-  const appearance = uiPromptSection({ offered: uiToolsOffered({ userId, botId, jobId }) });
+  const appearance = uiPromptSection({ offered: uiToolsOffered({ userId, botId, jobId }) }) + (uiAdaptEnabled(db, userId) && uiToolsOffered({ userId, botId, jobId }) ? REQUIREMENTS_PROMPT : '');
   const nativeState = [asksBeforeEveryAction(userId) ? MAX_APPROVAL_INSTRUCTIONS : '', platformContext(userId, botId),coordinationPrompt(userId,botId,jobId),
     setup && setup.onboarding.status !== 'active' ? '' : learningContext(userId,botId,jobId),
     handoffPrompt(bot.kind !== 'room' && (!setup || setup.onboarding.status === 'active') && handoffsEnabled(userId))].filter(Boolean).join('\n\n');

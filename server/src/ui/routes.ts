@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { requireUser, type AuthVars } from '../lib/auth.js';
 import { REGISTRY, uiConfigSchema, type ErrorCode, type PatchOp, type Violation } from '../ui-config/index.js';
 import { dataApi } from './data-routes.js';
+import { RequirementsStore } from './requirements-store.js';
+import { createRequirementsApi } from './requirements-routes.js';
 import { resultHash, type SqliteUiConfigService } from './service.js';
 
 const empty = z.object({}).strict();
@@ -56,6 +58,7 @@ async function body<T>(c: Context<AuthVars>, schema: z.ZodType<T>): Promise<T> {
 
 export function createUiApi(service: SqliteUiConfigService) {
   const api = new Hono<AuthVars>();
+  api.route('/requirements', createRequirementsApi(new RequirementsStore(service)));
   const user = (c: Context<AuthVars>) => c.get('user').id;
   api.use('*', async (c, next) => {
     const response = await requireUser(c, next);

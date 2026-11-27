@@ -25,10 +25,12 @@ export function AppearanceSettings() {
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const [agentAuto, setAgentAuto] = useState(false);
+  const [adaptEnabled, setAdaptEnabled] = useState(false);
   const [agentReady, setAgentReady] = useState(false);
   const [previewCard, setPreviewCard] = useState<UiPreviewCardBody | null>(null);
   useEffect(() => {
     let alive = true;
+    void appearanceRequest<{ enabled: boolean }>('/ui/requirements').then(value => { if (alive) setAdaptEnabled(value.enabled); }).catch(() => {});
     void appearanceRequest<{ uiAgentApply: string }>('/account/preferences').then(value => { if (alive) { setAgentAuto(value.uiAgentApply === 'auto'); setAgentReady(true); } }).catch(error => { if (alive) setErrors([{ path: '', code: 'invalid_value', message: error.message }]); });
     return () => { alive = false; };
   }, []);
@@ -53,6 +55,7 @@ export function AppearanceSettings() {
   if (status === 'disabled') return <p role="status">Layout settings are unavailable.</p>;
   return <div className="appearance-settings">
     <Section aria-label="Customize"><Row title="Or change it here." trailing={<button type="button" className="cfg-btn cfg-btn--primary" disabled={!bots.length} onClick={ask}>Ask your agent</button>} /></Section>
+    {adaptEnabled && <Section><Row title={<a href="#settings/appearance/use">About your use</a>} subtitle="Role, goals and workflows" /></Section>}
     {previewCard && <UiPreviewCard key={previewCard.previewId} body={previewCard} />}
     {errors.length > 0 && <Card role="alert" className="appearance-errors">{errors.map((error, i) => <p key={i}>{error.message}{error.hint ? ` ${error.hint}` : ''}{error.suggested ? ` Try ${error.suggested}.` : ''}</p>)}</Card>}
     <fieldset disabled={status === 'loading'} className="appearance-fields" aria-label="Layout controls" aria-busy={busy}>
