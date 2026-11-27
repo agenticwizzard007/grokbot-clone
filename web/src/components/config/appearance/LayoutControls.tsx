@@ -28,7 +28,7 @@ export function LayoutControls({ doc, patch }: { doc: UiConfig; patch: Patch }) 
     </AppearanceSection>
     <AppearanceSection title="Show">
       {REGISTRY.components.map(component => component.allowed.includes('collapsed')
-        ? <Choice key={component.id} label={component.label} value={doc.components[component.id] ?? component.default} values={component.allowed} onChange={v => void patch(setValue(`/components/${component.id}`, v))} />
+        ? <Choice key={component.id} label={component.label} value={doc.components[component.id] ?? component.default} values={component.allowed.map(value => value === 'collapsed' ? { value, label: 'Folded' } : value)} onChange={v => void patch(setValue(`/components/${component.id}`, v))} />
         : <Row key={component.id} title={component.label} trailing={<Switch label={component.label} on={(doc.components[component.id] ?? component.default) === 'show'} onChange={v => void patch(setValue(`/components/${component.id}`, v ? 'show' : 'hide'))} />} />)}
     </AppearanceSection>
   </>;

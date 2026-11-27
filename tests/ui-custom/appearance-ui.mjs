@@ -11,7 +11,7 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH 
 let passed = 0;
 const pass = name => { passed++; console.log(`PASS UC-G ${name}`); };
 try {
-  for (const width of [320, 390, 500, 768, 1280]) for (const theme of ['light', 'dark']) {
+  for (const width of (process.env.UC_G_WIDTHS || '320,390,500,768,1280').split(',').map(Number)) for (const theme of ['light', 'dark']) {
     const context = await appearanceContext(browser, fixture, width, theme);
     const page = await context.newPage(); page.setDefaultTimeout(15000);
     await page.goto('/#settings/appearance'); const screen = page.locator('.appearance-settings'); await screen.waitFor();
@@ -19,8 +19,7 @@ try {
     await reset(page); await page.reload(); await screen.waitFor();
     await page.evaluate(() => document.fonts.ready);
     assert.deepEqual(await page.evaluate(inspectAlignment, { selector: '.app-settings' }), [], `${width} ${theme}`);
-    await readableWords(screen);
-    await page.screenshot({ path: `${out}/${width}-${theme}.png` }); pass(`geometry and complete labels ${width} ${theme}`);
+    await page.screenshot({ path: `${out}/${width}-${theme}.png` }); await readableWords(screen); pass(`geometry and complete labels ${width} ${theme}`);
     const controls = await screen.locator('button:enabled, input:not([type=file]):enabled, select:enabled').all();
     for (const control of controls) {
       await control.focus(); assert.equal(await control.evaluate(el => document.activeElement === el), true);

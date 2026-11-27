@@ -12,7 +12,8 @@ export function Manage({ doc, revision, run, onPreview, onChange }: { doc: UiCon
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [scope, setScope] = useState('appearance');
   const [busy, setBusy] = useState(false);
-  const mutate = async (path: string, body: unknown) => { setBusy(true); try { await appearanceRequest(path, 'POST', body, revision); await onChange(); setDialog(null); } finally { setBusy(false); } };
+  const [error, setError] = useState('');
+  const mutate = async (path: string, body: unknown) => { setBusy(true); setError(''); try { await appearanceRequest(path, 'POST', body, revision); await onChange(); setDialog(null); } catch (failure) { setError((failure as Error).message); throw failure; } finally { setBusy(false); } };
   return <AppearanceSection title="Manage">
     <Row title="Appearance" trailing={<ButtonGroup><button type="button" className="cfg-btn cfg-btn--secondary" disabled={revision === 0} onClick={() => void run(() => mutate('/ui/undo', { steps: 1 }))}>Undo</button><SettingsMenu ariaLabel="Manage appearance" items={[
       { label: 'Export', onSelect: () => void run(exportAppearance) },
@@ -29,6 +30,7 @@ export function Manage({ doc, revision, run, onPreview, onChange }: { doc: UiCon
       });
     }} />
     {dialog && <Modal label={dialog === 'history' ? 'Appearance history' : 'Reset appearance'} className="appearance-dialog" onClose={() => { if (!busy) setDialog(null); }}>
+      {error && <p role="alert" className="cfg-error">{error}</p>}
       {dialog === 'history' ? <>
         {!history.length && <p>No changes yet.</p>}
         {history.map(entry => <Row key={entry.revision} title={`Revision ${entry.revision}`} subtitle={<><span>{entry.actor.startsWith('agent:') ? 'Agent' : entry.actor} · {new Date(entry.createdAt).toLocaleDateString()}</span><ul>{entry.summary.map((line, i) => <li key={i}>{line}</li>)}</ul></>} trailing={<button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} aria-label={`Restore revision ${entry.revision}`} onClick={() => void run(() => mutate(`/ui/history/${entry.revision}/restore`, {}))}>Restore</button>} />)}

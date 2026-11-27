@@ -15,6 +15,8 @@ for (const fixture of fixtures.cases) test(`manual and agent parity: ${fixture.i
     : fixture.builder === 'choosePreset' ? builders.choosePreset(fixture.value)
     : fixture.builder === 'sidebarVisibility' ? builders.sidebarVisibility(base, fixture.idValue, fixture.value)
     : fixture.builder === 'moveSidebar' ? builders.moveSidebar(base, fixture.from, fixture.direction)
+    : fixture.builder === 'deleteDashboard' ? builders.deleteDashboard(base, fixture.idValue)
+    : fixture.builder === 'phoneTabPatch' ? builders.phoneTabPatch(base, fixture.index, fixture.value)
     : fixture.builder === 'createDashboard' ? builders.createDashboard(fixture.value)
     : builders.renameDashboard(base, fixture.idValue, fixture.value);
   assert.deepEqual(actual, fixture.patch);
