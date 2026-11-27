@@ -4,7 +4,7 @@ Status: draft 3 (three critique passes, see section 24). Ready to hand off after
 Repo: agenticwizzard007/grokbot-clone, baseline main 40b6632 (v3 layout primitives live).
 Goal: every Swarm user can change how the whole app looks and is arranged, and can build their own dashboards, by talking to their agent. A manual Settings page does the same through the same engine.
 
-Reading order: 1 to 4 explain what and why. 5 to 11 are the data model, storage and API. 12 to 16 are the agent, safety, accessibility and performance. 17 to 19 are layout rules, migration and the Settings page. 20 and 21 are the test and rollout plans. 22 and 23 are the workstreams and the verification protocol the build is run by. 24 is the review log, 25 is future work.
+Reading order: 1 to 4 explain what and why. 5 to 11 are the data model, storage and API. 12 to 16 are the agent, safety, accessibility and performance. 17 to 19 are layout rules, migration and the Settings page. 20 and 21 are the test and rollout plans. 22 and 23 are the workstreams and the verification protocol the build is run by. 24 is the review log, 25 is future work, 26 is requirements profile and adaptation (UC-I).
 
 ---
 
@@ -1116,3 +1116,73 @@ Known open questions (decided here, revisit if wrong):
 5. Freeform dashboard positioning, drag resize, saved filters, widget linking.
 6. Per Bot appearance (accent per Bot is already identity color, this would be layout only).
 7. A wider widget library (calendar, inbox glance) through the connected app tools, each requiring its own security review.
+
+## 26. Scope change: the app adapts to each user's requirements (added Nov 27, 2026, 14:14 Europe/Bratislava)
+
+Decision from the user: "The app will be changing based on the requirements." Customization is not only a custom dashboard. The app as a whole adapts to each user's stated requirements and use case. The agent captures requirements (role, goals, workflows) in chat, then tailors the home dashboard, which sections and nav items are shown or emphasized, suggested Bots, templates, widgets and default views. When the requirements change in chat, the app re-adapts. This section is binding for workstream UC-I and extends sections 5, 6, 10, 12, 14 and 19 without changing their frozen interfaces.
+
+### 26.1 Principles
+
+1. Requirements are data, adaptation is a pure function. The requirements profile is stored per user. A deterministic engine (`adaptFromRequirements`) turns a profile plus the current ui_config into a validated JSON Patch. No model output is ever applied directly: the agent only edits the profile and asks the engine for a patch, and the patch goes through the same `previewPatch` then confirm flow as every other change (sections 12 and 13, taint rule included).
+2. Nothing is hidden permanently. Adaptation may promote, reorder and demote. Demoted items move into the All sections page (`#all`), which lists every route in the product, is linked from the sidebar footer, the phone "More" tab and the command palette, and cannot be removed by any patch (the validator rejects it, like the required navigation elements in section 15). Reset restores the default arrangement in one step.
+3. The user stays in charge. Adaptation never overwrites a value the user set by hand: each adaptation records the JSON pointers it manages (`managedPaths`); on re-adapt only those pointers are replaced, and a pointer the user edited since is dropped from the managed list and shown in the preview as "kept as you set it".
+4. Suggestions are suggestions. Suggested Bots and templates are shown as cards and never created without an explicit user confirmation through the existing create flows. Nothing in adaptation spends money, connects an app or sends anything.
+5. Small and honest. The agent saves only what the user said, shows what it saved ("I will remember: ..."), asks at most two follow-up questions per turn, and never infers sensitive attributes. Secrets and personal identifiers are rejected by the validator (same secret scan as ui_config).
+
+### 26.2 The requirements profile (schema v1)
+
+```ts
+interface RequirementsProfile {
+  version: 1;
+  role: string;                       // free label, 1..60 chars, e.g. "Solo founder"
+  goals: string[];                    // 0..6 items, each 1..120 chars
+  workflows: { name: string; cadence: 'daily'|'weekly'|'monthly'|'ad_hoc' }[]; // 0..8, name 1..80
+  focus: Array<'tasks'|'bots'|'routines'|'usage'|'files'|'chat'|'apps'|'team'>; // 0..8 from the registry
+  lens?: LensId;                      // optional explicit pick; otherwise the engine scores
+  updatedAt: number; revision: number; updatedBy: 'agent'|'user'|'reset';
+  managedPaths: string[];             // JSON pointers the last adaptation set (26.1 rule 3)
+}
+```
+
+Table `ui_requirements(user_id PK, doc TEXT, revision INT, updated_at INT, updated_by TEXT)` plus history rows in `ui_config_history` with `kind='requirements'`. Size cap 8 KB. One profile per account, per user, never shared. Included in account export and deleted with the account.
+
+### 26.3 Lenses (the adaptation registry)
+
+A lens is a frozen, versioned recipe. v1 ships seven: `sales` (outreach and pipeline), `operations` (reports and recurring work), `support` (queues and response), `engineering` (builds and reviews), `research` (reading and synthesis), `creator` (content and calendar), `general` (the default look, plus a tidy home). The engine scores lenses from `focus` (weight 3), `role` and `goals` and `workflow` keywords from a fixed keyword table (weight 1), or takes `lens` when set. A tie or a low score falls back to `general` and the agent asks one question.
+
+Each lens defines, as data: (a) home dashboard with 4 to 8 widgets from the existing widget library; (b) nav order: up to 5 promoted items (these become the phone tab bar and the top of the sidebar) and the rest in the standard order; (c) default landing route; (d) 3 suggested Bots (name, one line purpose) and 2 template dashboards; (e) suggested keyboard shortcuts for its top routes; (f) the rationale sentences shown to the user ("Pipeline widgets because you said outreach").
+
+### 26.4 Agent tools (extend section 12)
+
+`get_requirements()`; `update_requirements({ patch })` with a JSON Patch on the profile (validated, returns the new profile and a diff in plain words); `reset_requirements()`; `preview_adaptation({ lens? })` returns a normal `ui_preview` card (patch, before and after at 390 and 1280, rationale, suggestions, list of kept-as-you-set items) built by `previewPatch`; applying uses `apply_ui_patch` with the returned `previewId`. `update_requirements` alone never changes the look; it only changes what the agent remembers and whether re-adaptation is offered. Auto-apply mode and the taint rule behave as in section 13.
+
+### 26.5 Where the user sees and edits it
+
+One simple place: Settings, Appearance and layout, "About your use" (`#settings/appearance/use`). It shows the profile in plain fields (role, goals, workflows, focus chips), the current lens and why, the suggestions, and three actions: Save changes, Re-adapt (opens the preview), Reset (clears the profile and restores the default arrangement, with Undo). Everything it edits is reachable in chat as well. `#all` (All sections) is the always-available list of everything. Copy diet from the 70 percent reduction applies: labels and one helper line per field, no paragraphs.
+
+### 26.6 Natural language flow
+
+| User says | Agent does |
+| --- | --- |
+| "I run outbound sales for a small agency, mostly follow ups and pipeline" | Saves role, goals, workflow, focus `tasks`,`routines`,`bots`; replies "I will remember: Sales, follow ups, weekly pipeline"; calls `preview_adaptation`; the card shows a Pipeline home, Tasks and Routines promoted, suggested Bots. User taps Apply. |
+| "I am an operations manager, I need a daily report and to see usage" | Saves; adapt shows Operations lens: Usage meters and routine schedule on home, Routines first in the tab bar. |
+| "Actually I now lead a support team" | `update_requirements` diff (role, focus), then `preview_adaptation` shows before and after, with items the user set by hand kept. |
+| "Reset what you know about me" | `reset_requirements`, then a preview that restores defaults; Undo available. |
+| "Show me everything" | Opens `#all`. |
+
+### 26.7 Safety, accessibility, performance, migration
+
+All of section 13 and 15 apply: contrast and minimum sizes are enforced on the adapted result, because it is just a patch. The engine is pure and runs under 20 ms for a maximum profile; `preview_adaptation` p95 under 150 ms. Existing users have no profile and see no change until they state requirements (flag `ui_adapt`, off, staff, 10 percent, 100 percent, like section 21). Prompt-injection corpus (UC-H) gains cases where web content tries to write the profile; those must not reach `update_requirements` without confirmation under the taint rule.
+
+### 26.8 Workstream UC-I: Requirements profile and adaptation
+
+Gate: after UC-A, B, C, D, E, F2 and G have merged; merge before UC-H. Owns: `server/src/ui-config/adapt.ts`, `adapt-lenses.ts`, `adapt-keywords.ts` (new, pure); `server/src/ui/requirements-store.ts`, `requirements-routes.ts` (REST `GET/PUT/DELETE /api/ui/requirements`, `POST /api/ui/requirements/adapt`), plus an additive table in `server/src/ui/db.ts` and flag `ui_adapt` in `flags.ts`; `server/src/agent/ui-requirements-tools.ts` and one additive line in the tool registry and the prompt section; `web/src/components/config/appearance/Requirements.tsx`; `web/src/components/AllSections.tsx` and the `#all` route entry points in the sidebar footer, phone More tab and command palette (additive edits to UC-E and UC-G files are allowed for these hooks only); the `#all` validator rule; tests `tests/ui-custom/adapt-*.test.mts`, `tests/ui-custom/e2e/adapt-ui.mjs`, `tests/ui-custom/demo-i.mjs`; and this section.
+
+Acceptance criteria:
+1. Engine is pure and deterministic; the same profile and config give the same patch; fuzz of 2,000 random profiles never produces an invalid patch or a contrast or minimum size violation.
+2. Every route is reachable from `#all`; no adapted config removes `#all`; a property test over all seven lenses shows every nav item still reachable in at most 2 taps at 390.
+3. Hand edits are never overwritten: a test sets a value by hand, re-adapts, and the value survives and is reported as kept.
+4. Agent tools match the REST results; `update_requirements` never changes ui_config; taint rule applies; injection corpus cases pass.
+5. Settings "About your use": view, edit, re-adapt (preview), reset with Undo, at 390 and 1280, light and dark, alignment test green.
+6. Demo `demo-i.mjs` on a seeded server produces, at 390 and 1280, screenshots of two different use cases (a sales user and an operations user) with visibly different home, nav and suggestions, plus one requirement change (operations to support) with before and after, and the reset. Screenshots saved under `.context/ui-custom/demo-i/`.
+7. Defaults unchanged for users with no profile (client-defaults snapshots 208 of 208).
