@@ -2,8 +2,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { after, test } from 'node:test';
-import { seedDashboard } from '../fixtures/dashboard.seed.mts';
+import { after, test, mock } from 'node:test';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
+import { WebSocket } from 'ws';
+import { seedDashboard, dashboardParams } from '../fixtures/dashboard.seed.mts';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-sources-'));
 Object.assign(process.env, { NODE_ENV: 'test', DB_PATH: path.join(temp, 'test.db'), FILES_DIR: path.join(temp, 'files'), CLI_PROFILES_DIR: path.join(temp, 'profiles'),
@@ -21,7 +24,8 @@ const [a, b] = fixture.users;
 const executors: InstanceType<typeof DataExecutor>[] = [];
 const executor = () => { const instance = new DataExecutor(); executors.push(instance); return instance; };
 const data = executor();
-const read = (userId: string, source: string, params: unknown = {}) => data.execute(userId, { key: source, source, params });
+const read = (userId: string, source: string, params: unknown = {}) => data.execute(userId, { key: source, source,
+  params: params && typeof params === 'object' && !Array.isArray(params) ? { ...dashboardParams(source), ...params } : params });
 const app = (options: Parameters<typeof createDataApi>[0] = {}) => new Hono().route('/api/ui', createDataApi({ executor: executor(), enabled: () => true, ...options }));
 const request = (target: ReturnType<typeof app>, body: unknown, user = a, headers: Record<string, string> = {}) => target.request('/api/ui/data', {
   method: 'POST', headers: { 'Content-Type': 'application/json', cookie: `swarm_session=${user.token}`, ...headers }, body: JSON.stringify(body),
@@ -80,7 +84,70 @@ test('source parameter bounds reject oversized, fractional, negative and unknown
   assert.equal((await read(a.id, 'usage.series', { metric: 'secrets' })).ok, false);
   assert.equal((await read(a.id, 'runs.series', { group: 'user' })).ok, false);
   const capped = await read(a.id, 'tasks.list', { limit: 25 }); assert.ok(capped.ok && capped.rows!.length === 25 && capped.count === 33);
-  const state = await read(a.id, 'runs.series', { group: 'state' }); assert.ok(state.ok); if (state.ok) assert.deepEqual(state.rows!.map(row => row.count), [8, 9, 8, 8]);
+  const state = await read(a.id, 'runs.series', { group: 'state' }); assert.ok(state.ok); if (state.ok) assert.deepEqual(state.rows!.map(row => row.value), [8, 9, 8, 8]);
+});
+test('runtime source ids, validation and fields match the frozen shared registry', async () => {
+  const { SOURCES: shared } = await import('../../server/src/ui-config/registry-sources.js');
+  assert.deepEqual(SOURCES.map(source => source.id), shared.map(source => source.id));
+  for (const [n, source] of SOURCES.entries()) {
+    assert.deepEqual(source.fields, shared[n].fields);
+    for (const params of [{}, dashboardParams(source.id), { range: 'forever' }, { botId: '../foreign' }, { limit: 26 }]) {
+      assert.equal(source.paramsSchema.safeParse(params).success, shared[n].paramsSchema.safeParse(params).success);
+    }
+    const direct = source.resolve(a.id, source.paramsSchema.parse(dashboardParams(source.id)) as any);
+    for (const row of direct.rows ?? []) assert.ok(Object.keys(row).every(key => source.fields.includes(key)));
+  }
+});
+test('empty accounts return zero counts, zero-filled series and unavailable windows', async () => {
+  const emptyId = 'qa-temp-dashboard-empty';
+  db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(emptyId, 'empty@example.test', 'QA-Temp-Empty', Date.now());
+  for (const source of SOURCES) {
+    const result = await read(emptyId, source.id); assert.ok(result.ok, JSON.stringify(result));
+    if (!result.ok) continue;
+    assert.equal(result.count, 0);
+    if (source.series) assert.ok(result.rows!.every(row => Object.entries(row).every(([key, value]) => key === 'day' || key === 'state' || value === 0)));
+    else assert.equal(result.rows?.length ?? 0, 0);
+  }
+});
+test('Bot status incorporates live state without exposing activity or pending input details', async () => {
+  const { setLive } = await import('../../server/src/store.js');
+  const botId = `${a.id}-bot-1`;
+  setLive(botId, { isRunning: true });
+  const fresh = executor();
+  const result = await fresh.execute(a.id, { key: 'live', source: 'bots.status', params: {} });
+  assert.ok(result.ok); if (result.ok) assert.equal(result.rows!.find(row => row.id === botId)?.status, 'working');
+  setLive(botId, { isRunning: false });
+});
+test('usage windows read only cached platform observations and never probe a connected provider', async () => {
+  const { platformState } = await import('../../server/src/agent/platform-state.js');
+  const { createCliPairing, selectCli } = await import('../../server/src/cli/store.js');
+  const { attachCliSocket, cliStatus, refreshCli } = await import('../../server/src/cli/bridge.js');
+  const server = createServer(); attachCliSocket(server); server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const socket = new WebSocket(`ws://127.0.0.1:${(server.address() as any).port}/api/cli-bridge`);
+  let probes = 0;
+  socket.on('message', raw => {
+    const message = JSON.parse(String(raw)); if (message.type === 'welcome' || message.method === 'cancel') return;
+    if (message.method === 'catalog') probes++;
+    socket.send(JSON.stringify({ id: message.id, result: message.method === 'status'
+      ? { claude: { installed: true, authenticated: true, subscription: true }, codex: { installed: false, authenticated: false, subscription: false } }
+      : { models: [], defaultModel: null, plan: null, usage: { available: true, checkedAt: Date.now(), windows: [{ label: 'Weekly', usedPercent: 37, resetsAt: null }] } } }));
+  });
+  try {
+    await once(socket, 'open'); socket.send(JSON.stringify({ type: 'hello', version: 1, codexExecOnly: true, token: createCliPairing(a.id), device: 'QA-Temp-Bridge' }));
+    for (let n = 0; n < 100 && !cliStatus(a.id).connected; n++) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(cliStatus(a.id).connected, true); await refreshCli(a.id); selectCli(a.id, 'claude');
+    // The platform owns discovery. The source consumes only its recorded public facts.
+    await platformState(a.id, `${a.id}-bot-0`);
+    assert.equal(probes, 1);
+    const fresh = executor();
+    const result = await fresh.execute(a.id, { key: 'windows', source: 'usage.windows', params: {} });
+    assert.ok(result.ok); if (result.ok) assert.deepEqual({ rows: result.rows, available: result.available, count: result.count }, {
+      rows: [{ label: 'Weekly', usedPercent: 37, resetsAt: null }], available: true, count: 1,
+    });
+    assert.equal(probes, 1, 'the dashboard did not discover a catalog');
+    const foreign = await fresh.execute(b.id, { key: 'windows', source: 'usage.windows', params: {} });
+    assert.ok(foreign.ok && foreign.available === false && foreign.count === 0);
+  } finally { selectCli(a.id, null); socket.terminate(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
 test('cache canonicalizes defaults and parameter order, expires at 10 seconds, isolates users and clones replies', async () => {
   let clock = Date.now(); const cached = new DataExecutor(() => clock); executors.push(cached);
@@ -119,7 +186,25 @@ test('API uses session authentication, feature gates, JSON and origin boundaries
   assert.equal((await request(target, batch(), a, { 'content-type': 'text/plain' })).status, 415);
   assert.equal((await request(app({ enabled: () => false }), batch())).status, 404);
   assert.equal((await request(target, { requests: [], padding: 'x'.repeat(256 * 1024) })).status, 413);
+  assert.equal((await request(target, { requests: [], padding: 'x'.repeat(256 * 1024) }, a, { 'content-length': '1' })).status, 413);
   assert.equal((await target.request('/api/ui/data', { method: 'POST', headers: { cookie: `swarm_session=${a.token}`, 'content-type': 'application/json' }, body: '{' })).status, 400);
+});
+test('task day boundaries honor account timezone across daylight saving changes', () => {
+  const userId = 'qa-temp-dashboard-timezone', botId = `${userId}-bot`;
+  db.prepare('INSERT INTO users(id,email,name,created_at,timezone) VALUES(?,?,?,?,?)').run(userId, 'timezone@example.test', 'QA-Temp-Timezone', Date.now(), 'America/New_York');
+  db.prepare('INSERT INTO bots(id,user_id,name,created_at,updated_at) VALUES(?,?,?,?,?)').run(botId, userId, 'Fixture timezone Bot', Date.now(), Date.now());
+  for (const [index, timestamp] of ['2026-03-08T04:30:00Z', '2026-03-09T03:30:00Z'].entries()) {
+    const at = Date.parse(timestamp);
+    db.prepare('INSERT INTO tasks(id,bot_id,title,state,created_at,updated_at) VALUES(?,?,?,?,?,?)').run(`${botId}-${index}`, botId, 'Fixture boundary', 'done', at, at);
+  }
+  const clock = mock.method(Date, 'now', () => Date.parse('2026-03-09T04:30:00Z'));
+  try {
+    const source = SOURCES.find(source => source.id === 'tasks.series')!;
+    const result = source.resolve(userId, { range: '7d' });
+    assert.deepEqual(result.rows!.filter(row => row.created), [
+      { day: '2026-03-07', created: 1, done: 1 }, { day: '2026-03-08', created: 1, done: 1 },
+    ]);
+  } finally { clock.mock.restore(); }
 });
 test('API rate limits 30 batches, not widgets, with an independent rolling window per user', async () => {
   let at = Date.now(); const target = app({ clock: () => at });

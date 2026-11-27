@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
-import { seedDashboard } from '../fixtures/dashboard.seed.mts';
+import { seedDashboard, dashboardParams } from '../fixtures/dashboard.seed.mts';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-sources-perf-'));
 Object.assign(process.env, { NODE_ENV: 'test', DB_PATH: path.join(temp, 'test.db'), FILES_DIR: path.join(temp, 'files'), CLI_PROFILES_DIR: path.join(temp, 'profiles'),
@@ -23,11 +23,11 @@ after(() => { executor.close(); db.close(); fs.rmSync(temp, { recursive: true, f
 test('24 source requests meet p95 below 150 ms with 10000 tasks, 100 Bots and 90 days of usage', async () => {
   assert.equal(fixture.taskCount, 10000); assert.equal(fixture.botCount, 100);
   const requests = [
-    ...SOURCES.map(source => ({ key: source.id, source: source.id, params: {} })),
+    ...SOURCES.map(source => ({ key: source.id, source: source.id, params: dashboardParams(source.id) })),
     ...['today', '30d', 'month'].flatMap(range => [
       { key: `summary-${range}`, source: 'usage.summary', params: { range } },
       { key: `series-${range}`, source: 'tasks.series', params: { range } },
-      { key: `runs-${range}`, source: 'runs.series', params: { range } },
+      { key: `runs-${range}`, source: 'runs.series', params: { range, group: 'day' } },
     ]),
     { key: 'usage-tokens', source: 'usage.series', params: { range: '30d', metric: 'tokens' } },
   ];
@@ -50,6 +50,6 @@ test('24 source requests meet p95 below 150 ms with 10000 tasks, 100 Bots and 90
   const report = { tasks: 10000, bots: 100, usageDays: 90, requestsPerBatch: 24, samples: samples.length, cache: 'expired between samples', p95Ms: p95, budgetMs: 150 };
   const out = path.resolve('.context/ui-custom/demo-f-server'); fs.mkdirSync(out, { recursive: true });
   fs.writeFileSync(path.join(out, 'performance.json'), JSON.stringify(report, null, 2));
-  console.log(`DATA PERFORMANCE: ${samples.length} batches, 24 requests, p95 ${p95.toFixed(2)} ms < 150 ms`);
+  console.log(`DATA PERFORMANCE: ${samples.length} batches, 24 requests, p95 ${p95.toFixed(2)} ms, budget 150 ms`);
   assert.ok(p95 < 150, `p95 ${p95.toFixed(2)} ms exceeds 150 ms`);
 });

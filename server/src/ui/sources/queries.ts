@@ -3,7 +3,7 @@ import { db } from '../../db.js';
 import { needsYou } from '../../routes-attention.js';
 import { describeCron } from '../../store.js';
 import { rangeBounds, usageReport, usageTimezone, type UsageRange } from '../../usage.js';
-import { reportDay, shiftDay } from '../../report-days.js';
+import { reportDay, reportDayStart, shiftDay } from '../../report-days.js';
 import { SourceError, type Params, type SourceData } from './catalog.js';
 
 type Row = Record<string, any>;
@@ -55,12 +55,17 @@ export function resolveSource(id: string, userId: string, params: Params): Sourc
   }
   if (id === 'tasks.series') {
     const timezone = usageTimezone(userId), { from, to, days } = rangeBounds(range, now, timezone);
-    const rows = all(`SELECT usage_day(t.created_at,?) AS day, COUNT(*) AS created, 0 AS done FROM tasks t
-      JOIN bots b ON b.id=t.bot_id WHERE ${scope.where} AND t.created_at BETWEEN ? AND ? GROUP BY day
-      UNION ALL SELECT usage_day(t.updated_at,?) AS day, 0, COUNT(*) FROM tasks t
-      JOIN bots b ON b.id=t.bot_id WHERE ${scope.where} AND t.state='done' AND t.updated_at BETWEEN ? AND ? GROUP BY day`,
-    [timezone, ...scope.args, from, to, timezone, ...scope.args, from, to]);
-    const series = Array.from({ length: days }, (_, n) => ({ day: shiftDay(reportDay(from, timezone), n), created: 0, done: 0 }));
+    const firstDay = reportDay(from, timezone);
+    const series = Array.from({ length: days }, (_, n) => ({ day: shiftDay(firstDay, n), created: 0, done: 0 }));
+    // Resolve at most 31 calendar boundaries, not an Intl formatter call per task.
+    // Timestamp comparisons retain the account's timezone and DST boundaries.
+    const bounds = [...series].reverse().flatMap(({ day }) => [reportDayStart(day, timezone), day]);
+    const dayCase = (column: 'created_at' | 'updated_at') => `CASE ${series.map(() => `WHEN t.${column}>=? THEN ?`).join(' ')} END`;
+    const rows = all(`SELECT ${dayCase('created_at')} AS day, COUNT(*) AS created, 0 AS done
+      FROM tasks t JOIN bots b ON b.id=t.bot_id WHERE ${scope.where} AND t.created_at BETWEEN ? AND ? GROUP BY day
+      UNION ALL SELECT ${dayCase('updated_at')} AS day, 0, COUNT(*)
+      FROM tasks t JOIN bots b ON b.id=t.bot_id WHERE ${scope.where} AND t.state='done' AND t.updated_at BETWEEN ? AND ? GROUP BY day`,
+    [...bounds, ...scope.args, from, to, ...bounds, ...scope.args, from, to]);
     for (const row of rows) { const day = series.find(day => day.day === row.day); if (day) { day.created += row.created; day.done += row.done; } }
     return { rows: series, count: series.reduce((n, day) => n + day.created, 0) };
   }
@@ -123,11 +128,11 @@ export function resolveSource(id: string, userId: string, params: Params): Sourc
       COALESCE(SUM(state='failed'),0) AS failed, COALESCE(SUM(state='running'),0) AS running, COALESCE(SUM(state='queued'),0) AS queued FROM runs WHERE ${where}`, args) };
     if (params.group === 'state') {
       const totals = all(`${runsSql} SELECT state,COUNT(*) AS count FROM runs WHERE ${where} GROUP BY state`, args);
-      return { count, rows: ['completed', 'failed', 'running', 'queued'].map(state => ({ state, count: totals.find(row => row.state === state)?.count ?? 0 })) };
+      return { count, rows: ['completed', 'failed', 'running', 'queued'].map(state => ({ state, value: totals.find(row => row.state === state)?.count ?? 0 })) };
     }
     const timezone = usageTimezone(userId);
     const totals = all(`${runsSql} SELECT usage_day(createdAt,?) AS day,COUNT(*) AS count FROM runs WHERE ${where} GROUP BY day`, [...args.slice(0, 4), timezone, ...args.slice(4)]);
-    return { count, rows: Array.from({ length: days }, (_, n) => { const day = shiftDay(reportDay(from, timezone), n); return { day, count: totals.find(row => row.day === day)?.count ?? 0 }; }) };
+    return { count, rows: Array.from({ length: days }, (_, n) => { const day = shiftDay(reportDay(from, timezone), n); return { day, value: totals.find(row => row.day === day)?.count ?? 0 }; }) };
   }
   throw new SourceError('not_found', 'Data source not found.');
 }

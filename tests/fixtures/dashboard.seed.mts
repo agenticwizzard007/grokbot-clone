@@ -12,6 +12,13 @@ export const dashboardUsers = [
   { id: 'qa-temp-dashboard-b', name: 'QA-Temp-Dashboard-B', token: 'qa-temp-dashboard-session-b', marker: 'Fixture B' },
 ] as const;
 
+export function dashboardParams(source: string): Record<string, unknown> {
+  return {
+    ...(['tasks.series', 'usage.summary', 'usage.series', 'runs.counts', 'runs.series'].includes(source) ? { range: '7d' } : {}),
+    ...(source === 'usage.series' ? { metric: 'cost' } : {}), ...(source === 'runs.series' ? { group: 'day' } : {}),
+  };
+}
+
 /** Only disposable test databases. Deliberately distinguish every foreign aggregate. */
 export async function seedDashboard({ performance = false } = {}) {
   assert.equal(process.env.NODE_ENV, 'test');

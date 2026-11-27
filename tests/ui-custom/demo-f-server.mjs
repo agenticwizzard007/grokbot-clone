@@ -4,7 +4,7 @@ import path from 'node:path';
 import { tsImport } from 'tsx/esm/api';
 import { chromium } from 'playwright';
 
-const { dashboardServer } = await tsImport('../fixtures/dashboard.seed.mts', import.meta.url);
+const { dashboardServer, dashboardParams } = await tsImport('../fixtures/dashboard.seed.mts', import.meta.url);
 const out = path.resolve('.context/ui-custom/demo-f-server'); fs.mkdirSync(out, { recursive: true });
 const server = await dashboardServer({ performance: true });
 const sources = ['tasks.counts', 'tasks.list', 'tasks.series', 'bots.list', 'bots.status', 'needsYou.list', 'usage.summary', 'usage.series', 'usage.windows', 'routines.list', 'routines.upcoming', 'runs.recent', 'runs.counts', 'runs.series'];
@@ -13,7 +13,7 @@ const post = (user, requests, cookie = true) => fetch(`${server.base}/api/ui/dat
 });
 let browser;
 try {
-  const requests = sources.map(source => ({ key: source, source, params: {} }));
+  const requests = sources.map(source => ({ key: source, source, params: dashboardParams(source) }));
   const signedOut = await post(server.users[0], requests, false); assert.equal(signedOut.status, 401);
   const bodies = [];
   for (const user of server.users) {
