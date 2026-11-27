@@ -9,6 +9,8 @@
 /* Recovery controls keep a stable palette, type size and target size. */
 #root:has(> .ui-runtime-banner) { display: flex; flex-direction: column; }
 #root:has(> .ui-runtime-banner) > .app { flex: 1; min-height: 0; height: auto; }
+/* The auth wrapper contains the shell and must share the remaining height. */
+#root:has(> .ui-runtime-banner) > .signed-in-content { flex: 1; min-height: 0; height: auto; }
 .ui-runtime-banner {
   --control-h: 44px;
   flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;

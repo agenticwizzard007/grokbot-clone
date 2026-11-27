@@ -21,7 +21,7 @@ try {
     const shot = async name => page.screenshot({ path: path.join(evidence, `${width}-${scheme}-${name}.png`) });
     const pass = (name, details = {}) => { report.push({ width, scheme, name, ...details }); console.log(`PASS UC-G ${width} ${scheme}: ${name}`); };
     // Preserve integration failures while allowing the rest of the workspace journey to run.
-    const integration = (ok, name) => { if (ok) pass(name); else { failures.push({ width, scheme, name }); console.log(`FAIL UC-G ${width} ${scheme}: ${name}`); } };
+    const integration = (ok, name, details = {}) => { if (ok) pass(name, details); else { failures.push({ width, scheme, name, ...details }); console.log(`FAIL UC-G ${width} ${scheme}: ${name} ${JSON.stringify(details)}`); } };
     const open = async () => { await page.goto('/#settings/appearance'); await screen.waitFor(); await page.waitForFunction(() => !document.querySelector('.appearance-fields')?.disabled); };
     const manage = screen.getByRole('button', { name: 'Manage layout', exact: true });
     const menu = async name => { await manage.click(); await page.getByRole('menuitem', { name, exact: true }).click(); };
@@ -73,7 +73,12 @@ try {
     assert.equal((await saved(page)).revision, before.revision, 'import waits for Apply');
     await page.waitForTimeout(400); await card.scrollIntoViewIfNeeded(); await shot('import-preview');
     integration(await page.locator('.ui-runtime-banner[aria-label="Appearance preview"]').isVisible(), 'manual import preview survives pending SSE');
-    integration(await page.evaluate(() => document.querySelector('.app').getBoundingClientRect().bottom <= innerHeight + 1), 'shell fits below the preview banner');
+    const geometry = await page.evaluate(() => {
+      const shell = document.querySelector('.app').getBoundingClientRect();
+      const banners = [...document.querySelectorAll('#root > .ui-runtime-banner')].filter(el => el.checkVisibility()).map(el => el.getBoundingClientRect());
+      return { shellTop: shell.top, shellBottom: shell.bottom, shellHeight: shell.height, bannerBottom: Math.max(0, ...banners.map(rect => rect.bottom)), viewportHeight: innerHeight, viewportWidth: innerWidth, documentWidth: document.documentElement.scrollWidth, documentHeight: document.documentElement.scrollHeight };
+    });
+    integration(geometry.shellHeight > 0 && Math.abs(geometry.shellTop - geometry.bannerBottom) <= 1 && geometry.shellBottom <= geometry.viewportHeight + 1 && geometry.documentHeight <= geometry.viewportHeight + 1 && geometry.documentWidth <= geometry.viewportWidth + 1, 'shell fits below the preview banner', geometry);
     await card.getByRole('button', { name: 'Apply', exact: true }).click(); await card.getByText('Applied', { exact: true }).waitFor();
     await waitForSaved(page, c => c.doc.layout.home.kind === 'tasks', 'import Apply'); await shot('import-applied'); pass('import card Apply');
     await card.getByRole('button', { name: 'Show before', exact: true }).focus(); await page.keyboard.down('Space');
