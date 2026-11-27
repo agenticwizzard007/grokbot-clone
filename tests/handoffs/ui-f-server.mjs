@@ -249,3 +249,25 @@ test('HO-A MemoryHandoffService loop contract projects its approval into the sta
   assert.equal(f.task().state, 'needs_input');
   assert.equal(tasks.getTaskHandoffLinks(f.userId)[f.taskId].loopId, loop.id);
 });
+
+
+test('HO-B event payloads retain their terminal reason and iteration progress', () => {
+  const f = fixture();
+  for (const [type, data, text] of [
+    ['loop.iteration_completed', { iteration: 2 }, 'Pass 2 of 4: pass completed'],
+    ['loop.finished', { iteration: 3, reason: 'passed' }, 'Done in 3 passes'],
+    ['loop.finished', { iteration: 4, reason: 'max_iterations' }, 'Loop stopped: Pass limit reached'],
+  ]) {
+    const rowSeq = rooms.postLoopRoomEvent(f.userId, event(f, type, data));
+    assert.equal(JSON.parse(db.prepare('SELECT body FROM rows WHERE bot_id=? AND seq=?').get(f.roomId, rowSeq).body).text, text);
+  }
+});
+
+test('a gate already created by HO-B does not double count the starter linked task', () => {
+  const f = fixture(), gateId = `gate_${sequence}`;
+  db.prepare("INSERT INTO tasks(id,bot_id,title,state,created_at,updated_at) VALUES(?,?,'Review loop','needs_input',?,?)").run(gateId, f.bots[0].id, Date.now(), Date.now());
+  db.prepare("INSERT INTO handoff_task_links(task_id,loop_id,kind) VALUES(?,?,'gate')").run(gateId, f.loopId);
+  f.transition('awaiting_approval');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM tasks WHERE bot_id=? AND state='needs_input'").get(f.bots[0].id).n, 1);
+  assert.equal(f.task().state, 'needs_input');
+});

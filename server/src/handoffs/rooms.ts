@@ -36,7 +36,7 @@ export function assertRoomHandoffTarget(userId: string, roomId: string, fromBotI
 }
 
 const transitions = new Set(['loop.created', 'loop.approval_requested', 'loop.approved', 'loop.declined', 'loop.started',
-  'loop.step_dispatched', 'loop.step_completed', 'loop.step_failed', 'loop.verdict', 'loop.paused', 'loop.resumed', 'loop.extended', 'loop.finished']);
+  'loop.step_dispatched', 'loop.step_completed', 'loop.step_failed', 'loop.iteration_completed', 'loop.verdict', 'loop.paused', 'loop.resumed', 'loop.extended', 'loop.finished']);
 const reasonText: Record<StopReason, string> = {
   passed: 'All checks passed', max_iterations: 'Pass limit reached', max_minutes: 'Time limit reached', max_cost: 'Cost limit reached',
   max_tokens: 'Token limit reached', stalled: 'No progress between the last two passes', step_failed: 'A step failed',
@@ -68,13 +68,14 @@ export function postLoopRoomEvent(userId: string, eventSeq: number) {
       case 'loop.step_dispatched': text = `${progress}: step started`; break;
       case 'loop.step_completed': text = `${progress}: step completed`; break;
       case 'loop.step_failed': text = `${progress}: step failed`; break;
+      case 'loop.iteration_completed': text = `${progress}: pass completed`; break;
       case 'loop.verdict': text = `${progress}: ${data.pass === true ? 'checks passed' : Number.isSafeInteger(data.gaps) ? `${integer(data.gaps)} gaps found` : 'changes requested'}`; break;
       case 'loop.paused': text = 'Loop paused'; break;
       case 'loop.resumed': text = 'Loop resumed'; break;
       case 'loop.extended': text = 'Loop pass limit extended'; break;
       default: {
-        const reason = data.stopReason as StopReason;
-        text = reason === 'passed' ? `Done in ${pass} ${pass === 1 ? 'pass' : 'passes'}` : `Loop stopped: ${reasonText[reason] ?? 'Review the loop'}`;
+        const reason = (data.stopReason ?? data.reason) as StopReason;
+        text = reason === 'passed' ? `Done in ${pass} ${pass === 1 ? 'pass' : 'passes'}` : `Loop stopped: ${Object.hasOwn(reasonText, reason) ? reasonText[reason] : 'Review the loop'}`;
       }
     }
     const body: EventBody = { type: 'event', event: 'bot-message', text, ref };
@@ -114,7 +115,7 @@ export function projectHandoffEvent(userId: string, eventSeq: number) {
       syncLoopTasks(userId, event.loop_id);
       postLoopRoomEvent(userId, eventSeq);
     }
-    if (event.handoff_id && ['handoff.created', 'handoff.approved', 'handoff.declined', 'handoff.delivered', 'handoff.completed', 'handoff.failed', 'handoff.cancelled', 'handoff.expired'].includes(event.type)) {
+    if (event.handoff_id && ['handoff.created', 'handoff.approved', 'handoff.declined', 'handoff.delivered', 'handoff.running', 'handoff.completed', 'handoff.failed', 'handoff.cancelled', 'handoff.expired'].includes(event.type)) {
       syncHandoffTasks(userId, event.handoff_id);
       postRoomHandoff(userId, event.handoff_id);
     }

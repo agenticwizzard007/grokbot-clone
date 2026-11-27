@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { requireUser, type AuthVars } from '../lib/auth.js';
 import { db, now } from '../db.js';
+import { displayCoordinationText } from '../lib/redact.js';
+import { redactOutputText } from './output.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
 import { transactionWithEffects } from '../lib/commit-effects.js';
@@ -8,6 +10,7 @@ import type { Task } from '../types.js';
 import type { LoopSpec, LoopStatus, StopReason } from './contracts.js';
 
 export interface TaskHandoffLink { loopId?: string; handoffId?: string; kind: 'receiver' | 'gate' | 'loop' }
+const taskDisplay = (text: string) => displayCoordinationText(redactOutputText(text)).replace(/[\u2013\u2014]/g, '-');
 type StoredTask = { id: string; bot_id: string; state: Task['state']; note: string };
 const stopNotes: Record<StopReason, string> = {
   passed: 'All checks passed.', max_iterations: 'Pass limit reached.', max_minutes: 'Time limit reached.',
@@ -70,8 +73,8 @@ export function syncLoopTasks(userId: string, loopId: string) {
     if (loop.status === 'awaiting_approval' && task?.bot_id !== loop.owner_bot_id) {
       const gate = ensure(userId, loop.owner_bot_id, loopId, 'gate', 'loop', 'Review loop approval');
       update(userId, gate, 'needs_input', note);
-    } else if (loop.status !== 'awaiting_approval') {
-      for (const gate of linked(userId, loopId, 'gate', 'loop')) update(userId, gate, 'done', 'Loop approval resolved.');
+    } else {
+      for (const gate of linked(userId, loopId, 'gate', 'loop')) update(userId, gate, 'done', loop.status === 'awaiting_approval' ? 'Approval is on the linked task.' : 'Loop approval resolved.');
     }
     return getTaskHandoffLinks(userId);
   });
@@ -93,7 +96,7 @@ export function syncHandoffTasks(userId: string, handoffId: string, { needsInput
     // Declining an unsent handoff must not manufacture work for its recipient.
     const existing = linked(userId, handoffId, 'receiver', 'handoff')[0];
     if (!existing && ['declined', 'expired', 'cancelled'].includes(handoff.status)) return;
-    const task = existing ?? ensure(userId, handoff.to_bot_id, handoffId, 'receiver', 'handoff', `From ${handoff.sender_name}: ${handoff.instruction.slice(0, 60)}`);
+    const task = existing ?? ensure(userId, handoff.to_bot_id, handoffId, 'receiver', 'handoff', `From ${taskDisplay(handoff.sender_name)}: ${taskDisplay(handoff.instruction).slice(0, 60)}`);
     const state = handoff.status === 'completed' ? 'done' : needsInput || ['failed', 'declined', 'expired', 'cancelled'].includes(handoff.status) ? 'needs_input' : 'working';
     update(userId, task, state, state === 'done' ? 'Handoff completed.' : state === 'needs_input' ? 'Handoff needs your input.' : 'Handoff in progress.');
   });
