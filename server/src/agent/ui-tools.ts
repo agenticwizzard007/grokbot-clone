@@ -39,6 +39,20 @@ export const UI_SCHEMAS = {
 };
 export type UiToolName = keyof typeof UI_SCHEMAS;
 export const UI_TOOL_NAMES = new Set<string>(Object.keys(UI_SCHEMAS));
+/** Valid shape examples for discovery clients, schema samplers and transport checks. */
+export const UI_EXAMPLES: Record<UiToolName, unknown> = {
+  get_ui_config: { scope: 'theme' }, list_ui_options: { kind: 'tokens' },
+  preview_ui_patch: { intent: 'Dark mode', patch: [{ op: 'replace', path: '/theme/mode', value: 'dark' }] },
+  apply_ui_patch: { previewId: 'preview-fixture' }, discard_ui_preview: { previewId: 'preview-fixture' },
+  undo_ui_change: { steps: 1 }, reset_ui: { scope: 'appearance' }, apply_preset: { presetId: 'calm' },
+  save_preset: { name: 'My look' }, set_accent: { color: '#0F766E' },
+  create_dashboard: { name: 'My week', template: 'overview' },
+  add_widget: { dashboardId: 'd_12345678', type: 'note', options: { text: 'A short note' } },
+  update_widget: { dashboardId: 'd_12345678', widgetId: 'w_12345678', set: { span: 12 } },
+  remove_widget: { dashboardId: 'd_12345678', widgetId: 'w_12345678' },
+  move_widget: { dashboardId: 'd_12345678', widgetId: 'w_12345678', after: 'start' },
+  delete_dashboard: { dashboardId: 'd_12345678' }, rename_dashboard: { dashboardId: 'd_12345678', name: 'My tasks' },
+};
 
 export interface UiToolDependencies {
   service: UiConfigService;
@@ -227,7 +241,7 @@ export function createUiTools(deps: UiToolDependencies): ToolDef[] {
   const failures = new WeakMap<ToolCtx, number>();
   return Object.entries(UI_SCHEMAS).map(([toolName, schema]) => {
     const name = toolName as UiToolName;
-    const { $schema: _schema, ...parameters } = z.toJSONSchema(schema, { io: 'input' });
+    const { $schema: _schema, ...parameters } = z.toJSONSchema(schema.meta({ examples: [UI_EXAMPLES[name]] }), { io: 'input' });
     return { name, description: DESCRIPTIONS[name], parameters, activity: 'working', label: name.replace(/_/g, ' '), impl: async (raw: unknown, ctx: ToolCtx) => {
       let result: any;
       const fail = (error: unknown) => {
@@ -305,7 +319,7 @@ export function createUiTools(deps: UiToolDependencies): ToolDef[] {
 
 // Keep schema-only consumers independent of the database and production service.
 export const UI_TOOLS: ToolDef[] = Object.entries(UI_SCHEMAS).map(([name, schema]) => {
-  const { $schema: _schema, ...parameters } = z.toJSONSchema(schema, { io: 'input' });
+  const { $schema: _schema, ...parameters } = z.toJSONSchema(schema.meta({ examples: [UI_EXAMPLES[name as UiToolName]] }), { io: 'input' });
   return { name, description: DESCRIPTIONS[name as UiToolName], parameters, activity: 'working', label: name.replace(/_/g, ' '),
     impl: async (args, ctx) => (await import('./ui-runtime.js')).runtimeUiTool(name, args, ctx) };
 });
