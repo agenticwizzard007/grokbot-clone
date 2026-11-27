@@ -34,6 +34,10 @@ export async function accessibilityFixture() {
     { op: 'replace', path: '/workflows', value: [{ name: 'Weekly review', cadence: 'weekly' }] },
   ] }) });
   assert.equal(profile.status, 200, await profile.text());
+  // Rapid route and zoom coverage revisits the same immutable seed queries.
+  // Read each from the real local API once rather than exhaust its production
+  // 30-batch/minute budget. Live refresh behavior has its own dashboard suites.
+  const dataReads = new Map();
   return { ...server,
     async preset(id) {
       const { presetConfig } = await tsImport('../../../server/src/ui-config/presets.ts', import.meta.url);
@@ -63,6 +67,18 @@ export async function accessibilityFixture() {
       if (url.origin !== server.base) return route.abort();
       const p = url.pathname;
       let json;
+      if (p === '/api/ui/data' && route.request().method() === 'POST') {
+        const { requests } = route.request().postDataJSON();
+        json = { results: Object.fromEntries(await Promise.all(requests.map(async request => {
+          const key = JSON.stringify([request.source, request.params]);
+          if (!dataReads.has(key)) dataReads.set(key, (async () => {
+            const response = await fetch(`${server.api}/api/ui/data`, { method: 'POST', headers: { cookie: 'swarm_session=layout-test-token', origin: server.base, 'content-type': 'application/json' }, body: JSON.stringify({ requests: [{ ...request, key: 'seed' }] }) });
+            assert.equal(response.status, 200, await response.clone().text());
+            return (await response.json()).results.seed;
+          })());
+          return [request.key, await dataReads.get(key)];
+        }))) };
+      }
       if (p === '/api/loops') json = { loops: [run.detail.loop], next: null };
       if (p === '/api/loops/lp_converged') json = run.detail;
       if (p === '/api/loops/lp_converged/events') json = { events: run.events, next: null };
