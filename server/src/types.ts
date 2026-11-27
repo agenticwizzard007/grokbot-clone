@@ -146,6 +146,7 @@ export interface ToolCallBody {
 export type ApprovalStatus = 'pending' | 'allowed' | 'always' | 'denied' | 'expired';
 
 export type CardBody =
+  | ({ type: 'card' } & import('./ui-config/service.js').UiPreviewCardBody)
   | {
       type: 'card';
       card: 'approval';
