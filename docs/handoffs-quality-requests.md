@@ -35,8 +35,8 @@ HO-I stage 2 is merged. Settings Agents is mandatory in the route audit, standin
 The current quality gate is blocked. Do not treat passing component fixtures or regression suites as acceptance of the real feature.
 
 - `.context/handoffs/demo-h/report.json` contains the actual loop records, events, screenshot quality records and explicit failures. The scripted drafts use realistic release notes, and each handoff selects the output from its newly completed job.
-- `.context/handoffs/demo-h/inspection.json` records the rejected receipt, running and finished timeline, Graph, Flow and cap-scenario views at 320, 390, 500 and 1280 in both themes. The cap scenario fails before the limit; these images are failure evidence, not a capped success substitute.
+- `.context/handoffs/demo-h/inspection.json` records the inspection of receipt, running and finished timeline, Graph, Flow and cap-scenario views at 320, 390, 500 and 1280 in both themes. The cap scenario fails before the limit; its images are failure evidence, not a capped success substitute.
 - `.context/handoffs/e2e-h/report.json` contains the full journey matrix at both required widths. Earlier pre-polish runs are retained under `.context/handoffs/pre-polish/` and `e2e-refresh/`.
-- `.context/handoffs/baseline-refresh/` preserves main's regression results. Existing tests are compared separately from the new acceptance failures.
+- `.context/handoffs/quality-polish/` preserves the candidate regression results; `.context/handoffs/baseline-polish/` preserves main `56e65ba` results. Existing tests are compared separately from the new acceptance failures.
 
 The deployed `BASE_URL` mode is implemented and documented, but has not been exercised without an isolated deployed test account configured for the scripted provider. The bundle comparison measures HO-H additions against the integrated main baseline; a historical pre-feature bundle comparison remains separate.

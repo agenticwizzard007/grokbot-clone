@@ -23,7 +23,11 @@ export async function assertVisibleCopy(page) {
 }
 export async function visualEvidence(page, { finished = false } = {}) {
   await assertVisibleCopy(page);
-  const selector = await page.locator('dialog[open]').count() ? 'dialog[open]' : await page.locator('main.paper-shell').count() ? 'main.paper-shell' : '.shell-content > :not(.shell-header):not(.phone-tabs)';
+  // The completed-reply announcer is intentionally clipped for screen readers.
+  // Audit the rendered chat Page and composer without treating that live region
+  // as offscreen visual content. Other routes retain the full-shell audit.
+  const chat = /^#bot\/[^/?]+(?:\?|$)/.test(new URL(page.url()).hash) && await page.locator('.transcript-page:visible').count();
+  const selector = await page.locator('dialog[open]').count() ? 'dialog[open]' : chat ? '.transcript-page, .composer' : await page.locator('main.paper-shell').count() ? 'main.paper-shell' : '.shell-content > :not(.shell-header):not(.phone-tabs)';
   const alignment = await page.evaluate(inspectAlignment, { selector });
   const result = await page.evaluate(() => {
     const main = ['dialog[open]', '.paper-settings', '.flow-tab', '.ho-route', '.chat', 'main']
