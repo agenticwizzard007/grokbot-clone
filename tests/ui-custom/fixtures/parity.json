@@ -2134,9 +2134,13 @@
     },
     {
       "id": "phone-swap",
-      "builder": "phoneTabPatch",
-      "index": 0,
-      "value": "tasks",
+      "builder": "setValue",
+      "value": [
+        "tasks",
+        "bots",
+        "search",
+        "settings"
+      ],
       "patch": [
         {
           "op": "add",
@@ -2148,7 +2152,8 @@
             "settings"
           ]
         }
-      ]
+      ],
+      "path": "/layout/phoneTabs"
     },
     {
       "id": "show-allBots",
