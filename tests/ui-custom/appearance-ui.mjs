@@ -46,8 +46,11 @@ try {
       assert.equal((await (await page.request.get('/api/account/preferences')).json()).uiAgentApply, 'auto');
       await agent.click();
       pass(`keyboard writes and account preference ${width}`);
+      await page.goto('/#settings/general'); await page.getByRole('button', { name: 'Customize', exact: true }).click(); await screen.waitFor();
+      await page.goBack(); await page.locator('.settings-general').waitFor();
+      await page.goForward(); await screen.waitFor();
       await page.locator('.shell-back:visible').click(); assert.notEqual(new URL(page.url()).hash, '#settings/appearance');
-      await page.goBack(); await screen.waitFor(); pass(`browser Back restores Appearance ${width}`);
+      pass(`one Back and browser history ${width}`);
     }
     await context.close();
   }

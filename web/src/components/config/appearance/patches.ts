@@ -45,3 +45,12 @@ export function recordedShortcut(event: Pick<KeyboardEvent, 'key' | 'code' | 'me
   const key = /^Key[A-Z]$/.test(event.code) ? event.code.slice(3) : /^Digit\d$/.test(event.code) ? event.code.slice(5) : event.key;
   return [...(event.metaKey || event.ctrlKey ? ['Mod'] : []), ...(event.altKey ? ['Alt'] : []), ...(event.shiftKey ? ['Shift'] : []), key.length === 1 ? key.toUpperCase() : key].join('+');
 }
+
+export function phoneTabPatch(doc: UiConfig, index: number, value: string): PatchOp[] {
+  const tabs = Array.from({ length: 5 }, (_, i) => doc.layout.phoneTabs[i] ?? '');
+  if (tabs[index] === 'settings') return [];
+  const previous = tabs.indexOf(value);
+  if (value && previous >= 0 && previous !== index) tabs[previous] = tabs[index];
+  tabs[index] = value;
+  return setValue('/layout/phoneTabs', tabs.filter(Boolean));
+}

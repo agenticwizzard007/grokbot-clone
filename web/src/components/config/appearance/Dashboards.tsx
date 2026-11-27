@@ -5,7 +5,7 @@ import { Modal } from '../../modals/Modal';
 import { SettingsMenu } from '../SettingsControls';
 import { createDashboard, deleteDashboard, renameDashboard } from './patches';
 import type { Patch } from './LayoutControls';
-export function Dashboards({ doc, patch, readSaved }: { doc: UiConfig; patch: Patch; readSaved: () => Promise<UiConfig> }) {
+export function Dashboards({ doc, patch, readSaved, error }: { error: string; doc: UiConfig; patch: Patch; readSaved: () => Promise<UiConfig> }) {
   const [dialog, setDialog] = useState<{ kind: 'new' | 'rename' | 'delete'; id?: string } | null>(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -34,6 +34,7 @@ export function Dashboards({ doc, patch, readSaved }: { doc: UiConfig; patch: Pa
         } finally { setBusy(false); }
       }}>
         {dialog.kind === 'delete' ? <p>Delete {dashboard?.name} and {dashboard?.widgets.length ?? 0} widgets? Home, tabs, pins and shortcuts are cleared.</p> : <label>Name<input className="text-input" value={name} maxLength={40} required onChange={e => setName(e.target.value)} autoFocus /></label>}
+        {error && <p role="alert" className="cfg-error">{error}</p>}
         <ButtonGroup><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setDialog(null)}>Cancel</button><button type="submit" className={`cfg-btn cfg-btn--${dialog.kind === 'delete' ? 'danger' : 'primary'}`} disabled={busy || (dialog.kind !== 'delete' && !name.trim())}>{dialog.kind === 'delete' ? 'Delete' : 'Save'}</button></ButtonGroup>
       </form>
     </Modal>}

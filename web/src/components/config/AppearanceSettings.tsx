@@ -76,12 +76,12 @@ export function AppearanceSettings() {
         <Choice label="Size" value={doc.theme.font.scale} values={['default', 'large', { value: 'xlarge', label: 'Extra large' }]} onChange={v => void patch(setValue('/theme/font/scale', v))} />
       </AppearanceSection>
       <AppearanceSection title="Spacing">
-        <Choice label="Density" value={doc.theme.density} values={['compact', 'default', 'comfortable']} onChange={v => void patch(setValue('/theme/density', v))} />
+        <Choice label="Density" value={doc.theme.density} values={['compact', 'default', { value: 'comfortable', label: 'Roomy' }]} onChange={v => void patch(setValue('/theme/density', v))} />
         <Choice label="Corners" value={doc.theme.radius} values={['sharp', 'default', 'round']} onChange={v => void patch(setValue('/theme/radius', v))} />
       </AppearanceSection>
       <LayoutControls doc={doc} patch={patch} />
       <Shortcuts doc={doc} patch={patch} />
-      <Dashboards doc={saved} patch={patch} readSaved={async () => (await readSaved()).doc} />
+      <Dashboards error={errors.map(e => e.message).join(' ')} doc={saved} patch={patch} readSaved={async () => (await readSaved()).doc} />
       <AppearanceSection title="Agent"><Row title="Apply my agent's changes right away" trailing={<Switch label="Apply my agent's changes right away" on={agentAuto} disabled={!agentReady} onChange={value => void run(async () => { await appearanceRequest('/account/preferences', 'PATCH', { uiAgentApply: value ? 'auto' : 'ask' }); setAgentAuto(value); })} />} /></AppearanceSection>
       <Manage doc={saved} revision={revision} run={run} onPreview={onPreview} onChange={refreshAppearance} />
     </fieldset>

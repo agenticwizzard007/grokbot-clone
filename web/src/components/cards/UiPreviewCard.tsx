@@ -24,7 +24,7 @@ export function UiPreviewCard({ body }: { body: UiPreviewCardBody }) {
     let alive = true;
     void readPreview(body.previewId).then(value => { if (alive) setStored(value); }).catch(() => {});
     return () => { alive = false; };
-  }, [body.previewId, body.status, revision, active.preview?.status]);
+  }, [body.previewId, body.status, revision, active.preview?.status, active.preview?.id]);
   useEffect(() => {
     if (status !== 'pending' || !current) return;
     const timer = setTimeout(() => setStored({ ...current, status: 'expired' }), Math.max(0, current.expiresAt - Date.now()));

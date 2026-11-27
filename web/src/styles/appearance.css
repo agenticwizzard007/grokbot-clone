@@ -2,7 +2,7 @@
 .appearance-fields { border: 0; padding: 0; margin: 0; }
 .appearance-settings .layout-row, .appearance-settings .layout-row__trailing { min-width: 0; }
 .appearance-settings .layout-row__title, .appearance-settings label, .appearance-settings button, .ui-preview-card, .appearance-dialog { white-space: normal; overflow-wrap: anywhere; }
-.appearance-control .layout-row__trailing { flex: 0 1 70%; }
+.appearance-control .layout-row__trailing { flex: 1 1 300px; }
 .appearance-control select { width: 100%; min-width: 0; }
 .appearance-control .cfg-seg { width: 100%; }
 .appearance-control .cfg-seg button { min-width: 0; padding-inline: 8px; }

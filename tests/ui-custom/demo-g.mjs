@@ -67,7 +67,7 @@ try {
     await shot('accent-rejected'); pass('low contrast rejected with suggestion');
     for (const [group, choice, test] of [
       ['Size', 'Large', c => c.doc.theme.font.scale === 'large'],
-      ['Density', 'Comfortable', c => c.doc.theme.density === 'comfortable'],
+      ['Density', 'Roomy', c => c.doc.theme.density === 'comfortable'],
       ['Corners', 'Round', c => c.doc.theme.radius === 'round'],
     ]) { await screen.getByRole('radiogroup', { name: group, exact: true }).getByRole('radio', { name: choice, exact: true }).click(); await waitForSaved(page, test, group); await shot(group.toLowerCase()); pass(group); }
     await screen.getByRole('button', { name: 'Move Tasks up', exact: true }).focus(); await page.keyboard.press('Enter');

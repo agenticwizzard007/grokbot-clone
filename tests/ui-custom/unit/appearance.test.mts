@@ -66,3 +66,9 @@ test('owned UI source uses plain copy and no unsafe HTML or truncation', () => {
   const files = ['web/src/components/config/AppearanceSettings.tsx', 'web/src/components/cards/UiPreviewCard.tsx', ...fs.readdirSync('web/src/components/config/appearance').map(f => `web/src/components/config/appearance/${f}`), 'web/src/styles/appearance.css'];
   for (const file of files) assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /[\u2013\u2014]|dangerouslySetInnerHTML|text-overflow:\s*ellipsis|line-clamp/, file);
 });
+test('phone selects swap existing tabs without duplicates or removing Settings', () => {
+  const patch = builders.phoneTabPatch(DEFAULT_CONFIG, 0, 'tasks');
+  assert.deepEqual(patch, [{ op: 'add', path: '/layout/phoneTabs', value: ['tasks', 'bots', 'search', 'settings'] }]);
+  assert.equal(previewPatch(DEFAULT_CONFIG, patch, { ctx }).ok, true);
+  assert.deepEqual(builders.phoneTabPatch(DEFAULT_CONFIG, 3, 'bots'), []);
+});
