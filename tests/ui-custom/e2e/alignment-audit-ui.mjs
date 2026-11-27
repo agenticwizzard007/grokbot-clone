@@ -1,7 +1,7 @@
 // Regression checks for the auditor itself; these do not stand in for product route coverage.
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
-import { inspectAlignment, inspectDashboardGrid } from '../../layout-alignment-ui.mjs';
+import { inspectAlignment, inspectDashboardGrid, inspectDashboardLabels } from '../../layout-alignment-ui.mjs';
 import { runSuite } from '../fixtures/harness.mjs';
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
@@ -40,6 +40,25 @@ cases.push({ name: 'ordinary unequal cards remain rejected', run: async () => {
   try {
     await page.setContent('<style>body{margin:0}.cards{display:flex}.card{height:88px;width:100px}.card+ .card{width:200px}</style><main data-layout="page"><div class="cards"><section class="card" data-layout="card">First fixture</section><section class="card" data-layout="card">Second fixture</section></div></main>');
     assert.ok((await page.evaluate(inspectAlignment, { selector: 'main' })).some(issue => issue.startsWith('Unequal row card widths')));
+  } finally { await page.close(); }
+} });
+cases.push({ name: 'clipped accessible tables are exempt but visible dashboard labels remain checked', run: async () => {
+  const page = await browser.newPage();
+  try {
+    await page.setContent('<style>.dashboard-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}</style><main><h2>Fixture chart</h2><div class="dashboard-sr-only"><table><caption><span style="display:block;width:1px;overflow:hidden;text-overflow:ellipsis">Fixture data</span></caption><tbody><tr><td>2026-11-21</td><td>0.2512</td></tr></tbody></table></div></main>');
+    const audit = () => page.locator('main').evaluate(inspectDashboardLabels);
+    assert.deepEqual(await audit(), []);
+    await page.locator('.dashboard-sr-only').evaluate(el => { el.style.width = '100px'; el.style.height = '100px'; });
+    assert.deepEqual(await audit(), [], 'A table larger than 1px is still fully clipped');
+    await page.locator('.dashboard-sr-only').evaluate(el => { el.style.clipPath = 'inset(20%)'; });
+    assert.ok((await audit()).length > 0, 'Partial clipping cannot bypass visible label checks');
+    await page.locator('.dashboard-sr-only').evaluate(el => { el.style.clipPath = 'none'; });
+    assert.ok((await audit()).length > 0, 'The class alone cannot bypass visual label checks');
+    await page.locator('.dashboard-sr-only').evaluate(el => { el.style.clipPath = 'inset(50%)'; });
+    await page.locator('h2').evaluate(el => { el.style.cssText = 'width:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'; });
+    assert.ok((await audit()).some(issue => issue.startsWith('truncated label:')));
+    await page.locator('h2').evaluate(el => { el.textContent = 'Fixtureword'; el.style.cssText = 'width:20px;overflow-wrap:anywhere'; });
+    assert.ok((await audit()).some(issue => issue.startsWith('split word:')));
   } finally { await page.close(); }
 } });
 try { await runSuite('alignment-auditor', cases, { server: false }); } finally { await browser.close(); }

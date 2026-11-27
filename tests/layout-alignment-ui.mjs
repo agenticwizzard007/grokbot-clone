@@ -153,6 +153,32 @@ export function inspectDashboardGrid() {
   return [...new Set(issues)];
 }
 
+// Charts and table captions retain an accessible text alternative in a clipped box.
+// Only verified clipping exempts that text from visual word geometry checks.
+export function inspectDashboardLabels(root) {
+  const issues = [], walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const parent = node.parentElement;
+    if (!parent || parent.closest('svg, script, style, [hidden], .sr-only') || !parent.checkVisibility()) continue;
+    const alternative = parent.closest('.dashboard-sr-only');
+    if (alternative) {
+      const style = getComputedStyle(alternative);
+      // Tables can exceed their declared 1px size; inset(50%) still clips all pixels.
+      if (style.position === 'absolute' && style.overflow === 'hidden' && style.clipPath === 'inset(50%)') continue;
+    }
+    if (parent.scrollWidth > parent.clientWidth + 1) issues.push(`overflow: ${node.textContent.trim()}`);
+    for (const word of node.textContent.matchAll(/\S+/g)) {
+      const range = document.createRange();
+      range.setStart(node, word.index); range.setEnd(node, word.index + word[0].length);
+      const rects = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0);
+      if (new Set(rects.map(r => Math.round(r.top))).size > 1) issues.push(`split word: ${word[0]}`);
+    }
+    const style = getComputedStyle(parent);
+    if (style.textOverflow === 'ellipsis' || !['none', ''].includes(style.webkitLineClamp)) issues.push(`truncated label: ${node.textContent.trim()}`);
+  }
+  return issues;
+}
+
 async function main() {
   const evidence = path.resolve(process.env.LAYOUT_EVIDENCE || '.context/layout-alignment'); fs.mkdirSync(evidence, { recursive: true });
   const server = await layoutServer({ root: path.resolve(process.env.LAYOUT_ROOT || '.') });
@@ -261,7 +287,8 @@ export async function customMatrix() {
       const issues = await page.evaluate(inspectAlignment, {});
       if (route.dashboard) issues.push(...await page.evaluate(inspectDashboardGrid));
       if (route.preview || route.safe) issues.push(...await page.evaluate(inspectAlignment, { selector: '[role="status"]', requirePage: false }));
-      await readableWords(page.locator('[data-layout="page"]').first());
+      if (route.dashboard) issues.push(...await page.locator('[data-layout="page"]').first().evaluate(inspectDashboardLabels));
+      else await readableWords(page.locator('[data-layout="page"]').first());
       await page.screenshot({ path: path.join(out, `${route.name}-${width}.png`), fullPage: true });
       assert.deepEqual(external, []); assert.deepEqual(issues, []);
     } finally { await context.close(); }
