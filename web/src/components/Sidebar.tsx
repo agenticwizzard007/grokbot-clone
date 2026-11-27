@@ -1,7 +1,11 @@
+import { useComponentVisible } from '../customization';
+import { useSidebarItems } from '../customization/layout/useSidebarItems';
+import { dashboardScreen } from '../customization/layout/usePhoneTabs';
+import { Fragment } from 'react';
 import { RosterFeedback } from './LoadFeedback';
 import { userFacingLive } from '../lib/audience';
 import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { Blocks, Folder, Gauge, House, LogOut, Settings, Terminal, X } from 'lucide-react';
+import { Blocks, Folder, Gauge, House, LayoutDashboard, LogOut, Settings, Terminal, X } from 'lucide-react';
 import { navigation, openConversation, useConfigUI } from '../configStore';
 import { TasksIsland } from './config/TasksIsland';
 import type { Bot } from '@shared/types';
@@ -60,6 +64,10 @@ const BotRow = memo(function BotRow({ bot, selected, running, awaiting, onSelect
 });
 
 export function Sidebar({ onClose }: { onClose?: () => void }) {
+  const layout = useSidebarItems();
+  const searchVisibility = useComponentVisible('sidebar.search');
+  const usageVisibility = useComponentVisible('sidebar.usage');
+  const accountVisibility = useComponentVisible('sidebar.account');
   const mobile = useStore(s => s.mobile);
   const view = useConfigUI(s => s.view);
   const settingsOpen = useConfigUI(s => !!s.appSettings);
@@ -127,38 +135,11 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const primaryWorking = !!primaryLive?.isRunning && !primaryLive.awaiting;
   const others = bots.filter((b) => !b.isPrimary).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
 
-  return (
-    <aside className={`sidebar${collapsed ? ' is-collapsed' : ''}`} aria-label="Your Bots">
-
-      <div className="sidebar__titlebar">
-        <button type="button" className="sidebar__brand" aria-label="Your Bots" onClick={showBots}>
-          {collapsed ? <>
-            <img className="brand-image brand-image--light" src="/assets/swarms/flock.svg" alt="" />
-            <img className="brand-image brand-image--night" src="/assets/swarms/flock-night.svg" alt="" />
-          </> : <>
-            <img className="brand-image brand-image--light" src="/assets/swarms/wordmark.svg" alt="swarms.so" />
-            <img className="brand-image brand-image--night" src="/assets/swarms/wordmark-night.svg" alt="swarms.so" />
-          </>}
-        </button>
-        <div className="sidebar__controls">
-          {mobile ? <button type="button" className="icon-btn" aria-label="Close navigation" onClick={onClose}><X size={20} aria-hidden /></button> : <button type="button" className="icon-btn icon-btn--plain" onClick={() => set({ sidebarCollapsed: !collapsed })} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={`${collapsed ? 'Expand sidebar' : 'Collapse sidebar'} (${shortcutLabel('sidebar')})`}>
-            <Icon name="sidebar" opacity={0.66} />
-          </button>}
-        </div>
-      </div>
-      <button type="button" className="sidebar__search" onClick={() => setModal('search')} aria-label="Search" title={`Search (${shortcutLabel('search')})`}>
-        <Icon name="search" size={18} opacity={0.66} />
-        {!collapsed && <><span>Search</span><kbd>{shortcutLabel('search')}</kbd></>}
-      </button>
-
-      <nav className="sidebar__nav" aria-label="Main navigation" onClick={onClose}>
-        {!collapsed && <button type="button" className={`sidebar-island${view === 'bots' && !settingsOpen && !modal ? ' is-active' : ''}`} onClick={showBots} aria-label="All Bots"><House size={18} aria-hidden /><span>All Bots</span></button>}
-        <TasksIsland />
-        {!collapsed && <button type="button" className={`sidebar-island${view === 'tasks' && workTab === 'Reports' && !settingsOpen && !modal ? ' is-active' : ''}`} onClick={() => navigation.navigate({ kind: 'work', route: { tab: 'Reports' } })}><Folder size={18} aria-hidden /><span>Files</span></button>}
-      </nav>
-      <div className="sidebar__scroll">
-        {mobile && <RosterFeedback />}
-        {!collapsed && bots.length > 0 && <button type="button" className="sidebar__section-label" onClick={showBots}>Your Bots</button>}
+  const sections = {
+    allBots: <>{!collapsed && <button type="button" className={`sidebar-island${view === 'bots' && !settingsOpen && !modal ? ' is-active' : ''}`} onClick={showBots} aria-label="All Bots"><House size={18} aria-hidden /><span>All Bots</span></button>}</>,
+    tasks: <TasksIsland />,
+    files: <>        {!collapsed && <button type="button" className={`sidebar-island${view === 'tasks' && workTab === 'Reports' && !settingsOpen && !modal ? ' is-active' : ''}`} onClick={() => navigation.navigate({ kind: 'work', route: { tab: 'Reports' } })}><Folder size={18} aria-hidden /><span>Files</span></button>}</>,
+    yourBots: <>        {!collapsed && bots.length > 0 && <button type="button" className="sidebar__section-label" onClick={showBots}>Your Bots</button>}
         {primary && (
           <div className="pinned">
             <button type="button" className={`pinned__tile${selectedBotId === primary.id ? ' is-selected' : ''}`} onClick={() => selectBot(primary.id)} aria-label={displayName(primary)} title={displayName(primary)}>
@@ -183,17 +164,15 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             );
           })}
         </div>
-        <button type="button" className="sidebar__create" onClick={createBot} aria-label="New Bot" title={`Create a Bot (${shortcutLabel('new-bot')})`}>
+</>,
+    createBot: <>        <button type="button" className="sidebar__create" onClick={createBot} aria-label="New Bot" title={`Create a Bot (${shortcutLabel('new-bot')})`}>
           <Icon name="plus" size={20} opacity={0.66} />{!collapsed && <span>Create a Bot</span>}
-        </button>
-      </div>
-
-      <SidebarUsage collapsed={collapsed} />
-
-      <div className={`sidebar__footer${settingsOpen ? ' is-active' : ''}`}>
+        </button></>,
+    usage: usageVisibility !== 'hide' ? <div data-ui-id="sidebar.usage" className="ui-layout-contents"><SidebarUsage collapsed={collapsed} /></div> : null,
+    settings: <>      <div className={`sidebar__footer${settingsOpen ? ' is-active' : ''}`}>
         <div className="account" ref={accountRef}>
-            <button ref={accountTrigger} type="button" className="account__btn" aria-label="Account & settings" onClick={() => setAccountMenu(open => !open)} aria-haspopup="menu" aria-expanded={accountMenu} title={user?.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user?.email}>
-              <span className="account__initials">{initials(user?.name ?? user?.email ?? '')}</span>
+            <button ref={accountTrigger} type="button" className="account__btn" aria-label="Account & settings" onClick={() => setAccountMenu(open => !open)} aria-haspopup="menu" aria-expanded={accountMenu} title={accountVisibility === 'hide' ? 'Settings' : user?.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user?.email}>
+              <span className="account__initials" data-ui-id="sidebar.account" hidden={accountVisibility === 'hide'}>{initials(user?.name ?? user?.email ?? '')}</span>
               <span className="account__name">Settings</span>
               {!collapsed && <Settings size={18} aria-hidden />}
             </button>
@@ -213,7 +192,54 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             )}
           </div>
 
+      </div></>,
+    dashboards: layout.dashboards.length ? <section className="sidebar__dashboards" aria-label="Dashboards">
+      {!collapsed && <div className="sidebar__section-label">Dashboards</div>}
+      {layout.dashboards.map(dashboard => <button type="button" key={dashboard.id} className="sidebar-island" aria-label={dashboard.name} title={dashboard.name} onClick={() => { navigation.navigate(dashboardScreen(dashboard.id)); onClose?.(); }}><LayoutDashboard size={18} aria-hidden />{!collapsed && <span>{dashboard.name}</span>}</button>)}
+    </section> : null,
+    search: null,
+  };
+  const section = (id: keyof typeof sections) => layout.items.includes(id) ? sections[id] : null;
+
+  return (
+    <aside className={`sidebar${collapsed ? ' is-collapsed' : ''}`} aria-label="Your Bots">
+
+      <div className="sidebar__titlebar">
+        <button type="button" className="sidebar__brand" aria-label="Your Bots" onClick={showBots}>
+          {collapsed ? <>
+            <img className="brand-image brand-image--light" src="/assets/swarms/flock.svg" alt="" />
+            <img className="brand-image brand-image--night" src="/assets/swarms/flock-night.svg" alt="" />
+          </> : <>
+            <img className="brand-image brand-image--light" src="/assets/swarms/wordmark.svg" alt="swarms.so" />
+            <img className="brand-image brand-image--night" src="/assets/swarms/wordmark-night.svg" alt="swarms.so" />
+          </>}
+        </button>
+        <div className="sidebar__controls">
+          {mobile ? <button type="button" className="icon-btn" aria-label="Close navigation" onClick={onClose}><X size={20} aria-hidden /></button> : <button type="button" className="icon-btn icon-btn--plain" onClick={() => set({ sidebarCollapsed: !collapsed })} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={`${collapsed ? 'Expand sidebar' : 'Collapse sidebar'} (${shortcutLabel('sidebar')})`}>
+            <Icon name="sidebar" opacity={0.66} />
+          </button>}
+        </div>
       </div>
+      {layout.search && searchVisibility !== 'hide' && <button type="button" data-ui-id="sidebar.search" className="sidebar__search" onClick={() => setModal('search')} aria-label="Search" title={`Search (${shortcutLabel('search')})`}>
+        <Icon name="search" size={18} opacity={0.66} />
+        {!collapsed && <><span>Search</span><kbd>{shortcutLabel('search')}</kbd></>}
+      </button>}
+
+      {layout.standardOrder ? <>
+        <nav className="sidebar__nav" aria-label="Main navigation" onClick={onClose}>{section('allBots')}{section('tasks')}{section('files')}</nav>
+        <div className="sidebar__scroll">{mobile && <RosterFeedback />}{section('yourBots')}{section('createBot')}</div>
+        {section('usage')}{section('settings')}
+      </> : <div className="sidebar__custom-scroll">
+        {mobile && <RosterFeedback />}
+        {layout.pinned.length > 0 && <section aria-label="Pinned" className="sidebar__pins">
+          {!collapsed && <div className="sidebar__section-label">Pinned</div>}
+          {layout.pinned.map(pin => <button type="button" key={`${pin.type}:${pin.id}`} className="sidebar-island" aria-label={pin.name} title={pin.name} onClick={() => { if (pin.type === 'bot') selectBot(pin.id); else { navigation.navigate(dashboardScreen(pin.id)); onClose?.(); } }}>
+            {pin.type === 'bot' ? <BotAvatarFor bot={bots.find(bot => bot.id === pin.id)!} size={24} /> : <LayoutDashboard size={18} aria-hidden />}{!collapsed && <span>{pin.name}</span>}
+          </button>)}
+        </section>}
+        {layout.items.map(id => <Fragment key={id}>{section(id)}</Fragment>)}
+      </div>}
+
     </aside>
   );
 }

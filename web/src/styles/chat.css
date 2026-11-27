@@ -328,3 +328,9 @@
 .app.paper-shell .chat:has(.message-skeleton) .composer__note { display: none; }
 
 .app.paper-shell .jump-btn { min-height: var(--control-h); height: auto; }
+
+[data-ui-id='chat.safetyNote'][data-ui-visibility='hide'] .composer__note,
+[data-ui-id='chat.avatars'][data-ui-visibility='hide'] :is(.agent-message__heading > .bot-avatar, .sender-label > .bot-avatar, .agent-exchange__avatars) { display: none; }
+/* An icon-only menu keeps model and effort reachable when their chip is hidden. */
+[data-ui-id='chat.modelChip'][data-ui-visibility='hide'] .model-pill > :not(.model-pill__chev) { display: none; }
+[data-ui-id='chat.modelChip'][data-ui-visibility='hide'] .model-pill { width: 36px; min-width: 36px; padding: 0; justify-content: center; border-color: transparent; background: transparent; }

@@ -1,3 +1,8 @@
+import { usePhoneTabs, isPhoneRoot, isPhoneTab } from './customization/layout/usePhoneTabs';
+import { useSidebarDefault } from './customization/layout/useSidebarItems';
+import { useHome } from './customization/layout/useHome';
+import { useKeybindings } from './customization/layout/useKeybindings';
+import { useComponentVisible } from './customization';
 import { openConversation } from './configStore';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { TasksLoader, preloadTasks } from './components/TasksLoader';
@@ -10,12 +15,10 @@ import { SignedInAuthFeedback } from './components/SignedInAuthFeedback';
 import { navigation, useConfigUI } from './configStore';
 import { AppSettings } from './components/config/SettingsFrame';
 import { installVoiceShortcut } from './voice/shortcut';
-import { hasOpenModal } from './components/modals/Modal';
 import { ToastPortal } from './lib/toast';
 import { ConfirmPortal } from './lib/confirmDialog';
-import { isNewBotShortcut } from './lib/shortcuts';
-import { ChevronLeft, House, ListTodo, Menu, Search, Settings } from 'lucide-react';
-import { backLabel, parentScreen, parseScreen, screenTitle, type Screen } from './lib/navigation';
+import { ChevronLeft, Menu } from 'lucide-react';
+import { backLabel, parentScreen, parseScreen, screenTitle } from './lib/navigation';
 import { Modal } from './components/modals/Modal';
 import { BotAvatarFor } from './avatar/BotAvatar';
 import { routeBot } from './lib/userRoutes';
@@ -32,6 +35,7 @@ import './styles/mobile.css';
 import './styles/paper-core.css'; // accepted shared shell and core responsive geometry
 import './components/sidebar-labels.css';
 
+const DashboardView = lazy(() => import('./dashboards/DashboardView'));
 const FirstRun = lazy(() => import('./components/FirstRun').then(m => ({ default: m.FirstRun })));
 const ChatView = lazy(() => import('./components/ChatView').then(m => ({ default: m.ChatView })));
 const BotsView = lazy(() => import('./components/BotsView').then(m => ({ default: m.BotsView })));
@@ -46,6 +50,12 @@ const BotSettingsModal = lazy(() => import('./components/config/BotSettingsModal
 
 function Shell() {
   useEffect(installVoiceShortcut, []);
+  useHome();
+  useSidebarDefault();
+  useKeybindings();
+  const phoneTabs = usePhoneTabs();
+  const tabLabels = useComponentVisible('phone.tabLabels');
+  const taskFilters = useComponentVisible('tasks.filters');
   const detailsOpen = useStore((s) => s.detailsOpen);
   const modal = useStore((s) => s.modal);
   const viewerOpen = useStore((s) => s.viewerOpen);
@@ -62,8 +72,8 @@ function Shell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const routeModal = modal === 'search' || modal === 'apps';
   const chatHeader = screen.kind === 'chat';
-  const topLevel = screen.kind === 'bots' || screen.kind === 'search' || (screen.kind === 'settings' && !screen.section) || (screen.kind === 'work' && !screen.route.botSlug);
-  const hasBack = screen.kind !== 'bots' || navigation.trail.length > 0;
+  const topLevel = isPhoneRoot(screen, phoneTabs);
+  const hasBack = mobile ? !topLevel : screen.kind !== 'bots' || navigation.trail.length > 0;
   const backTarget = parseScreen(navigation.trail.at(-1) ?? '') ?? parentScreen(screen) ?? { kind: 'bots' };
   const backText = mobile ? 'Back' : screen.kind === 'settings' ? 'Back to chat' : backTarget.kind === 'chat' ? 'Back to chat' : backLabel(backTarget, bots);
   const back = () => {
@@ -113,29 +123,6 @@ function Shell() {
     return () => { clearTimeout(preload); stop(); window.removeEventListener('message', onMsg); };
   }, []);
 
-  // Global shortcuts (listed in lib/shortcuts.ts and Settings > General): Mod+K search, Mod+B sidebar,
-  // Mod+Shift+, details, Mod+, settings, Alt+Shift+N new Bot (browsers reserve Mod+N).
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => {
-      const st = useStore.getState();
-      if (isNewBotShortcut(e)) {
-        if (st.modal === 'search' || st.modal === 'apps' || hasOpenModal()) return;
-        e.preventDefault(); useConfigUI.getState().requestLeaveBotSettings(() => { st.setModal('create'); });
-        return;
-      }
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod || e.altKey) return;
-      const key = e.key.toLowerCase();
-      if (key === 'k') { e.preventDefault(); st.setModal(st.modal === 'search' ? null : 'search'); }
-      else if (st.modal === 'search' || st.modal === 'apps' || hasOpenModal()) return;
-      else if (key === 'b') { e.preventDefault(); if (!st.mobile) st.set({ sidebarCollapsed: !st.sidebarCollapsed }); }
-      else if (e.shiftKey && (key === ',' || key === '<')) { e.preventDefault(); st.set({ detailsOpen: !st.detailsOpen }); }
-      else if (key === ',') { e.preventDefault(); useConfigUI.getState().openAppSettings(); }
-    };
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, []);
-
   return (
     <div className={`app paper-shell${settingsOpen ? ' is-app-settings' : ''}${collapsed && !mobile ? ' is-sidebar-collapsed' : ''}${mobile ? ' is-mobile' : ''}${topLevel ? ' has-phone-tabs' : ''}${chatHeader ? ' is-chat-route' : ''}`}>
       {!mobile && <Sidebar />}
@@ -147,9 +134,10 @@ function Shell() {
           {mobile && <button type="button" className="shell-menu" aria-label="Open navigation" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}><Menu size={22} aria-hidden /></button>}
         </header>
       <div className={`main-pane${detailsOpen && hasBot && view === 'chat' && !botSettings && modal !== 'create' && modal !== 'group' ? ' has-bot-details' : ''}`} hidden={settingsOpen || routeModal}>
-      <div className="chat-pane">
+      <div className="chat-pane" data-ui-id="tasks.filters" data-ui-visibility={taskFilters}>
       <Suspense fallback={view === 'chat' && !botSettings && !modal ? <ChatSkeleton /> : <main className="chat chat--empty" role="status">Loading...</main>}>
         {rosterUnavailable && view !== 'tasks' ? <main className="boot boot--data"><RosterFeedback /></main>
+          : screen.kind === 'dash' ? <DashboardView dashboardId={screen.dashboard} />
           : screen.kind === 'first-run' ? <FirstRun />
           : modal === 'create' ? <CreateBotModal inline />
           : modal === 'group' ? <CreateGroupModal inline />
@@ -166,13 +154,8 @@ function Shell() {
       {viewerOpen && <ComputerViewer />}
       </Suspense>
       {settingsOpen && <AppSettings />}
-      {mobile && topLevel && <nav className="phone-tabs" aria-label="App navigation">
-        {([
-          ['Bots', House, { kind: 'bots' }, screen.kind === 'bots'],
-          ['Tasks', ListTodo, { kind: 'work', route: { tab: 'Tasks' } }, screen.kind === 'work'],
-          ['Search', Search, { kind: 'search' }, screen.kind === 'search'],
-          ['Settings', Settings, { kind: 'settings' }, screen.kind === 'settings'],
-        ] as const).map(([label, Icon, target, active]) => <button type="button" key={label} aria-current={active ? 'page' : undefined} onClick={() => navigation.navigate(target as Screen)}><Icon size={22} aria-hidden /><span>{label}</span></button>)}
+      {mobile && topLevel && <nav className="phone-tabs" aria-label="App navigation" data-ui-id="phone.tabLabels" data-ui-visibility={tabLabels}>
+        {phoneTabs.map(tab => <button type="button" key={tab.id} aria-label={tab.label} aria-current={isPhoneTab(screen, [tab]) ? 'page' : undefined} onClick={() => navigation.navigate(tab.target)}><tab.Icon size={22} aria-hidden /><span hidden={tabLabels === 'hide'}>{tab.label}</span></button>)}
       </nav>}
       </div>
       {mobile && drawerOpen && <Modal label="App navigation" className="phone-drawer paper-shell" onClose={() => setDrawerOpen(false)}><Sidebar onClose={() => setDrawerOpen(false)} /></Modal>}
