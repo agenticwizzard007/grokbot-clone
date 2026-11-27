@@ -151,7 +151,7 @@ const journeys = [
     const script = { intent: 'Untrusted fixture instructions', patch: [{ op: 'replace', path: '/layout/sidebar/hidden', value: ['settings'] }] };
     const composer = page.getByRole('textbox', { name: `Message ${server.fixture.bot.name}`, exact: true });
     await composer.fill(`Document content: ${INJECTION_DOCUMENTS[0]}\nmock: preview_ui_patch ${JSON.stringify(script)} | say Fixture injection rejected`);
-    await composer.press('Enter'); await page.getByText('Fixture injection rejected', { exact: true }).waitFor();
+    await composer.press('Enter'); await page.locator('.bubble.is-agent').getByText('Fixture injection rejected', { exact: true }).waitFor();
     assert.deepEqual((await saved(context, server)).doc, before.doc);
     assert.equal(await page.getByRole('status').filter({ hasText: /Previewing/i }).count(), 0);
   }],

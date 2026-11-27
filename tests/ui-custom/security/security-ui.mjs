@@ -77,7 +77,7 @@ const cases = [
         const composer = page.getByRole('textbox', { name: `Message ${server.fixture.bot.name}`, exact: true });
         const payload = { intent: `Check fixture validation ${index}`,  patch: [{ op: 'replace', path: '/dashboards', value: doc.dashboards }] };
         await composer.fill(`mock: preview_ui_patch ${JSON.stringify(payload)} | say Security fixture ${index} checked`);
-        await composer.press('Enter'); await page.getByText(`Security fixture ${index} checked`, { exact: true }).waitFor();
+        await composer.press('Enter'); await page.locator('.bubble.is-agent').getByText(`Security fixture ${index} checked`, { exact: true }).waitFor();
         const execution = server.withDb(db => {
           const call = db.prepare("SELECT body FROM rows WHERE bot_id=? AND kind='tool-call' AND json_extract(body,'$.name')='preview_ui_patch' AND json_extract(body,'$.args.intent')=? ORDER BY seq DESC LIMIT 1").get(server.fixture.bot.id, payload.intent);
           assert.ok(call, 'Mock must dispatch the actual validation tool');
