@@ -63,6 +63,8 @@ export interface ToolCtx {
   enqueueBotMessage: (fromBotId: string, toBotId: string, text: string, depth: number) => string | void;
   depth: number;
   jobId?: string;
+  /** Runtime call identity, preserved for wrappers, program actions and approval resumes. */
+  toolCallId?: string;
   learningIteration?: number;
   /** Pin automatically allowed app reads to fresh read-only provider metadata at dispatch. */
   readOnlyApps?: boolean;
