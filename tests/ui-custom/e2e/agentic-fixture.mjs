@@ -27,6 +27,9 @@ export async function agenticFixture() {
         if (user && typeof user.content === 'string' && answers.has(user.content)) {
           const spec = answers.get(user.content), outputs = (body.input ?? []).filter(item => item.type === 'function_call_output');
           let answer = outputs.length ? JSON.parse(outputs.at(-1).output) : null;
+          // Model formatting uses live source values and omits internal record metadata.
+          if (answer?.kind === 'list') answer.rows = answer.rows.map(row => ({ title: row.title, ...(row.status ? { status: ({ working: 'Working', needs_input: 'Needs input', done: 'Done' })[row.status] ?? row.status } : {}) }));
+          if (answer?.kind === 'text' && spec.source === 'tasks_counts') answer = { kind: 'stat', value: String(JSON.parse(answer.text).total), label: 'Tasks' };
           if (answer && spec.actions && answer.kind === 'list') answer.rows = answer.rows.slice(0, 3).map((row, i) => ({ ...row, action: i === 0 ? { type: 'open', route: '#tasks' } : i === 1 ? { type: 'send', botId: spec.botId, text: `Draft next steps for ${row.title}.` } : { type: 'approve', itemId: spec.approvalId } }));
           user.content = `mock-delay:300\nmock: read_${spec.source} {} | say ${JSON.stringify(answer)}`;
         } else if (user && typeof user.content === 'string' && scripts.has(user.content)) user.content = scripts.get(user.content);

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
+import { readableWords } from '../../paper-label-geometry.mjs';
 import { clientFixture, signedInPage, patch } from '../unit/client-fixture.mjs';
 export const DASHBOARD_ROUTES = [
   { name: 'dashboards', hash: '#dashboards' }, { name: 'dashboard', hash: '#dash/{dashboard}' },
@@ -36,6 +37,7 @@ export async function auditDashboardRoutes(evidence, inspectAlignment) {
           if (route.state === 'switcher') await page.getByRole('button', { name: 'Switch dashboard: Operations' }).click();
           await page.evaluate(() => document.fonts.ready);
           issues.push(...await page.evaluate(inspectAlignment, { selector: await page.locator('dialog[open]').count() ? 'dialog[open]' : '.dashboard-page, .dashboard-switcher' }));
+          for (const group of await page.locator('.dashboard-agent-fieldset:visible').all()) await readableWords(group);
           const visible = await page.locator('body').innerText();
           if (/mock|Fixture|PRIVATE|QA-|undefined|null|\[object|[\u2013\u2014]/i.test(visible)) issues.push('Forbidden visible text');
           const phoneBacks = await page.getByRole('button', { name: 'Back', exact: true }).count();

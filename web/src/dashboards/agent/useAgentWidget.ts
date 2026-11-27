@@ -5,6 +5,7 @@ import { widgetRoute } from './model';
 const cache = new Map<string, AgentWidgetSnapshot>();
 export function useAgentWidget(dashboardId: string, widgetId: string) {
   const account = useStore(state => state.user?.id), key = JSON.stringify([account, dashboardId, widgetId]);
+  const snapshotKey = useRef(key);
   const [snapshot, setSnapshot] = useState<AgentWidgetSnapshot | undefined>(() => cache.get(key));
   const [error, setError] = useState(''), [loading, setLoading] = useState(!snapshot), [running, setRunning] = useState(false);
   const visible = useRef(true);
@@ -22,7 +23,7 @@ export function useAgentWidget(dashboardId: string, widgetId: string) {
   const accept = useCallback((next: AgentWidgetSnapshot) => {
     if (next.dashboardId !== dashboardId || next.widgetId !== widgetId || !['empty', 'running', 'ready', 'error'].includes(next.state)) throw new Error('Could not read the answer. Try again.');
     if (next.doc) { const parsed = agentWidgetResultSchema.safeParse(next.doc); if (!parsed.success) throw new Error('Could not read the answer. Try again.'); next = { ...next, doc: parsed.data }; }
-    if (alive.current && useStore.getState().user?.id === account) { cache.set(key, next); setSnapshot(next); }
+    if (alive.current && useStore.getState().user?.id === account) { if (cache.size >= 192 && !cache.has(key)) cache.delete(cache.keys().next().value!); cache.set(key, next); snapshotKey.current = key; setSnapshot(next); }
   }, [account, key, dashboardId, widgetId]);
   const refresh = useCallback(async () => {
     const version = ++sequence.current;
@@ -31,7 +32,7 @@ export function useAgentWidget(dashboardId: string, widgetId: string) {
     finally { if (alive.current) setLoading(false); }
   }, [request, accept]);
   useEffect(() => {
-    alive.current = true; setSnapshot(cache.get(key)); setError(''); setLoading(!cache.has(key));
+    alive.current = true; snapshotKey.current = key; setSnapshot(cache.get(key)); setError(''); setLoading(!cache.has(key));
     void refresh();
     const event = (event: Event) => { if (document.hidden || !visible.current) return; const detail = (event as CustomEvent<UiWidgetEvent | { type: 'reconnect' }>).detail; if (detail?.type === 'reconnect' || (detail?.type === 'ui_widget' && detail.dashboardId === dashboardId && detail.widgetId === widgetId)) void refresh(); };
     const onVisibility = () => { if (!document.hidden && visible.current) void refresh(); };
@@ -52,6 +53,6 @@ export function useAgentWidget(dashboardId: string, widgetId: string) {
     catch (e) { if (alive.current) setError(e instanceof Error ? e.message : 'Could not run this widget. Try again.'); }
     finally { runLock.current = false; if (alive.current) setRunning(false); }
   };
-  const action = async (action: WidgetAction, confirm?: boolean) => { await request('action', { action, ...(confirm ? { confirm: true } : {}) }); };
-  return { snapshot, loading, error, run, refresh, action, running: running || snapshot?.state === 'running' };
+  const action = async (action: WidgetAction, confirm?: boolean) => { await request('action', { action, ...(confirm ? { confirm: true } : {}) }); if (!alive.current || useStore.getState().user?.id !== account) throw new Error('This account is no longer active.'); };
+  return { snapshot: snapshotKey.current === key ? snapshot : undefined, loading: snapshotKey.current !== key || loading, error, run, refresh, action, running: running || snapshot?.state === 'running' };
 }

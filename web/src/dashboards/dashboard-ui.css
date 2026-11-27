@@ -54,3 +54,4 @@
 .dashboard-switcher .menu__main { gap: 8px; }
 .dashboard-switcher .menu__item { padding: 8px; }
 .dashboard-manager-row { padding-block: 0; }
+.dashboard-agent-fieldset .btn { padding-inline: 8px; letter-spacing: 0; }
