@@ -1,3 +1,4 @@
+import { RoomMembersHeader } from './MembersCard';
 import { ShellHeaderSlot } from './ShellHeaderSlot';
 import { userFacingLive } from '../lib/audience';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -76,6 +77,7 @@ function BotChat({ bot }: { accountId: string; bot: Bot }) {
         {FEATURE_SHARE && <button type="button" className="share-btn">Share</button>}
       </div>}
     </header></ShellHeaderSlot>
+    {bot.kind === 'room' && <RoomMembersHeader room={bot} />}
     <RosterFeedback />
     <Transcript key={generation} bot={bot} generation={generation} rows={rows} live={live} loaded={!!currentTranscript?.loaded} />
     <VoiceCallBar />

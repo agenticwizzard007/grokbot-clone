@@ -1,29 +1,44 @@
 import { RosterFeedback } from './LoadFeedback';
-import { ChevronRight, Plus, Search } from 'lucide-react';
+import { Plus, Users } from 'lucide-react';
 import { BotAvatarFor } from '../avatar/BotAvatar';
-import { navigation, openConversation } from '../configStore';
+import { openConversation } from '../configStore';
 import { displayName, useStore } from '../store';
+import { isInSetup } from '../lib/botSetupState';
 import { userFacingLive } from '../lib/audience';
+import { ButtonGroup, Card, Page, Section } from './layout';
+import '../styles/bot-details.css';
 
 export function BotsView() {
   const ready = useStore(s => s.botsLoaded && !s.botsError && !s.botsLoading);
   const bots = useStore(s => s.bots);
   const live = useStore(s => s.live);
-  const open = openConversation;
-  return <main className="bots-view"><div className="bots-view__inner">
-    <h1>Your Bots</h1><p className="bots-view__intro">Pick up where you left off.</p>
-    <div className="bots-view__actions">
-      <button type="button" className="btn btn--secondary" onClick={() => useStore.getState().setModal('search')}><Search size={18} aria-hidden /> Search Bots</button>
-      <button type="button" className="btn btn--primary" onClick={() => useStore.getState().setModal('create')}><Plus size={18} aria-hidden /> Create a Bot</button>
-      <button type="button" className="btn btn--secondary" onClick={() => navigation.navigate({ kind: 'work', route: { tab: 'Tasks' } })}>All tasks</button>
-    </div>
+  const create = () => useStore.getState().setModal('create');
+  const rooms = bots.filter(bot => bot.kind === 'room');
+  const roster = bots.filter(bot => bot.kind !== 'room').sort((a, b) => Number(!!b.isPrimary) - Number(!!a.isPrimary) || b.lastActivityAt - a.lastActivityAt);
+  return <main className="bots-view pb-bots"><Page type="list">
+    <header className="pb-bots__heading"><h1>Your Bots</h1><ButtonGroup>
+      <button type="button" className="btn btn--secondary" onClick={() => useStore.getState().setModal('group')}><Users size={16} aria-hidden />New room</button>
+      <button type="button" className="btn btn--primary" onClick={create}><Plus size={16} aria-hidden />Create a Bot</button>
+    </ButtonGroup></header>
     <RosterFeedback />
-    <div className="bots-view__list">{[...bots].sort((a,b) => Number(!!b.isPrimary) - Number(!!a.isPrimary) || b.lastActivityAt - a.lastActivityAt).map(bot => {
-      const state = userFacingLive(live[bot.id]);
-      return <button type="button" className="bots-view__item" key={bot.id} onClick={() => open(bot.id)}>
-        <BotAvatarFor bot={bot} size={36} /><span className="bots-view__item-text"><strong>{displayName(bot)}</strong><small>{state?.awaiting ? `Waiting for you: ${state.awaiting.reason}` : state?.isRunning ? 'Working…' : bot.lastPreview || bot.description || 'No messages yet'}</small></span><ChevronRight size={18} aria-hidden />
-      </button>;
-    })}</div>
-    {ready && !bots.length && <p className="bots-view__intro">Create a Bot to get started.</p>}
-  </div></main>;
+    <Section className="pb-bots__section" title={<span className="pb-bots__phone-title">Bots</span>}>
+      <div className="pb-bots__grid">{roster.map(bot => {
+        const state = userFacingLive(live[bot.id]);
+        const setup = isInSetup(bot);
+        const status = state?.awaiting ? 'Needs you' : state?.isRunning ? 'Working' : setup ? 'Setup' : 'Ready';
+        return <Card key={bot.id} className="pb-bot-card">
+          <button type="button" className="pb-bot-card__open" onClick={() => openConversation(bot.id)} aria-label={`Open ${displayName(bot)}`}>
+            <span className="pb-bot-card__identity"><BotAvatarFor bot={bot} size={44} /><span className="pb-bot-card__name"><strong>{displayName(bot)}</strong>{bot.isPrimary && <span className="pb-pill">Primary</span>}<small>{bot.label || (bot.mode === 'personal' ? 'Personal assistant' : 'Teammate')}</small></span><span className={`pb-pill pb-pill--${state?.awaiting ? 'warn' : state?.isRunning ? 'success' : 'neutral'}`}>{status}</span></span>
+            <span className="pb-bot-card__status">{state?.awaiting ? 'Needs approval' : state?.isRunning ? 'Working' : setup ? 'Continue setup' : 'Idle'}</span>
+          </button>
+        </Card>;
+      })}</div>
+      {ready && !roster.length && <p>Create your first Bot.</p>}
+    </Section>
+    <Section title="Rooms" action={<button type="button" className="link-btn pb-bots__phone-room" onClick={() => useStore.getState().setModal('group')}>New room</button>}>
+      {rooms.map(room => <Card key={room.id}><button type="button" className="pb-room-card" onClick={() => openConversation(room.id)}><Users size={24} aria-hidden /><strong>{room.name}</strong>{!!room.unread && <span className="pb-pill">{room.unread} new</span>}</button></Card>)}
+      {ready && !rooms.length && <p>No rooms yet.</p>}
+    </Section>
+    <button type="button" className="btn btn--primary pb-bots__phone-create" onClick={create}>Create a Bot</button>
+  </Page></main>;
 }

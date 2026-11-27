@@ -147,6 +147,13 @@ try {
    }
    await cold('#new-bot'); await page.getByRole('heading', { name: 'Create a Bot', exact: true }).waitFor();
    await page.keyboard.press('Escape'); await hashIs('#bots');
+   await cold('#bot/project-room');
+   const addBot = page.getByRole('button', { name: 'Add Bot', exact: true });
+   await addBot.click();
+   await page.getByRole('dialog', { name: 'Room members', exact: true }).waitFor();
+   await page.keyboard.press('Escape');
+   await page.getByRole('dialog', { name: 'Room members', exact: true }).waitFor({ state: 'detached' });
+   assert.ok(await addBot.evaluate(el => el === document.activeElement), 'Room members restores focus');
    console.log(`PASS ${width} ${theme}: Escape and outside dismissal, focus return, and page exits`);
   };
   for (const hash of routes) {
@@ -175,6 +182,10 @@ try {
     await back.waitFor();
     if (width <= 760) {
      // The bottom tabs must not replace visible Back text, including Tasks.
+     if (['details', 'bot-settings', 'create'].includes(current.kind)) {
+      const controls = await page.getByRole('button', { name: /^Back(?: |$)/ }).all();
+      assert.equal((await Promise.all(controls.map(control => control.isVisible()))).filter(Boolean).length, 1, `${hash}: one Back control`);
+     }
      assert.equal(await back.innerText(), 'Back'); assert.equal(await back.locator('span').isVisible(), true);
      assert.ok(await back.evaluate(el => {
       const r = el.getBoundingClientRect(), label = el.querySelector('span'), text = label.getBoundingClientRect();

@@ -106,7 +106,7 @@ try {
     }
     const typingLongTasks = await page.evaluate(() => window.__long.slice());
     if (scenario.enter) await page.keyboard.press('Enter');
-    else { await page.waitForTimeout(scenario.click); await form.getByRole('button', { name: 'Create', exact: true }).click(); }
+    else { await page.waitForTimeout(scenario.click); await form.getByRole('button', { name: 'Create Bot', exact: true }).click(); }
     // Keystrokes delivered just after the click (input lag) still belong to the name.
     if (scenario.late) await page.keyboard.type(scenario.late, { delay: 10 });
     await wait(() => created.length === 1, 'create request');

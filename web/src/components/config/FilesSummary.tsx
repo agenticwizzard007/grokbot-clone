@@ -1,3 +1,4 @@
+import { Card, Row } from '../layout';
 import { useEffect, useState } from 'react';
 import type { AgentSetupView, Bot } from '@shared/types';
 import { useConfigUI, useVersion } from '../../configStore';
@@ -21,9 +22,9 @@ export function FilesSummary({ bot, onReports }: { bot: Bot; onReports: () => vo
     setReports('Checking files...'); setSetup(undefined); setSetupError('');
     void settingsRead(signal => deliverablesApi.list(bot.id, signal), controller.signal).then(({ artifacts }) => {
       if (current()) setReports(artifacts.some(file => file.botId === bot.id)
-        ? 'Files saved by this Bot are ready to view.'
-        : 'No files yet. Ask the Bot to save a file and it will appear here.');
-    }).catch(() => { if (current()) setReports('Could not check files. Open Files to try again.'); });
+        ? 'Reports ready'
+        : 'No reports yet.');
+    }).catch(() => { if (current()) setReports('Could not check reports.'); });
     if (bot.kind !== 'room') void settingsRead(signal => configApi.agentSetup(bot.id, signal), controller.signal).then(value => {
       if (current()) setSetup(value);
     }).catch(error => {
@@ -36,13 +37,11 @@ export function FilesSummary({ bot, onReports }: { bot: Bot; onReports: () => vo
   const hasSetup = setup && Object.values(setup.files).some(text => text.trim());
   const resources = setup?.manifest.brief.shared_resources.map(setupResourceText).filter(text => /needs to be reconnected|could not connect|connection unavailable/i.test(text)) ?? [];
   return <>
-    <div className="details-page__row"><div><strong>Files</strong><p role="status">{reports}</p></div>
-      <button className="cfg-btn cfg-btn--secondary" type="button" onClick={onReports}>View Files</button>
-    </div>
-    {bot.kind !== 'room' && <div className="details-page__row"><div><strong>Setup</strong>
-      <p role="status">{setupError || (setup === undefined ? 'Checking saved setup...' : hasSetup ? 'Saved instructions and configuration files for this Bot.' : 'No saved setup yet. Open Setup to describe what this Bot should do.')}</p>
-      {resources.map((text, index) => <p key={index}>{text}</p>)}
-      <SetupConnectionHelp text={resources.join('\n')} />
-    </div><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => useConfigUI.getState().setDetailsTab('configuration')}>View setup</button></div>}
+    <Card><Row title="Saved reports" subtitle={<span role="status">{reports}</span>} trailing={<button className="cfg-btn cfg-btn--secondary" type="button" onClick={onReports}>Open</button>} /></Card>
+    {bot.kind !== 'room' && <details className="pb-disclosure"><summary>Saved setup</summary>
+      <p role="status">{setupError || (setup === undefined ? 'Checking saved setup...' : hasSetup ? 'Saved configuration' : 'No saved setup yet.')}</p>
+      {resources.map((text, index) => <p key={index}>{text}</p>)}<SetupConnectionHelp text={resources.join('\n')} />
+      <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => useConfigUI.getState().setDetailsTab('configuration')}>View setup</button>
+    </details>}
   </>;
 }

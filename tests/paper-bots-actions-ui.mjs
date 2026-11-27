@@ -1,0 +1,67 @@
+// Exercise writes only against disposable local fixtures.
+import assert from 'node:assert/strict';
+import { chromium } from 'playwright';
+import { layoutServer } from './layout-fixture.mjs';
+const server = await layoutServer();
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+try {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
+  const page = await context.newPage();
+  await page.route('**/api/models', route => route.fulfill({ json: { models: [{ id: 'openai/gpt-4.1', name: 'GPT 4.1', author: 'openai', vision: true }], provider: 'openrouter', billing: 'api', defaultModel: 'openai/gpt-4.1' } }));
+  await page.goto(`${server.base}/#new-bot`);
+  await page.getByRole('textbox', { name: 'Bot name' }).fill('Writing Bot');
+  await page.getByRole('button', { name: 'Writer', exact: true }).click();
+  await page.getByRole('button', { name: 'Bot model', exact: true }).click();
+  await page.getByRole('option').filter({ hasText: 'GPT 4.1', hasNotText: 'Default' }).click();
+  const created = page.waitForResponse(response => new URL(response.url()).pathname === '/api/bots' && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Create Bot', exact: true }).click();
+  const response = await created; assert.ok(response.ok());
+  const { bot } = await response.json();
+  assert.equal(bot.name, 'Writing Bot'); assert.equal(bot.label, 'Writer'); assert.equal(bot.model, 'openai/gpt-4.1');
+  await page.locator('.composer__input').waitFor();
+  await page.goto(`${server.base}/#bots`);
+  await page.locator('.pb-bot-card').filter({ hasText: 'Writing Bot' }).getByText('Setup', { exact: true }).waitFor();
+  await page.goto(`${server.base}/#bot/${bot.id}/settings/general`);
+  await page.getByRole('textbox', { name: 'Role', exact: true }).fill('Editor');
+  await page.getByRole('button', { name: 'Skills', exact: true }).click();
+  await page.getByRole('button', { name: 'General', exact: true }).click();
+  assert.equal(await page.getByRole('textbox', { name: 'Role', exact: true }).inputValue(), 'Editor', 'Draft survives tab switches');
+  const saved = page.waitForResponse(response => new URL(response.url()).pathname === `/api/bots/${bot.id}` && response.request().method() === 'PATCH');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  assert.equal((await (await saved).json()).bot.label, 'Editor');
+  await page.reload(); assert.equal(await page.getByRole('textbox', { name: 'Role', exact: true }).inputValue(), 'Editor');
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Unsaved Bot');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const guard = page.getByRole('alertdialog', { name: 'Discard unsaved changes?' }); await guard.waitFor();
+  await guard.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  assert.equal(await page.getByRole('textbox', { name: 'Name', exact: true }).inputValue(), 'Unsaved Bot');
+  for (let attempt = 0; attempt < 4 && !await guard.isVisible(); attempt++) {
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await page.waitForTimeout(100);
+  }
+  await guard.getByRole('button', { name: 'Discard', exact: true }).click();
+  await page.goto(`${server.base}/#bot/${server.fixture.room}`);
+  await page.getByRole('button', { name: 'Add Bot', exact: true }).click();
+  const members = page.getByRole('dialog', { name: 'Room members', exact: true }); await members.waitFor();
+  const candidate = members.getByRole('button', { name: /Writing Bot/ });
+  assert.ok(await candidate.isDisabled(), 'A Bot still in setup cannot join a room');
+  await page.keyboard.press('Escape'); await members.waitFor({ state: 'detached' });
+  assert.ok(await page.getByRole('button', { name: 'Add Bot', exact: true }).evaluate(el => el === document.activeElement));
+  await page.goto(`${server.base}/#bot/${bot.id}/settings/learning`);
+  const learning = page.getByLabel('Learning enabled', { exact: true });
+  const enabled = await learning.isChecked();
+  await learning.setChecked(!enabled);
+  const learningSaved = page.waitForResponse(response => new URL(response.url()).pathname === '/api/learning/settings' && response.request().method() === 'PATCH');
+  await page.locator('.pb-settings-footer').getByRole('button', { name: 'Save', exact: true }).click();
+  assert.ok((await learningSaved).ok(), 'Sticky Learning footer submits the form');
+  await page.reload(); assert.equal(await learning.isChecked(), !enabled, 'Learning change persists');
+  await page.route(`**/api/rooms/${server.fixture.room}/members`, route => route.fulfill({ json: {} }));
+  await page.goto(`${server.base}/#bot/${server.fixture.room}`);
+  await page.getByRole('button', { name: 'Retry members', exact: true }).waitFor();
+  await page.unroute(`**/api/rooms/${server.fixture.room}/members`);
+  await page.getByRole('button', { name: 'Retry members', exact: true }).click();
+  await page.locator('.pb-room-member').first().waitFor();
+  await page.getByRole('button', { name: 'Retry members', exact: true }).waitFor({ state: 'detached' });
+  console.log('PASS creation, saved settings and learning, draft guards, room setup gate, member recovery, and focus return');
+} finally { await browser.close(); await server.close(); }

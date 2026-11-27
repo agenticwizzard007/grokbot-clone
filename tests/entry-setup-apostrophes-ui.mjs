@@ -79,9 +79,10 @@ try {
   assert.equal(login.status(), 200);
   await page.reload();
   await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+  await page.locator('.setup-create .pb-disclosure > summary').click();
   await page.getByRole('button', { name: 'Import saved setup', exact: true }).click();
   const upload = page.getByRole('main', { name: 'Import a saved setup', exact: true });
-  await copy(upload.locator('.setup-create__description p'), "Imports the role and saved setup, not tasks, schedules, sessions, or learned history. Review the new Bot's setup before activating it.");
+  await copy(upload.locator('.setup-create__description p'), 'Review the imported setup before activation.');
   assert.deepEqual(errors, []);
   console.log('PASS P-20: sign-in, phone signup, and Bot import copy use straight apostrophes.');
 } catch (error) {

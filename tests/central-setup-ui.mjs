@@ -79,6 +79,7 @@ try {
   const exported = await exportResponse.text();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+  await page.locator('.setup-create .pb-disclosure > summary').click();
   await page.getByRole('button', { name: 'Import saved setup', exact: true }).click();
   const upload = page.getByRole('main', { name: 'Import a saved setup' });
   await upload.getByLabel('Setup file').setInputFiles({ name: 'bot-setup.json', mimeType: 'application/json', buffer: Buffer.from(exported) });
@@ -97,7 +98,8 @@ try {
   assert.equal(importedSetup.manifest.source.sourceRefs?.length ?? 0, 0, 'imported sources are not authenticated local references');
   assert.equal((await api(`/bots/${imported.id}/setup`, 'GET', undefined, 'central-browser-other-token')).status, 404);
   const details = page.getByRole('complementary', { name: 'Conversation details' });
-  await details.getByRole('heading', { name: 'Imported Nia · Setup' }).waitFor();
+  await page.locator('.shell-header__title').filter({ hasText: 'Imported Nia' }).waitFor();
+  await details.getByText('Setup interview', { exact: true }).waitFor();
   assert.equal(await details.getByRole('button', { name: /Activate Bot/ }).count(), 0);
   // R2F-021 (WS3): the Setup tab always shows a one-line computer status.
   assert.match(await details.locator('.agent-config__computer').first().innerText(), /^Computer: \S/);

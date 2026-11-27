@@ -70,8 +70,9 @@ try {
     page.setDefaultTimeout(10000);
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(origin);
-    await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+    await page.evaluate(() => { location.hash = '#new-bot'; });
     const form = page.getByRole('main', { name: 'Create a Bot', exact: true });
+    await form.locator('.pb-disclosure > summary').click();
     const picker = form.getByRole('radiogroup', { name: 'Character shape' });
     const radio = name => picker.getByRole('radio', { name, exact: true });
     const choice = name => picker.locator('.bird-picker__choice').filter({ has: page.getByRole('radio', { name, exact: true }) });
@@ -82,7 +83,7 @@ try {
     await picker.waitFor();
 
     // Enter and leave the group with Tab, and retain native arrow-key selection/focus.
-    await form.getByRole('textbox', { name: 'Bot name' }).focus();
+    await form.locator('.pb-disclosure > summary').focus();
     await page.keyboard.press('Tab');
     assert.ok(await radio('Flock').evaluate(element => element === document.activeElement));
     for (const [key, name] of [['ArrowRight', 'Solo'], ['ArrowDown', 'Soar'], ['ArrowLeft', 'Solo'], ['ArrowUp', 'Flock'], ['ArrowLeft', 'Cascade']]) {
@@ -134,7 +135,7 @@ try {
     await form.getByRole('textbox', { name: 'Bot name' }).fill(`Picker fixture ${width}`);
     await choice('Diamond').locator('.bird-picker__label').click();
     const created = page.waitForResponse(response => new URL(response.url()).pathname === '/api/bots' && response.request().method() === 'POST');
-    await form.getByRole('button', { name: 'Create', exact: true }).click();
+    await form.getByRole('button', { name: 'Create Bot', exact: true }).click();
     const response = await created;
     assert.ok(response.ok(), 'isolated Bot creation succeeds');
     assert.equal((await response.json()).bot.avatarShape, 'bird-diamond', 'the visible name selection is saved');

@@ -58,7 +58,7 @@ export function assertComposerSlots(actual, before, label = '') {
   near(actual.action.x, before.action.x, 'send/voice x');
   near(actual.action.width, before.action.width, 'send/voice width');
   near(actual.action.height, before.action.height, 'send/voice height');
-  near(actual.action.bottom, actual.controls[0].bottom, 'send/voice shares the controls row');
+  near(actual.action.y + actual.action.height / 2, actual.controls[0].y + actual.controls[0].height / 2, 'send/voice shares the controls row center');
   if (actual.controls[0].row === '2') {
     near(actual.controls[0].y - actual.input.bottom, 4, 'phone field above the controls');
   } else {

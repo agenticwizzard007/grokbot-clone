@@ -83,8 +83,9 @@ try {
       assert.equal(await avatar.locator('svg > path').last().getAttribute('d'), (shapes[shape] ?? shapes[aliases[shape]]).d, `${shape} retains its original silhouette`);
     }
 
-    await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+    await page.evaluate(() => { location.hash = '#new-bot'; });
     const form = page.getByRole('main', { name: 'Create a Bot', exact: true });
+    await form.locator('.pb-disclosure > summary').click();
     const picker = form.getByRole('radiogroup', { name: 'Character shape' });
     await picker.waitFor();
     assert.deepEqual(await picker.getByRole('radio').evaluateAll(elements => elements.map(el => el.getAttribute('aria-label'))), names);
@@ -140,7 +141,7 @@ try {
     await page.setViewportSize({ width: 1280, height: 960 });
     await page.locator('.app:not(.is-mobile)').waitFor();
     await form.getByRole('textbox', { name: 'Bot name' }).fill('New bird');
-    await form.getByRole('button', { name: 'Create', exact: true }).click();
+    await form.getByRole('button', { name: 'Create Bot', exact: true }).click();
     await page.locator('.chat__header svg[data-bird="bird-flock"]').waitFor();
     assert.equal(posts[0].avatarShape, 'bird-flock');
     assert.equal(posts[0].avatarColor, 'blue');
@@ -155,6 +156,7 @@ try {
     assert.equal(await createdAvatar.locator('svg').evaluate(el => getComputedStyle(el).animationName), 'none');
 
     await page.goto(`${origin}/#bot/legacy-heart/settings/general`);
+    await page.locator('.pb-general > .pb-disclosure > summary').click();
     await page.getByRole('button', { name: 'Change look', exact: true }).click();
     const settingsPicker = page.getByRole('radiogroup', { name: 'Character shape' });
     assert.deepEqual(await settingsPicker.getByRole('radio').evaluateAll(elements => elements.map(el => el.value)), ids);
@@ -168,7 +170,7 @@ try {
     }
     await page.setViewportSize({ width: 1280, height: 960 });
     await page.locator('.app:not(.is-mobile)').waitFor();
-    const preview = page.locator('.cfg-look .bot-avatar > svg');
+    const preview = page.locator('.pb-general .layout-row__leading .bot-avatar > svg');
     const legacyPath = await preview.locator('path').last().getAttribute('d');
     assert.equal(legacyPath, shapes.heart.d);
     await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Legacy renamed');

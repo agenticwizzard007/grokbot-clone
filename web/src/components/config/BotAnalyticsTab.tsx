@@ -1,3 +1,4 @@
+import { Card, Row } from '../layout';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { Bot } from '@shared/types';
 import { configApi, type BotAnalytics } from '../../lib/configApi';
@@ -23,6 +24,7 @@ export function BotAnalyticsTab({ bot }: { bot: Bot }) {
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   const [inspectDay, setInspectDay] = useState('');
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const changeRange = (next: Range) => { if (next !== range) { setData(null); setError(null); setInspectDay(''); setRange(next); } };
   useEffect(() => {
     let alive = true;
@@ -32,7 +34,7 @@ export function BotAnalyticsTab({ bot }: { bot: Bot }) {
 
   const rangePicker = <Segmented label="Period" value={range} options={RANGES} onChange={changeRange} />;
   if (error) return <div className="cfg-page an-page">{rangePicker}<p className="cfg-error" role="alert">{error}</p><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { setError(null); setRetry(value => value + 1); }}>Retry analytics</button></div>;
-  if (!data || data.range !== range) return <div className="cfg-page an-page">{rangePicker}<p role="status">Loading analytics…</p></div>;
+  if (!data || data.range !== range) return <div className="cfg-page an-page">{rangePicker}<p role="status">Loading analytics...</p></div>;
   // Calendar order, the same order the cumulative series is summed in (R2F-035).
   const days = [...data.days].sort((a, b) => a.day.localeCompare(b.day));
   if (!days.length) return <div className="cfg-page an-page">{rangePicker}<p>No analytics available for this period.</p></div>;
@@ -46,23 +48,26 @@ export function BotAnalyticsTab({ bot }: { bot: Bot }) {
 
   return (
     <div className="cfg-page an-page">
+      <Row title="Messages" trailing={<strong>{data.totals.messages}</strong>} />
+      <Row title="Saved" trailing={<strong title="Estimated time saved">{Math.round(data.totals.minutesSaved)}m</strong>} />
+      <details className="pb-disclosure" open={detailsOpen} onToggle={event => setDetailsOpen(event.currentTarget.open)}><summary>Details</summary>
       <div className="an-range">
         <span className="an-range__span">{reportRangeLabel(days, data.timezone)}</span>
         {rangePicker}
       </div>
       <div className="an-cards">
-        <section className="an-card" aria-label="Messages">
+        <Card className="pb-an-card" role="region" aria-label="Messages">
           <div className="an-card__label">Messages</div>
           <div className="an-card__value">{data.totals.messages.toLocaleString('en-US')}</div>
           <div className="an-card__label">Messages per day</div>
           <BarChart days={days} />
-        </section>
-        <section className="an-card is-saved" aria-label="Estimated time saved">
+        </Card>
+        <Card className="pb-an-card is-saved" role="region" aria-label="Estimated time saved">
           <div className="an-card__label">Estimated time saved</div>
           <div className="an-card__value">{hoursTotal < 1 ? Math.round(data.totals.minutesSaved) : Math.round(hoursTotal * 10) / 10}<span className="an-card__unit">{hoursTotal < 1 ? 'minutes' : 'hours'}</span></div>
           <div className="an-card__label">Cumulative time saved</div>
           <CumulativeChart days={days} />
-        </section>
+        </Card>
       </div>
       {data.breakdown.length > 0 && (
         <section className="an-where" aria-label="Where the time went">
@@ -89,6 +94,7 @@ export function BotAnalyticsTab({ bot }: { bot: Bot }) {
         <details><summary>Inspect a day</summary><label>Day ({zoneLabel}) <select aria-label={`Day (${zoneLabel})`} value={selectedDay.day} onChange={event => setInspectDay(event.target.value)}>{days.map(day => <option key={day.day} value={day.day}>{dayLabel(day.day)}</option>)}</select></label><p>{selectedDay.messages} messages · {fmtHours(selectedDay.minutesSaved)} estimated time saved</p></details>
         <details><summary>How time saved is estimated</summary><p className="an-method">{method}</p></details>
       </div>
+      </details>
     </div>
   );
 }

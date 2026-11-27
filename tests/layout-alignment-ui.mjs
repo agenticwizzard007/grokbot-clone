@@ -7,12 +7,12 @@ import { chromium } from 'playwright';
 import { layoutServer } from './layout-fixture.mjs';
 
 export const ROUTES = [
-  { name: 'bots', hash: '#bots', owner: 'PB-D', enforce: false },
-  { name: 'chat', hash: '#bot/{bot}', owner: 'PB-D', enforce: false },
-  { name: 'room', hash: '#bot/{room}', owner: 'PB-D', enforce: false },
-  ...['', '/group'].map(suffix => ({ name: `create-bot${suffix}`, hash: `#new-bot${suffix}`, owner: 'PB-D', enforce: false })),
-  ...['activity', 'tasks', 'files', 'files/reports', 'setup', 'setup/responsibilities', 'setup/harness', 'setup/files', 'setup/history'].map(tab => ({ name: `bot-${tab}`, hash: `#bot/{bot}/details/${tab}`, owner: 'PB-D', enforce: false })),
-  ...['general', 'skills', 'memories', 'routines', 'analytics', 'learning'].map(tab => ({ name: `bot-settings-${tab}`, hash: `#bot/{bot}/settings/${tab}`, owner: 'PB-D', enforce: false })),
+  { name: 'bots', hash: '#bots', owner: 'PB-D', enforce: true },
+  { name: 'chat', hash: '#bot/{bot}', owner: 'PB-E', enforce: false },
+  { name: 'room', hash: '#bot/{room}', owner: 'PB-D', enforce: true },
+  ...['', '/group'].map(suffix => ({ name: `create-bot${suffix}`, hash: `#new-bot${suffix}`, owner: 'PB-D', enforce: true })),
+  ...['activity', 'tasks', 'files', 'files/reports', 'setup', 'setup/responsibilities', 'setup/harness', 'setup/files', 'setup/history'].map(tab => ({ name: `bot-${tab}`, hash: `#bot/{bot}/details/${tab}`, owner: 'PB-D', enforce: true })),
+  ...['general', 'skills', 'memories', 'routines', 'analytics', 'learning'].map(tab => ({ name: `bot-settings-${tab}`, hash: `#bot/{bot}/settings/${tab}`, owner: 'PB-D', enforce: true })),
   { name: 'settings', hash: '#settings', owner: 'PB-C', enforce: true },
   ...['general', 'account', 'messaging', 'usage', 'learning', 'computer', 'permissions', 'subscriptions', 'keys', 'apps', 'mcp'].map(section => ({ name: `settings-${section}`, hash: `#settings/${section}`, owner: 'PB-C', enforce: true })),
   ...['tasks', 'team', 'goals', 'reports'].flatMap(tab => [
@@ -63,7 +63,7 @@ export function inspectAlignment({ selector = '.shell-content > :not(.shell-head
   });
   const groups = new Map();
   for (const card of cards) {
-    const parent = card.dataset.layout === 'card' ? card.closest('[data-layout="page"]') ?? card.parentElement : card.parentElement;
+    const parent = card.dataset.layout === 'card' ? card.closest('[data-layout="section"]') ?? card.closest('[data-layout="page"]') ?? card.parentElement : card.parentElement;
     if (!groups.has(parent)) groups.set(parent, []);
     groups.get(parent).push(card);
   }
@@ -105,6 +105,8 @@ async function main() {
             await page.getByRole('button', { name: 'Continue with phone', exact: true }).click();
             await page.getByRole('textbox', { name: '6-digit code' }).waitFor();
           }
+          if (route.enforce) await page.locator('[data-layout="page"]:visible').first().waitFor();
+          await page.evaluate(() => document.fonts.ready);
           await page.waitForTimeout(350);
           issues = await page.evaluate(inspectAlignment, {});
         } catch (e) { issues = [`Could not open: ${e.message.split('\n')[0]}`]; }
