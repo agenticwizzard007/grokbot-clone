@@ -58,7 +58,6 @@ export function WidgetSettings({ widget, save, close, error: serverError, title 
       return <label key={field}><input type="checkbox" checked={selected.includes(field)} onChange={event => option(key, event.target.checked ? [...selected, field] : selected.filter(value => value !== field))} />{fieldLabel(field)}</label>;
     })}</div></fieldset>}
     {draft.type === 'chart' && selectOption('Chart', 'kind', ['bar', 'line', 'area'], 'bar')}
-    {draft.type === 'meter' && numeric('Window', 'window', 0, 24, 0)}
     {draft.type === 'routineSchedule' && <label className="dashboard-field">Days<input type="number" min="1" max="14" value={Number(draft.options.days ?? 7)} onChange={event => setDraft({ ...draft, options: { ...draft.options, days: Number(event.target.value) }, source: { id: 'routines.upcoming', params: { days: Number(event.target.value) } } })} /></label>}
     {draft.type === 'note' && <label className="dashboard-field">Note<textarea rows={7} maxLength={2000} value={String(draft.options.text ?? '')} onChange={event => option('text', event.target.value)} /></label>}
     {draft.source && <label className="dashboard-field">Refresh<select value={draft.refreshSec ?? 60} onChange={event => setDraft({ ...draft, refreshSec: Number(event.target.value) as Widget['refreshSec'] })}>{[[0, 'Manual'], [30, 'Every 30 seconds'], [60, 'Every minute'], [300, 'Every 5 minutes']].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}

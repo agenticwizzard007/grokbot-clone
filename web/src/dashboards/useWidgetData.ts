@@ -48,7 +48,7 @@ export function useWidgetData(widgets: Widget[]) {
             if (live.get(value.state.botId) === key) return;
             live.set(value.state.botId, key);
           }
-          const groups: Record<string, string[]> = { tasks: ['tasks.', 'bots.status'], roster: ['bots.', 'tasks.', 'needsYou.'], bot: ['bots.'], routines: ['routines.'], live: ['bots.status', 'runs.', 'needsYou.', 'usage.'], rows: ['needsYou.'], setup: ['needsYou.'], handoff: ['handoffs.'], loop: ['loops.'], output: ['outputs.'], connections: ['connectors.', 'email.', 'calendar.', 'crm.'] };
+          const groups: Record<string, string[]> = { usage: ['usage.'], tasks: ['tasks.', 'bots.status'], roster: ['bots.', 'tasks.', 'needsYou.'], bot: ['bots.'], routines: ['routines.'], live: ['bots.status', 'runs.', 'needsYou.', 'usage.'], rows: ['needsYou.'], setup: ['needsYou.'], handoff: ['handoffs.'], loop: ['loops.'], output: ['outputs.'], connections: ['connectors.', 'email.', 'calendar.', 'crm.'] };
           if (groups[type]) mark(widget => groups[type].some(prefix => widget.source!.id.startsWith(prefix)), true);
         } catch { /* Ignore malformed or unrelated events. */ }
       };

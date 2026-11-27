@@ -33,7 +33,7 @@ const fields: Record<SourceId, string[]> = {
   'crm.deals': ['id', 'title', 'stage', 'value', 'updatedAt'],
   'tasks.counts': ['working', 'needs_input', 'done', 'total'], 'tasks.list': ['id', 'title', 'state', 'botName', 'botId', 'updatedAt'], 'tasks.series': ['day', 'created', 'done'],
   'bots.list': ['id', 'name', 'avatarShape', 'avatarColor', 'lastActiveAt'], 'bots.status': ['id', 'name', 'status', 'openTasks'], 'needsYou.list': ['id', 'type', 'botName', 'title', 'createdAt'],
-  'usage.summary': ['costUsd', 'requests', 'tokens', 'computerHours'], 'usage.series': ['day', 'value'], 'usage.windows': ['label', 'usedPercent', 'resetsAt', 'available'],
+  'usage.summary': ['costUsd', 'requests', 'tokens', 'computerHours'], 'usage.series': ['day', 'value'], 'usage.windows': ['label', 'usedPercent', 'resetsAt', 'available', 'plan', 'ownKeys'],
   'routines.list': ['id', 'name', 'schedule', 'enabled', 'lastRunAt', 'botName'], 'routines.upcoming': ['routineId', 'name', 'at', 'botName'],
   'runs.recent': ['id', 'botName', 'kind', 'state', 'startedAt', 'durationMs'], 'runs.counts': ['completed', 'failed', 'running', 'queued'], 'runs.series': ['day', 'state', 'value'],
 };

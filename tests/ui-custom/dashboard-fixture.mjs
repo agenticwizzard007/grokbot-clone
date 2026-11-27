@@ -26,7 +26,7 @@ export function seedDashboardData(db, fixture) {
   db.prepare('INSERT INTO rows(bot_id,generation,seq,updated_seq,kind,body,created_at) VALUES(?,?,?,?,?,?,?)')
     .run(bot.id, bot.generation, 100, 100, 'card', JSON.stringify({ type: 'card', card: 'question', status: 'pending', question: 'Choose the next task', options: ['Review the launch plan'], private: 'PRIVATE_FIXTURE_QUESTION' }), at);
   db.prepare('UPDATE bots SET next_seq=101,rev=100 WHERE id=?').run(bot.id);
-  for (let day = 0; day < 30; day++) db.prepare('INSERT INTO usage_events(user_id,bot_id,kind,provider,model,input_tokens,output_tokens,cost_usd,cost_source,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
+  for (let day = 0; day < 30; day++) db.prepare("INSERT INTO usage_events(user_id,bot_id,kind,provider,model,input_tokens,output_tokens,cost_usd,cost_source,created_at,key_kind) VALUES(?,?,?,?,?,?,?,?,?,?,'native')")
     .run(userId, bot.id, 'chat', 'direct', 'gpt-4.1', 100, 20, .25 + (day % 5) * .1, 'provider', at - day * 86400_000);
   for (let n = 0; n < 2; n++) db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES(?,?,?,?,?,?,?,?)')
     .run(`${prefix}-routine-${n}`, bot.id, ['Daily summary', 'Weekly review'][n], 'PRIVATE_FIXTURE_PROMPT', '0 9 * * *', 'UTC', 1, at);

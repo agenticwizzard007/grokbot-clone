@@ -1,3 +1,4 @@
+import type { PlanUsageSummary } from './plan-usage-types.js';
 import { db } from './db.js';
 import { env } from './env.js';
 import { rangeBounds, usageTimezone, type UsageRange } from './usage.js';
@@ -65,7 +66,7 @@ function subscriptionName(provider: 'claude' | 'codex', plan?: string | null) {
 }
 
 /** Read-only account summary. No provider discovery or key-wide billing requests. */
-export function planUsageSummary(userId: string, at = Date.now()) {
+export function planUsageSummary(userId: string, at = Date.now()): PlanUsageSummary {
   const timezone = usageTimezone(userId);
   const month = `${reportDay(at, timezone).slice(0, 7)}-01`;
   const nextMonth = new Date(`${month}T00:00:00Z`);
@@ -103,4 +104,4 @@ export function planUsageSummary(userId: string, at = Date.now()) {
   };
 }
 
-export type PlanUsageSummary = ReturnType<typeof planUsageSummary>;
+export type { PlanUsageSummary } from './plan-usage-types.js';

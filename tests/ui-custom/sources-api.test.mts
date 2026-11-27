@@ -34,7 +34,7 @@ const batch = (count = 1) => ({ requests: Array.from({ length: count }, (_, n) =
 after(() => { for (const data of executors) data.close(); globalThis.fetch = fetchOriginal; db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
 const expectedCounts: Record<string, number> = { 'handoffs.list': 0, 'loops.list': 0, 'outputs.recent': 0, 'connectors.status': 0, 'email.recent': 0, 'calendar.upcoming': 0, 'crm.deals': 0, 'tasks.counts': 33, 'tasks.list': 33, 'tasks.series': 33, 'bots.list': 30, 'bots.status': 30,
-  'needsYou.list': 28, 'usage.summary': 7, 'usage.series': 7, 'usage.windows': 0, 'routines.list': 28, 'routines.upcoming': 196,
+  'needsYou.list': 28, 'usage.summary': 7, 'usage.series': 7, 'usage.windows': 1, 'routines.list': 28, 'routines.upcoming': 196,
   'runs.recent': 33, 'runs.counts': 33, 'runs.series': 33 };
 for (const source of SOURCES) test(`${source.id}: allowlisted fields, caps and disjoint accounts`, async () => {
   const own = await read(a.id, source.id), foreign = await read(b.id, source.id);
@@ -61,7 +61,11 @@ for (const source of SOURCES) test(`${source.id}: allowlisted fields, caps and d
     assert.equal(foreign.rows!.reduce((n, row) => n + Number(row.value), 0), 6);
   }
   if (source.id === 'runs.counts') assert.deepEqual(own.value, { completed: 8, failed: 9, running: 8, queued: 8 });
-  if (source.id === 'usage.windows') assert.deepEqual({ rows: own.rows, available: own.available }, { rows: [], available: false });
+  if (source.id === 'usage.windows') {
+    const { planUsageSummary } = await import('../../server/src/plan-usage.js');
+    assert.deepEqual(own.value, (({ plan, ownKeys }) => ({ plan, ownKeys }))(planUsageSummary(a.id)));
+    assert.equal(own.available, true);
+  }
 });
 
 test('limited Bot status aggregates and filtered task pages retain exact counts and ordering', async () => {
@@ -113,12 +117,19 @@ test('runtime source ids, validation and fields match the frozen shared registry
     for (const row of direct.rows ?? []) assert.ok(Object.keys(row).every(key => source.fields.includes(key)));
   }
 });
-test('empty accounts return zero counts, zero-filled series and unavailable windows', async () => {
+test('empty accounts return zero counts, zero-filled series and a no-limit plan', async () => {
   const emptyId = 'qa-temp-dashboard-empty';
   db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(emptyId, 'empty@example.test', 'QA-Temp-Empty', Date.now());
   for (const source of SOURCES) {
     const result = await read(emptyId, source.id); assert.ok(result.ok, JSON.stringify(result));
     if (!result.ok) continue;
+    if (source.id === 'usage.windows') {
+      assert.equal(result.count, 1);
+      assert.equal((result.value!.plan as any).usedCents, 0);
+      assert.equal((result.value!.plan as any).limitCents, null);
+      assert.equal((result.value!.plan as any).percentUsed, null);
+      continue;
+    }
     assert.equal(result.count, 0);
     if (source.series) assert.ok(result.rows!.every(row => Object.entries(row).every(([key, value]) => key === 'day' || key === 'state' || value === 0)));
     else assert.equal(result.rows?.length ?? 0, 0);
@@ -157,11 +168,12 @@ test('usage windows read only cached platform observations and never probe a con
     const fresh = executor();
     const result = await fresh.execute(a.id, { key: 'windows', source: 'usage.windows', params: {} });
     assert.ok(result.ok); if (result.ok) assert.deepEqual({ rows: result.rows, available: result.available, count: result.count }, {
-      rows: [{ label: 'Weekly', usedPercent: 37, resetsAt: null }], available: true, count: 1,
+      rows: [{ label: 'Claude plan', usedPercent: 37, resetsAt: null }], available: true, count: 1,
     });
     assert.equal(probes, 1, 'the dashboard did not discover a catalog');
     const foreign = await fresh.execute(b.id, { key: 'windows', source: 'usage.windows', params: {} });
-    assert.ok(foreign.ok && foreign.available === false && foreign.count === 0);
+    assert.ok(foreign.ok && foreign.available === true && foreign.count === 1);
+    if (foreign.ok) assert.equal((foreign.value!.plan as any).percentUsed, null);
   } finally { selectCli(a.id, null); socket.terminate(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
 test('cache canonicalizes defaults and parameter order, expires at 10 seconds, isolates users and clones replies', async () => {

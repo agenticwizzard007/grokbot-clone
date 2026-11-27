@@ -21,6 +21,13 @@ try {
     assert.equal(server.db.prepare('SELECT COUNT(*) AS n FROM bots WHERE user_id=?').get(emptyAccount.userId).n, 0);
     for (const type of widgetTypes) {
       const widget = empty.locator(`[data-widget-type="${type}"]`); await widget.scrollIntoViewIfNeeded();
+      if (type === 'meter') {
+        await widget.getByText('No limit', { exact: true }).waitFor();
+        assert.match(await widget.innerText(), /\$0\.00/);
+        assert.equal(await widget.locator('progress').count(), 0);
+        checks.push(`meter: empty account shows zero spend and no limit at ${width}`);
+        continue;
+      }
       const placeholder = widget.locator('.dashboard-empty-data'); assert.equal(await placeholder.count(), 1, `${type}: new account empty state`);
       assert.equal(await placeholder.locator('p').count(), 1); assert.equal(await placeholder.locator('button,a').count(), 1);
       assert.equal(await placeholder.getByRole('link').getAttribute('href'), type === 'shortcuts' ? '#tasks' : '#new-bot');
