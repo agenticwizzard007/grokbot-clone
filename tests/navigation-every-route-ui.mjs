@@ -88,6 +88,12 @@ try {
    console.log(`PASS ${width} ${theme}: browser Back and Forward retain Tasks tabs, details, Settings, Search and Create a Bot`);
   };
   const dismissals = async () => {
+   const outsideClick = async (x, y) => {
+    // Menu defers its outside listener until after the opening click. Wait for
+    // the rendered menu to settle before sending an immediate synthetic click.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.mouse.click(x, y);
+   };
    if (width <= 760) {
     await cold('#tasks');
     const trigger = page.getByRole('button', { name: 'Open navigation', exact: true });
@@ -116,16 +122,17 @@ try {
      await surface.waitFor(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
      if (method === 'Escape') await page.keyboard.press('Escape');
      else if (selector === '.model-pill' && await page.locator('.mm-scrim').isVisible()) await page.locator('.mm-scrim').click({ position: { x: 2, y: 2 } });
-     else await page.mouse.click(width - 2, selector === '.chat__pill' ? 500 : 100);
+     else await outsideClick(width - 2, selector === '.chat__pill' ? 500 : 100);
      await surface.waitFor({ state: 'detached' });
      if (method === 'Escape') assert.ok(await trigger.evaluate(el => el === document.activeElement), `${selector}: Escape returns focus`);
     }
     if (width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
     await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
     await page.getByRole('menu').waitFor();
+    await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
     if (method === 'Escape') await page.keyboard.press('Escape');
-    else await page.mouse.click(width - 2, 100);
-    await page.getByRole('menu').waitFor({ state: 'detached' });
+    else await outsideClick(width - 2, 100);
+    await page.getByRole('menu').waitFor({ state: 'detached' }).catch(() => assert.fail(`Account menu: ${method} must close it`));
     if (width <= 760) await page.getByRole('dialog', { name: 'App navigation', exact: true }).waitFor({ state: 'detached' });
     for (const [target, label] of [['Search','Search'], ['Connect apps','Connect Apps']]) {
      await cold('#bots'); await openArea(target);
