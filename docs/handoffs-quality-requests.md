@@ -2,15 +2,15 @@
 
 These requests are reproduced against integrated main. HO-H owns tests and documentation only. A failing quality gate must remain failing until the production owner fixes the behavior.
 
-## Runtime tool call context
+## Runtime tool call context: resolved by FIX-4
 
-FIX-4 owns this production fix: pass the stable call ID into registered handoff tools on every runtime dispatch path, including native and resumed tool execution. HO-H will merge main and rerun all 24 journeys after that fix merges, without a test-only runtime workaround.
+FIX-4 merged in main `bfe30f8` and is integrated into HO-H. `node --import tsx tests/handoffs/e2e-loop-real.mjs` passes both scenarios: convergence and cap at three passes, each with three verdicts and six output receipts. The required Node suites pass 715 tests on HO-H and 667 on main. The full UI journeys and demo are being rerun without a test-only runtime workaround.
 
-`server/src/agent/loop.ts` calls `impl.impl(args, { ...ctx, depth: st.depth })` without `toolCallId`. `server/src/agent/handoff-tools.ts` requires `userId`, `botId`, `jobId` and `toolCallId`. A real Checker calls `submit_verdict`, receives `This tool needs an active run and a stable tool call id. Ask the user to retry from an active run.`, and the controller eventually stops with `no_verdict` on pass 1.
+Before FIX-4, `server/src/agent/loop.ts` omitted `toolCallId` when invoking registered handoff tools. A real Checker called `submit_verdict`, received `This tool needs an active run and a stable tool call id. Ask the user to retry from an active run.`, and stopped with `no_verdict` on pass 1.
 
-Reproduce: `node scripts/handoffs-demo.mjs`. The headless demo supplies a context directly and therefore does not catch this missing runtime argument. The live demo must reach both exact three-pass result sentences without a test-only runtime patch.
+Regression commands: `node --import tsx tests/handoffs/e2e-loop-real.mjs` and `node scripts/handoffs-demo.mjs`. The headless demo supplies a context directly and does not catch a missing runtime argument. The live demo must reach both exact three-pass result sentences.
 
-The post-polish demo records 32 distinct refused `submit_verdict` calls across 16 loop attempts. The mock provider emits the verdict, including the real checklist IDs; the runtime returns the missing-context refusal. Evidence: `.context/handoffs/demo-h/provider-requests.json` and `.context/handoffs/runtime-refusals-polish.json`.
+Historical evidence in `.context/handoffs/runtime-refusals-polish.json` records 32 refused `submit_verdict` calls across 16 loop attempts on main `56e65ba`. The provider emitted real verdict calls with the actual checklist IDs. Those failures are not evidence against FIX-4.
 
 ## Room and task event projection
 
