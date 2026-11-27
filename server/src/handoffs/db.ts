@@ -24,9 +24,7 @@ CREATE TABLE IF NOT EXISTS handoff_original_parts (
  body TEXT NOT NULL, PRIMARY KEY(output_id,part_id));
 CREATE TABLE IF NOT EXISTS handoff_payloads (
  handoff_id TEXT PRIMARY KEY REFERENCES handoffs(id) ON DELETE CASCADE, packet TEXT NOT NULL,
- include_sensitive INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS handoff_file_selections (
- handoff_id TEXT PRIMARY KEY REFERENCES handoffs(id) ON DELETE CASCADE, part_ids TEXT NOT NULL);
+ include_sensitive INTEGER NOT NULL DEFAULT 0, part_ids TEXT);
 CREATE TABLE IF NOT EXISTS handoff_loop_dispatches (
  loop_id TEXT NOT NULL REFERENCES loops(id) ON DELETE CASCADE, iteration INTEGER NOT NULL,
  step_id TEXT NOT NULL, attempt INTEGER NOT NULL, request_id TEXT REFERENCES coordination_requests(id) ON DELETE SET NULL,
@@ -48,6 +46,19 @@ CREATE TABLE IF NOT EXISTS handoff_tool_receipts (
  call_id TEXT NOT NULL, fingerprint TEXT NOT NULL, output_id TEXT NOT NULL REFERENCES run_outputs(id) ON DELETE CASCADE,
  PRIMARY KEY(user_id,job_id,call_id));
 `);
+// File grants share the payload's lifetime. Preserve NULL (all files) versus []
+// (no files) when upgrading an earlier HO-B database, then remove the extra table.
+db.transaction(() => {
+    if (!(db.pragma('table_info(handoff_payloads)') as { name: string }[]).some(column => column.name === 'part_ids'))
+        db.exec('ALTER TABLE handoff_payloads ADD COLUMN part_ids TEXT');
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='handoff_file_selections'").get()) {
+        if (db.prepare('SELECT 1 FROM handoff_file_selections s LEFT JOIN handoff_payloads p ON p.handoff_id=s.handoff_id WHERE p.handoff_id IS NULL LIMIT 1').get())
+            throw new Error('Cannot migrate handoff file grants without their payloads.');
+        db.exec(`UPDATE handoff_payloads SET part_ids=(SELECT part_ids FROM handoff_file_selections s WHERE s.handoff_id=handoff_payloads.handoff_id)
+ WHERE handoff_id IN (SELECT handoff_id FROM handoff_file_selections);
+ DROP TABLE handoff_file_selections;`);
+    }
+})();
 export class ServiceError extends HandoffError {
     constructor(code: string, message: string, readonly status: 400 | 404 | 409 | 410 | 422 | 429 | 503 = 400) { super(code as HandoffErrorCode, message); }
 }

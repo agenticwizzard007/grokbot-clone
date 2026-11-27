@@ -74,7 +74,7 @@ function dispatch(loop: Loop, step: LoopStep, index: number, attempt: number) {
     if (!priorHandoff) {
         db.prepare(`INSERT INTO handoffs(id,user_id,from_bot_id,to_bot_id,source_output_id,initiated_by,instruction,return_result,create_task,status,request_id,loop_id,iteration,step_id,idempotency_key,fingerprint,created_at,updated_at)
  VALUES(?,?,?,?,?,'loop',?,1,0,'queued',?,?,?,?,?,?,?,?)`).run(handoffId, loop.userId, source.botId, step.botId, source.id, step.instruction || loop.spec.goal, requestId, loop.id, loop.iteration, step.id, id, sha256(text), now(), now());
-        db.prepare('INSERT INTO handoff_payloads VALUES(?,?,0)').run(handoffId, text);
+        db.prepare('INSERT INTO handoff_payloads(handoff_id,packet,include_sensitive) VALUES(?,?,0)').run(handoffId, text);
         emitEvent(loop.userId, 'handoff.created', { outputId: source.id, toBotId: step.botId }, { loopId: loop.id, handoffId }, { type: 'handoff', id: handoffId, status: 'queued' });
     }
     db.prepare("UPDATE loop_steps SET status='dispatched',handoff_id=? WHERE loop_id=? AND iteration=? AND step_id=?").run(handoffId, loop.id, loop.iteration, step.id);

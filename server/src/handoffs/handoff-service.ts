@@ -118,11 +118,9 @@ export function createHandoff(userId: string, input: CreateHandoffInput, initiat
                 missing();
             return part.id;
         });
-        if (selected)
-            db.prepare('INSERT INTO handoff_file_selections VALUES(?,?)').run(id, JSON.stringify(selected));
         const packetOutput = selected ? { ...output, parts: output.parts.filter(p => p.kind !== 'file' || selected.includes(p.id)) } : output;
         const text = packet(userId, packetOutput, i.instruction, `[handoff ${id} from ${JSON.stringify(from.name)} to ${JSON.stringify(to.name)} | chain ${depth} of 5 | priority ${i.priority}]`, i.includeSensitive);
-        db.prepare('INSERT INTO handoff_payloads VALUES(?,?,?)').run(id, text, Number(i.includeSensitive));
+        db.prepare('INSERT INTO handoff_payloads(handoff_id,packet,include_sensitive,part_ids) VALUES(?,?,?,?)').run(id, text, Number(i.includeSensitive), selected ? JSON.stringify(selected) : null);
         // Suppress the transport's prose return; reconciliation creates one result packet.
         const requestId = enqueueInternalMessage(from.id, to.id, text, 0, { idempotencyKey: `ho:${id}` });
         db.prepare('UPDATE coordination_requests SET reply=0 WHERE id=? AND user_id=?').run(requestId, userId);
@@ -183,7 +181,7 @@ export function canReadOutput(ctx: HandoffContext, id: string) {
         missing();
     if (inLoop || seeded)
         return output;
-    const grants = db.prepare(`SELECT s.part_ids FROM handoffs h LEFT JOIN handoff_file_selections s ON s.handoff_id=h.id
+    const grants = db.prepare(`SELECT s.part_ids FROM handoffs h LEFT JOIN handoff_payloads s ON s.handoff_id=h.id
   WHERE h.user_id=? AND (h.source_output_id=? OR h.result_output_id=?) AND (h.from_bot_id=? OR h.to_bot_id=?)`).all(ctx.userId, id, id, ctx.botId, ctx.botId) as {
         part_ids: string | null;
     }[];
