@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_CONFIG, type PatchOp, type Violation } from '../ui-config/index.js';
+import { DEFAULT_CONFIG, uiConfigSchema, type UiConfig, type PatchOp, type Violation } from '../ui-config/index.js';
+import { equal } from '../ui-config/summarize.js';
 import { adaptFromRequirements, patchRequirements, requirementsProfileSchema, selectLens, type AdaptationState, type RequirementsProfile } from '../ui-config/adapt.js';
 import { LENS_IDS, type LensId } from '../ui-config/adapt-keywords.js';
 import { ADAPT_LENSES } from '../ui-config/adapt-lenses.js';
@@ -10,7 +11,7 @@ import type { SqliteUiConfigService } from './service.js';
 
 interface Row { doc: string; revision: number; updated_at: number; updated_by: string; adaptation: string }
 interface Pending { id: string; state?: AdaptationState; reset?: boolean }
-interface Ledger { state?: AdaptationState; pending?: Pending[]; undo?: { token: string; profile: RequirementsProfile | null; state?: AdaptationState; resetPreview: string; revision: number } }
+interface Ledger { state?: AdaptationState; seenRevision?: number; pending?: Pending[]; undo?: { token: string; profile: RequirementsProfile | null; state?: AdaptationState; resetPreview: string; revision: number } }
 export interface RequirementsOptions { clock?: () => number; flag?: () => string | undefined; staff?: () => string }
 const fail = (code: Violation['code'], message: string) => ({ ok: false as const, errors: [{ code, message, path: '' }] });
 
@@ -38,17 +39,37 @@ export class RequirementsStore {
   /** Applied previews alone claim managed paths. Discarded or expired previews never do. */
   private reconcile(userId: string) {
     const row = this.row(userId); if (!row) return;
-    const ledger = this.ledger(row); if (!ledger.pending?.length) return;
+    const ledger = this.ledger(row);
     let changed = false;
-    ledger.pending = ledger.pending.filter(item => {
+    ledger.pending = (ledger.pending ?? []).filter(item => {
       const preview = this.ui.getPreview(userId, item.id);
       if (preview?.status === 'pending') return true;
-      if (preview?.status === 'applied') { ledger.state = item.state; changed = true; }
+      if (preview?.status === 'applied') { ledger.state = item.state; ledger.seenRevision = preview.revision; changed = true; }
       return false;
     });
+    // An edit followed by a revert is still a hand edit. Replay retained config
+    // revisions so equality with the last adaptation does not reclaim it.
+    if (ledger.state && ledger.seenRevision !== undefined) {
+      const state = ledger.state;
+      const rows = this.db.prepare("SELECT revision,doc FROM ui_config_history WHERE user_id=? AND kind='config' AND revision>? ORDER BY revision")
+        .all(userId, ledger.seenRevision) as { revision: number; doc: string }[];
+      const value = (doc: UiConfig, path: string) => {
+        if (path.startsWith('/dashboards/')) return doc.dashboards.find(d => d.id === state.dashboardId);
+        return path.slice(1).split('/').reduce<unknown>((v, key) => v && typeof v === 'object' ? (v as Record<string, unknown>)[key] : undefined, doc);
+      };
+      for (const history of rows) {
+        if (history.revision !== ledger.seenRevision! + 1) state.managedPaths = []; // History expired: preserve rather than guess.
+        let doc: UiConfig | null = null;
+        try { const parsed = uiConfigSchema.safeParse(JSON.parse(history.doc)); if (parsed.success) doc = parsed.data; } catch { /* Preserve on corrupt history. */ }
+        state.managedPaths = doc ? state.managedPaths.filter(path => equal(value(doc!, path), value(state.doc, path))) : [];
+        ledger.seenRevision = history.revision; changed = true;
+      }
+    }
     const profile = this.parse(row);
     if (changed && profile) profile.managedPaths = ledger.state?.managedPaths ?? [];
-    this.db.prepare('UPDATE ui_requirements SET doc=?,adaptation=? WHERE user_id=?').run(canonical(profile), canonical(ledger), userId);
+    const doc = profile ? canonical(profile) : row.doc, adaptation = canonical(ledger);
+    if (doc !== row.doc || adaptation !== row.adaptation)
+      this.db.prepare('UPDATE ui_requirements SET doc=?,adaptation=? WHERE user_id=?').run(doc, adaptation, userId);
   }
   get(userId: string) {
     if (this.enabled(userId)) this.reconcile(userId);

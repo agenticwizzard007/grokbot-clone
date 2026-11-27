@@ -117,3 +117,14 @@ test('adaptation preview warm p95 stays under 150 ms', t => {
   const times: number[] = []; for (let i = 0; i < 100; i++) { const start = performance.now(); ok(store.preview('a', 1)); times.push(performance.now() - start); }
   times.sort((a, b) => a - b); console.log(`preview_adaptation p95: ${times[95].toFixed(2)} ms`); assert.ok(times[95] < 150);
 });
+
+test('a hand edit followed by a revert is never reclaimed by adaptation', t => {
+  const { ui, store } = fixture(t); ok(store.update('a', patch(), 0));
+  const first = ok(store.preview('a', 1)); ok(ui.applyPreview('a', first.previewId, 'user')); store.get('a');
+  const order = ui.get('a').doc.layout.sidebar.order;
+  ok(ui.patch('a', [{ op: 'replace', path: '/layout/sidebar/order', value: [...order].reverse() }], 1, 'user'));
+  ok(ui.patch('a', [{ op: 'replace', path: '/layout/sidebar/order', value: order }], 2, 'user'));
+  const next = ok(store.preview('a', 1, 'user', 'operations'));
+  assert.deepEqual(next.after.layout.sidebar.order, order);
+  assert.ok(next.kept.some(k => k.path === '/layout/sidebar/order'));
+});
