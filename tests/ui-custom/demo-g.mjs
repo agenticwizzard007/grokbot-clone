@@ -49,9 +49,9 @@ try {
     await page.getByRole('status', { name: 'Appearance preview', exact: true }).waitFor();
     await page.waitForTimeout(400);
     assert.equal(await page.getByRole('status', { name: 'Appearance preview', exact: true }).isVisible(), true, 'late pending SSE preserves the manual preview');
+    await shot('preset-preview');
     assert.ok(await page.evaluate(() => document.querySelector('.app').getBoundingClientRect().bottom <= innerHeight + 1), 'the signed-in shell fits below the preview banner');
     await page.waitForFunction(color => getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim().toUpperCase() === color, theme === 'light' ? '#0F766E' : '#5EEAD4');
-    await shot('preset-preview');
     await card.getByRole('button', { name: 'Apply', exact: true }).click();
     await waitForSaved(page, c => c.doc.preset === 'forest', 'preset');
     await shot('preset-applied'); pass('preset preview and Apply');
