@@ -57,16 +57,21 @@ export async function readyWidgets(page) {
 export async function assertGrid(page, width) {
   const geometry = await page.evaluate(() => {
     const grid = document.querySelector('.dashboard-grid'), bounds = grid.getBoundingClientRect(), style = getComputedStyle(grid);
-    return { columns: style.gridTemplateColumns.split(' ').length, width: bounds.width, gap: parseFloat(style.columnGap), overflow: document.documentElement.scrollWidth > innerWidth,
+    return { columns: style.gridTemplateColumns.split(' ').length, width: bounds.width, left: bounds.left, right: bounds.right, gap: parseFloat(style.columnGap), overflow: document.documentElement.scrollWidth > innerWidth,
       slots: [...grid.children].map(slot => { const rect = slot.getBoundingClientRect(); return { span: Number(slot.dataset.widgetSpan), rows: Number(slot.dataset.widgetRows), width: rect.width, height: rect.height, top: rect.top, left: rect.left, right: rect.right }; }) };
   });
   const columns = width <= 480 ? 2 : width <= 1023 ? 6 : 12;
-  assert.equal(geometry.columns, columns); assert.equal(geometry.overflow, false);
+  assert.equal(geometry.columns, columns); assert.equal(geometry.overflow, false); assert.equal(geometry.gap, 16);
   for (const slot of geometry.slots) {
     const span = width <= 480 ? slot.span <= 4 ? 1 : 2 : width <= 1023 ? Math.ceil(slot.span / 2) : slot.span;
     const expected = (geometry.width - geometry.gap * (columns - 1)) / columns * span + geometry.gap * (span - 1);
     assert.ok(Math.abs(slot.width - expected) <= 1, `span ${span}: ${slot.width} versus ${expected}`);
     for (const other of geometry.slots) if (Math.abs(slot.top - other.top) <= 1 && slot.rows === other.rows) assert.ok(Math.abs(slot.height - other.height) <= 1);
+  }
+  for (const slot of geometry.slots) {
+    const row = geometry.slots.filter(other => Math.abs(slot.top - other.top) <= 1);
+    const total = row.reduce((sum, item) => sum + (width <= 480 ? item.span <= 4 ? 1 : 2 : width <= 1023 ? Math.ceil(item.span / 2) : item.span), 0);
+    if (total === columns) { assert.ok(Math.abs(Math.min(...row.map(item => item.left)) - geometry.left) <= 1); assert.ok(Math.abs(Math.max(...row.map(item => item.right)) - geometry.right) <= 1); }
   }
   return geometry;
 }
