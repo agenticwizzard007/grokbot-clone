@@ -50,6 +50,7 @@ export const handoffApi = {
   saveLinks: (botId: string, links: LinkInput[]) => request<{ links: HandoffLink[] }>(`/handoff-links?${query({ botId })}`, 'PUT', { links }),
   settings: (signal?: AbortSignal) => request<{ settings: HandoffSettings }>('/handoff-settings', 'GET', undefined, signal),
   saveSettings: (settings: HandoffSettings) => request<{ settings: HandoffSettings }>('/handoff-settings', 'PUT', settings),
+  startLoop: (spec: LoopSpec, idempotencyKey: string) => request<{ loop: { id: string } }>('/loops', 'POST', { spec, idempotencyKey, start: true }),
 };
 
 export function eligibleAgents(agents: HandoffAgent[], senderId: string, roomMemberIds?: string[]) {

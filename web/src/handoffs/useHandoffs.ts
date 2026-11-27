@@ -11,9 +11,21 @@ export function useHandoffResource<T>(key: string, read: (signal: AbortSignal) =
   const [revision, setRevision] = useState(0);
   const retry = useCallback(() => setRevision(value => value + 1), []);
   useEffect(() => {
+    const event = (message: Event) => {
+      const type = (message as CustomEvent<{ type?: string }>).detail?.type;
+      if (type && ['handoff', 'output', 'reconnect'].includes(type)) retry();
+    };
+    const resume = () => { if (document.visibilityState !== 'hidden') retry(); };
     invalidations.addEventListener('change', retry);
     window.addEventListener('online', retry);
-    return () => { invalidations.removeEventListener('change', retry); window.removeEventListener('online', retry); };
+    window.addEventListener('swarm:event', event);
+    window.addEventListener('swarm:resume', resume);
+    document.addEventListener('visibilitychange', resume);
+    return () => {
+      invalidations.removeEventListener('change', retry); window.removeEventListener('online', retry);
+      window.removeEventListener('swarm:event', event); window.removeEventListener('swarm:resume', resume);
+      document.removeEventListener('visibilitychange', resume);
+    };
   }, [retry]);
   useEffect(() => {
     if (!enabled) { setState({ key, loading: false }); return; }
@@ -26,7 +38,7 @@ export function useHandoffResource<T>(key: string, read: (signal: AbortSignal) =
     });
     return () => controller.abort();
   }, [key, enabled, revision]);
-  return { ...(state.key === key ? state : { loading: enabled }), retry };
+  return { ...(state.key === key ? state : { data: undefined, error: undefined, loading: enabled }), retry };
 }
 
 /** Display copy is plain text, with machine headers and internal identifiers removed. */

@@ -3,19 +3,48 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { BotAvatar } from '../avatar/BotAvatar';
 import { ButtonGroup, Card, Page, Row, Section } from '../components/layout';
-import { eligibleAgents, handoffApi, linkInput, type Handoff, type HandoffAgent, type HandoffLink, type HandoffSource, type RunOutput } from './api';
+import { eligibleAgents, handoffApi, linkInput, type Handoff, type HandoffAgent, type HandoffLink, type HandoffSource, type RunOutput, type LoopSpec } from './api';
 import { errorText, handoffText, refreshHandoffs, useHandoffResource } from './useHandoffs';
 import { HandoffState } from './HandoffRow';
 import './handoffs.css';
 
 /** Optional HO-E module. Vite omits this entry until that workstream merges. */
 export interface KeepImprovingProps {
-  agents: HandoffAgent[]; senderId: string; toBotId: string; outputId?: string; instruction: string;
-  onStarted: (loopId: string) => void;
+  agents: HandoffAgent[]; senderId: string; toBotId: string; outputId: string; instruction: string;
+  title: string; onStarted: (loopId: string) => void; onPending: (pending: boolean) => void;
 }
-const loopModules = import.meta.glob<{ LoopFields: ComponentType<KeepImprovingProps> }>('./loops/LoopSheet.tsx');
+type LoopDraft = LoopSpec & { allowSameBotRoles?: boolean };
+interface LoopFieldsModule {
+  LoopFields: ComponentType<{ value: LoopDraft; onChange: (value: LoopDraft) => void; bots: HandoffAgent[]; compact: boolean; errors: Record<string, string> }>;
+  newLoopSpec: (maker: string, checker: string, outputRef: string) => LoopDraft;
+  validateLoop: (value: LoopDraft, bots: HandoffAgent[], compact: boolean) => Record<string, string>;
+}
+const loopModules = import.meta.glob<LoopFieldsModule>('./loops/LoopSheet.tsx');
 const loadLoop = loopModules['./loops/LoopSheet.tsx'];
-const LoopFields = loadLoop ? lazy(() => loadLoop().then(module => ({ default: module.LoopFields }))) : null;
+const LoopFields = loadLoop ? lazy(() => loadLoop().then(module => ({ default: (props: KeepImprovingProps) => <KeepImproving {...props} module={module} /> }))) : null;
+
+function KeepImproving({ module, agents, senderId, toBotId, outputId, title, instruction, onStarted, onPending }: KeepImprovingProps & { module: LoopFieldsModule }) {
+  const [value, setValue] = useState(() => module.newLoopSpec(toBotId, senderId, `swarm://output/${outputId}`));
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
+  const lock = useRef(false), attempt = useRef({ key: crypto.randomUUID(), signature: '' });
+  async function start() {
+    if (lock.current) return;
+    const spec = { ...value, name: title.slice(0, 80), goal: instruction.trim(), steps: value.steps.map((step, index) => index === 0 ? { ...step, instruction: instruction.trim() } : step) };
+    const invalid = module.validateLoop(spec, agents, true); setErrors(invalid); setError('');
+    if (Object.keys(invalid).length) return;
+    const signature = JSON.stringify(spec);
+    if (attempt.current.signature && attempt.current.signature !== signature) attempt.current.key = crypto.randomUUID();
+    attempt.current.signature = signature; lock.current = true; onPending(true);
+    try { const result = await handoffApi.startLoop(spec, attempt.current.key); refreshHandoffs(); onStarted(result.loop.id); }
+    catch (reason) { setError(errorText(reason)); }
+    finally { lock.current = false; onPending(false); }
+  }
+  return <><module.LoopFields value={value} onChange={setValue} bots={agents} compact errors={errors} />
+    {Object.keys(errors).length > 0 && <p role="alert">Check the highlighted fields.</p>}
+    {error && <p className="ho-error" role="alert">{error}</p>}
+    <button className="ho-button ho-button--primary" onClick={() => void start()}>Start loop</button></>;
+}
 
 export interface SendSheetProps {
   open: boolean; onClose: () => void; senderId: string;
@@ -41,6 +70,8 @@ function SendSession({ onClose, senderId, output, source, title, initialTargetId
   const [error, setError] = useState('');
   const [offered, setOffered] = useState(false);
   const lock = useRef(false);
+  const mounted = useRef(true);
+  const appliedTemplate = useRef(false);
   const attempt = useRef({ signature: '', key: crypto.randomUUID() });
   const targets = useHandoffResource(`targets:${senderId}`, async signal => {
     const [agents, links] = await Promise.all([handoffApi.agents(signal), handoffApi.links(senderId, signal)]);
@@ -56,11 +87,13 @@ function SendSession({ onClose, senderId, output, source, title, initialTargetId
 
   useEffect(() => {
     const element = dialog.current!, opener = document.activeElement;
+    mounted.current = true;
     element.showModal();
-    return () => { element.close(); if (opener instanceof HTMLElement && opener.isConnected) opener.focus(); };
+    return () => { mounted.current = false; element.close(); if (opener instanceof HTMLElement && opener.isConnected) opener.focus(); };
   }, []);
   useEffect(() => {
-    if (initialTargetId && targets.data) {
+    if (initialTargetId && targets.data && !appliedTemplate.current) {
+      appliedTemplate.current = true;
       const link = targets.data.links.find(link => link.toBotId === initialTargetId);
       if (link?.template) setInstruction(expandTemplate(link, output));
     }
@@ -80,7 +113,7 @@ function SendSession({ onClose, senderId, output, source, title, initialTargetId
     attempt.current.signature = signature;
     try {
       const { handoff } = await handoffApi.send({ ...body, idempotencyKey: attempt.current.key });
-      refreshHandoffs(); onSent(handoff, target); closeRef.current();
+      refreshHandoffs(); onSent(handoff, target); if (mounted.current) closeRef.current();
     } catch (reason) { setError(errorText(reason)); }
     finally { lock.current = false; setBusy(false); }
   }
@@ -99,6 +132,15 @@ function SendSession({ onClose, senderId, output, source, title, initialTargetId
     finally { lock.current = false; setBusy(false); }
   }
   return createPortal(<dialog ref={dialog} className="ho ho-dialog" aria-labelledby={headingId}
+    onKeyDown={event => {
+      if (event.key !== 'Tab') return;
+      const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button, a[href], input, textarea, select, [tabindex]')]
+        .filter(element => !element.matches(':disabled') && element.tabIndex >= 0 && element.getClientRects().length > 0);
+      const first = controls[0], last = controls[controls.length - 1];
+      if (!first) { event.preventDefault(); event.currentTarget.focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }}
     onCancel={event => { event.preventDefault(); closeRef.current(); }}>
     <Page type="form">
       <header className="ho-dialog-heading"><h1 id={headingId}>Send to agent</h1><button className="ho-button ho-close" aria-label="Close" onClick={onClose} autoFocus><X size={20} aria-hidden="true" /></button></header>
@@ -109,16 +151,16 @@ function SendSession({ onClose, senderId, output, source, title, initialTargetId
           <HandoffState loading={!targets.data && targets.loading} error={targets.error} retry={targets.retry} empty={!targets.loading && !visible.length ? 'No available agents' : undefined} />
           <div className="ho-targets" role="group" aria-label="To">
             {visible.map(bot => <button key={bot.id} className={`ho-target${targetId === bot.id ? ' is-selected' : ''}`} aria-pressed={targetId === bot.id} onClick={() => choose(bot)}>
-              <Row leading={<BotAvatar shape={bot.avatarShape} color={bot.avatarColor} size={20} />} title={handoffText(bot.name)} subtitle={handoffText(bot.label)} trailing={suggested.has(bot.id) ? <span className="ho-chip">Suggested</span> : undefined} />
+              <Row leading={<span aria-hidden="true"><BotAvatar shape={bot.avatarShape} color={bot.avatarColor} size={20} /></span>} title={handoffText(bot.name)} subtitle={handoffText(bot.label)} trailing={suggested.has(bot.id) ? <span className="ho-chip">Suggested</span> : undefined} />
             </button>)}
           </div>
         </Section>
-        <label className="ho-field" htmlFor={askId}>Ask<textarea id={askId} rows={3} maxLength={1000} value={instruction} aria-describedby={error ? errorId : undefined} onChange={event => setInstruction(event.target.value)} /></label>
+        <div className="ho-field"><label htmlFor={askId}>Ask</label><textarea id={askId} rows={3} maxLength={1000} value={instruction} aria-describedby={error ? errorId : undefined} onChange={event => setInstruction(event.target.value)} /></div>
         {instruction.length >= 900 && <span className="ho-counter">{instruction.length} / 1000</span>}
         <Card variant="list"><Row title={<label className="ho-check"><input type="checkbox" checked={returnResult} onChange={event => setReturnResult(event.target.checked)} />Send result back to me</label>} />
-          {LoopFields && onLoopStarted && <Row title={<label className="ho-check"><input type="checkbox" checked={keepImproving} onChange={event => setKeepImproving(event.target.checked)} />Keep improving</label>} />}
+          {LoopFields && output && onLoopStarted && <Row title={<label className="ho-check"><input type="checkbox" checked={keepImproving} onChange={event => setKeepImproving(event.target.checked)} />Keep improving</label>} />}
         </Card>
-        {keepImproving && LoopFields && target && onLoopStarted ? <Suspense fallback={<HandoffState loading />}><LoopFields agents={targets.data?.agents ?? []} senderId={senderId} toBotId={target.id} outputId={output?.id} instruction={instruction} onStarted={loopId => { onLoopStarted(loopId); onClose(); }} /></Suspense> :
+        {keepImproving && LoopFields && target && output && onLoopStarted ? <Suspense fallback={<HandoffState loading />}><LoopFields key={target.id} agents={(targets.data?.agents ?? []).filter(bot => bot.id === senderId || agents.some(agent => agent.id === bot.id))} senderId={senderId} toBotId={target.id} outputId={output.id} title={output.title} instruction={instruction} onPending={setBusy} onStarted={loopId => { onLoopStarted(loopId); onClose(); }} /></Suspense> :
           <ButtonGroup><button className="ho-button ho-button--primary" disabled={!target || !selectedSource || !instruction.trim() || busy} onClick={() => void send()}>{busy ? 'Sending' : 'Send'}</button></ButtonGroup>}
         {target && <button className="ho-button ho-button--quiet" disabled={busy || offered || !instruction.trim()} onClick={() => void offer()}>{offered ? 'Always offered' : 'Always offer this'}</button>}
       </fieldset>
