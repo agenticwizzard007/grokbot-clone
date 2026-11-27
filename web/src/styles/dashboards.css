@@ -151,5 +151,8 @@
 }
 @media (max-width: 480px) {
   .dashboard-grid--editing .dashboard-grid-slot { grid-column: span 2; }
+  .dashboard-settings .cfg-seg { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
   .dashboard-empty .layout-button-group { flex-direction: column; }
 }
+
+.dashboard-table .dashboard-status > span { display: none; }

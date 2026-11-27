@@ -39,7 +39,7 @@
 .appearance-settings .cfg-seg button { min-height: 44px; border-radius: var(--radius-sm); }
 .appearance-helper { font-size: 13px; line-height: 20px; padding-block: 8px; }
 @media (max-width: 760px) {
-  .appearance-dashboard-row > .layout-row__text, .appearance-dashboard-row > .layout-row__trailing { flex: 1 1 100%; width: 100%; }
+  .appearance-dashboard-row > .layout-row__text, .appearance-dashboard-row > .layout-row__trailing, .appearance-section[aria-label='Manage'] .layout-row__text, .appearance-section[aria-label='Manage'] .layout-row__trailing { flex: 1 1 100%; width: 100%; }
 }
 
 .appearance-button { display: flex; }

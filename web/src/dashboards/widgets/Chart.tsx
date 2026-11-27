@@ -28,7 +28,7 @@ export default function Chart({ widget, data }: WidgetProps) {
     <div className="dashboard-chart-values"><span>{formatValue(0)}</span></div>
     <div className="dashboard-chart-labels"><span>{formatDay(rows[0].day ?? rows[0].state)}</span><span>{formatDay(rows.at(-1)?.day ?? rows.at(-1)?.state)}</span></div>
     {fields.length > 1 && <div className="dashboard-chart-legend">{fields.map(field => <span key={field}>{fieldLabel(field)}</span>)}</div>}
-    <table className="dashboard-sr-only"><caption>{widgetLabel(widget)} data</caption><thead><tr><th scope="col">Day or state</th>{fields.map(field => <th scope="col" key={field}>{fieldLabel(field)}</th>)}</tr></thead>
+    <table className="dashboard-sr-only sr-only"><caption>{widgetLabel(widget)} data</caption><thead><tr><th scope="col">Day or state</th>{fields.map(field => <th scope="col" key={field}>{fieldLabel(field)}</th>)}</tr></thead>
       <tbody>{rows.map((row, index) => <tr key={index}><th scope="row">{String(row.day ?? row.state)}</th>{fields.map(field => <td key={field}>{String(row[field] ?? 0)}</td>)}</tr>)}</tbody></table>
   </div>;
 }

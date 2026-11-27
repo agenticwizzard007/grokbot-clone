@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { readableWords } from '../paper-label-geometry.mjs';
 import { dashboardFixture, widgetTypes, readyWidgets, patch, inspectAlignment, assertGrid } from './dashboard-fixture.mjs';
 
 const before = process.argv.includes('--before');
-const output = path.resolve(`.context/ui-custom/polish-${before ? 'before' : 'after'}`);
+const output = path.resolve(process.env.POLISH_OUTPUT || `.context/ui-custom/polish-${before ? 'before' : 'after'}`);
 fs.mkdirSync(output, { recursive: true });
-let server;
+let server, failure;
 const checks = [], screenshots = [], counts = [];
 const forbidden = /mock|Fixture|PRIVATE|QA-|undefined|null|\[object/i;
 async function capture(page, name, width, theme, selector) {
@@ -23,6 +24,12 @@ async function capture(page, name, width, theme, selector) {
       return box.height < 43.5 ? [`${el.textContent || el.getAttribute('aria-label')}: ${box.height}`] : [];
     }));
     assert.deepEqual(issues, [], `${name}: targets`);
+    await readableWords(root);
+    const switches = await root.locator('[role="switch"]').evaluateAll(elements => elements.map(el => {
+      const knob = el.querySelector('.toggle__knob').getBoundingClientRect(), target = el.getBoundingClientRect();
+      return knob.left >= target.left && knob.right <= target.right && knob.top >= target.top && knob.bottom <= target.bottom && knob.width === 20;
+    }));
+    assert.ok(switches.every(Boolean), `${name}: switch knobs stay inside their targets`);
     checks.push(`${name} ${width} ${theme}: alignment, touch targets and clean visible text`);
   }
 }
@@ -33,8 +40,8 @@ try {
     const widgets = await page.evaluate(async types => {
       const { defaultWidget } = await import('/src/dashboards/model.ts');
       const titles = ['Total tasks', 'Open tasks', 'Task overview', 'Cost by day', 'Usage', 'Assistants', 'Task board', 'Upcoming routines', 'Weekly focus', 'Quick links'];
-      return types.map((type, i) => ({ ...defaultWidget(type), id: `$new${i + 2}`, title: titles[i], span: 6, rows: 4,
-        ...(type === 'note' ? { options: { text: 'Review the launch plan.' } } : {}) }));
+      return types.map((type, i) => ({ ...defaultWidget(type), id: `$new${i + 2}`, title: titles[i], span: type === 'taskBoard' ? 12 : 6, rows: ['stat', 'meter', 'botStatus', 'note', 'shortcuts'].includes(type) ? 2 : type === 'taskBoard' ? 5 : 3,
+        ...(type === 'note' ? { options: { text: 'Review the launch plan.' } } : {}) })).sort((a, b) => ['stat','meter','list','chart','table','botStatus','taskBoard','routineSchedule','note','shortcuts'].indexOf(a.type) - ['stat','meter','list','chart','table','botStatus','taskBoard','routineSchedule','note','shortcuts'].indexOf(b.type));
     }, widgetTypes);
     await patch(page, [{ op: 'replace', path: '/dashboards', value: [{ id: '$new1', name: 'My week', icon: 'layout-dashboard', widgets }, { id: '$new20', name: 'Daily summary', icon: 'layout-dashboard', widgets: [] }] }]);
     const boards = await page.evaluate(async () => (await import('/src/customization/store.ts')).useCustomization.getState().saved.dashboards);
@@ -55,7 +62,7 @@ try {
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.getByRole('button', { name: 'Add widget', exact: true }).click();
     await capture(page, 'add-widget', width, theme, '.dashboard-dialog');
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByRole('button', { name: before ? 'Cancel' : 'Close', exact: true }).click();
     await page.goto(`${server.base}/#dash/${boards[1].id}`); await page.getByText('Your dashboard is empty.', { exact: true }).waitFor();
     await capture(page, 'empty-dashboard', width, theme, '.dashboard-page');
     await page.goto(`${server.base}/#settings/appearance`); await page.locator('.appearance-fields').waitFor();
@@ -71,9 +78,9 @@ try {
     await capture(page, 'delete-confirm', width, theme, '.appearance-dialog');
     await page.context().close(); await server.close(); server = undefined;
   }
-} finally {
+} catch (error) { failure = error.message; throw error; } finally {
   await server?.close();
-  fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify({ passed: checks.length, failed: 0, counts, checks, screenshots }, null, 2));
+  fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify({ passed: checks.length, failed: failure ? 1 : 0, failure, counts, checks, screenshots }, null, 2));
 }
 async function wordCount(page) {
   return page.locator('.shell-content').evaluate(root => {
