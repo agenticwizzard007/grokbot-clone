@@ -4,11 +4,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
+import { preparePbeState } from './paper-pbe-states.mjs';
 import { layoutServer } from './layout-fixture.mjs';
 
 export const ROUTES = [
   { name: 'bots', hash: '#bots', owner: 'PB-D', enforce: true },
-  { name: 'chat', hash: '#bot/{bot}', owner: 'PB-E', enforce: false },
+  { name: 'chat', hash: '#bot/{bot}', owner: 'PB-E', enforce: true },
   { name: 'room', hash: '#bot/{room}', owner: 'PB-D', enforce: true },
   ...['', '/group'].map(suffix => ({ name: `create-bot${suffix}`, hash: `#new-bot${suffix}`, owner: 'PB-D', enforce: true })),
   ...['activity', 'tasks', 'files', 'files/reports', 'setup', 'setup/responsibilities', 'setup/harness', 'setup/files', 'setup/history'].map(tab => ({ name: `bot-${tab}`, hash: `#bot/{bot}/details/${tab}`, owner: 'PB-D', enforce: true })),
@@ -16,14 +17,16 @@ export const ROUTES = [
   { name: 'settings', hash: '#settings', owner: 'PB-C', enforce: true },
   ...['general', 'account', 'messaging', 'usage', 'learning', 'computer', 'permissions', 'subscriptions', 'keys', 'apps', 'mcp'].map(section => ({ name: `settings-${section}`, hash: `#settings/${section}`, owner: 'PB-C', enforce: true })),
   ...['tasks', 'team', 'goals', 'reports'].flatMap(tab => [
-    { name: tab, hash: `#${tab}`, owner: 'PB-E', enforce: false },
-    { name: `scoped-${tab}`, hash: `#bot/{bot}/${tab}`, owner: 'PB-E', enforce: false },
+    { name: tab, hash: `#${tab}`, owner: 'PB-E', enforce: true },
+    { name: `scoped-${tab}`, hash: `#bot/{bot}/${tab}`, owner: 'PB-E', enforce: true },
   ]),
-  { name: 'search', hash: '#search', owner: 'PB-E', enforce: false },
+  ...['empty', 'loading', 'approval', 'declined', 'voice', 'error'].map(state => ({ name: `chat-${state}`, hash: '#bot/{bot}', state, owner: 'PB-E', enforce: true })),
+  { name: 'first-run', hash: '#first-run', owner: 'PB-E', enforce: true },
+  { name: 'search', hash: '#search', owner: 'PB-E', enforce: true },
   { name: 'connect-apps', hash: '#apps/connect', owner: 'PB-C', enforce: true },
-  { name: 'sign-in', hash: '', signedOut: true, owner: 'PB-E', enforce: false },
-  { name: 'sign-in-code', hash: '', signedOut: true, code: true, owner: 'PB-E', enforce: false },
-  { name: 'join', hash: '/join/layout-fixture', signedOut: true, owner: 'PB-E', enforce: false },
+  { name: 'sign-in', hash: '', signedOut: true, owner: 'PB-E', enforce: true },
+  { name: 'sign-in-code', hash: '', signedOut: true, code: true, owner: 'PB-E', enforce: true },
+  { name: 'join', hash: '/join/layout-fixture', signedOut: true, owner: 'PB-E', enforce: true },
 ];
 
 /** Browser-side geometry checks, also reused by the Settings matrix. */
@@ -43,7 +46,9 @@ export function inspectAlignment({ selector = '.shell-content > :not(.shell-head
       // A closed popup has no visibility; a scrollable carousel is still a layout issue.
       issues.push(`Outside viewport: ${label(el)}`);
     }
-    if (el.matches('button, [role="button"], [data-layout="row"]') && r.height < 43) issues.push(`Below 44px (${r.height}): ${label(el)}`);
+    // The approved stable composer has 36px controls inside its 52/84px frame.
+    const minControl = el.closest('.composer') ? 35 : 43;
+    if (el.matches('button, [role="button"], [data-layout="row"]') && r.height < minControl) issues.push(`Below 44px (${r.height}): ${label(el)}`);
     if (el.dataset.layout === 'page') {
       if (!close(parseFloat(cs.paddingLeft), parseFloat(cs.paddingRight))) issues.push(`Unequal Page padding: ${label(el)}`);
       const p = rect(el.parentElement);
@@ -90,7 +95,7 @@ async function main() {
       await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
       await context.addInitScript(() => { localStorage.setItem('swarm.theme', 'light'); localStorage.setItem('swarm.sidebarCollapsed', '0'); });
       const page = await context.newPage(); page.setDefaultTimeout(15000);
-      for (const route of ROUTES) {
+      for (const route of ROUTES.filter(route => !process.env.LAYOUT_OWNER || route.owner === process.env.LAYOUT_OWNER)) {
         if (route.signedOut) await context.clearCookies();
         const hash = route.hash.replace('{bot}', server.fixture.bot.id).replace('{room}', server.fixture.room);
         let issues;
@@ -108,6 +113,7 @@ async function main() {
           if (route.enforce) await page.locator('[data-layout="page"]:visible').first().waitFor();
           await page.evaluate(() => document.fonts.ready);
           await page.waitForTimeout(350);
+          if (route.state) await preparePbeState(page, route.state, server.fixture.bot.id);
           issues = await page.evaluate(inspectAlignment, {});
         } catch (e) { issues = [`Could not open: ${e.message.split('\n')[0]}`]; }
         report.push({ ...route, width, issues });

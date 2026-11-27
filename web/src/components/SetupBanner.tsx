@@ -1,3 +1,4 @@
+import { Card, ButtonGroup } from './layout';
 import { useState } from 'react';
 import type { Bot } from '@shared/types';
 import { api } from '../lib/api';
@@ -37,11 +38,11 @@ export function SetupBanner({ bot }: { bot: Bot }) {
       if (useStore.getState().user?.id === accountId) toast((error as Error).message || 'Could not skip setup', { tone: 'error' });
     } finally { setBusy(false); }
   };
-  return <div className="setup-banner" role="region" aria-label={`${bot.name} setup`}>
-    <span className="setup-banner__text">{bot.name} is being set up. Answer a few questions, or start using it now.</span>
-    <span className="setup-banner__actions">
-      <button type="button" className="btn btn--sm btn--secondary" onClick={() => openSetupDetails(bot.id)}>Review and activate</button>
+  return <Card className="setup-banner" role="region" aria-label={`${bot.name} setup`}>
+    <span className="setup-banner__text">Finish setup</span>
+    <ButtonGroup stack className="setup-banner__actions">
+      <button type="button" className="btn btn--sm btn--secondary" onClick={() => openSetupDetails(bot.id)}>Review setup</button>
       <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={skip}>{busy ? 'Skipping...' : 'Skip setup'}</button>
-    </span>
-  </div>;
+    </ButtonGroup>
+  </Card>;
 }

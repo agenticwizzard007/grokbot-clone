@@ -20,18 +20,14 @@ await build({ root, build: { outDir, emptyOutDir: true }, plugins: [{
 const vite = await preview({ root, build: { outDir }, preview: { host: '127.0.0.1', port: 0 } });
 process.env.UI_ORIGIN = `http://127.0.0.1:${vite.httpServer.address().port}`;
 const { fixturePage, origin } = await import('./qa-r3-work-fixture.mjs');
-const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 const results = [];
-let lastPage;
 const samples = [
   { name: 'claude-max', provider: 'claude-cli', billing: 'plan', plan: 'max', mark: 'claude', id: 'claude-opus-5-5', label: 'Claude Opus 5.5' },
   { name: 'codex-plan', provider: 'codex-cli', billing: 'plan', mark: 'openai', id: 'codex/default', label: 'Codex' },
   { name: 'grok-api', provider: 'openrouter', billing: 'api', mark: 'xai', id: 'x-ai/grok-4.7', label: 'Grok 4.7' },
 ];
-try {
-  for (const width of [320, 390, 480, 500, 768, 1280]) for (const theme of ['light', 'dark']) for (const sample of samples) {
+async function checkCase(browser, { width, theme, sample }) {
     const { page, fixture, errors, writes } = await fixturePage(browser, { width, height: 900 });
-    lastPage = page;
     await page.emulateMedia({ colorScheme: theme });
     await page.addInitScript(theme => localStorage.setItem('swarm.theme', theme), theme);
     fixture.bots.push({ ...fixture.bots[1], id: 'fixture-room', name: 'Project room', kind: 'room', members: ['coordinator', 'research-bot'] });
@@ -189,10 +185,26 @@ try {
     assert.deepEqual(errors, []);
     assert.ok(writes.every(write => write.path === '/api/voice/end'), 'only local End calls were made');
     await page.context().close();
-  }
+}
+try {
+  // Separate browsers prevent sibling pages from triggering each other's
+  // window-focus model refresh while geometry is being sampled.
+  const cases = [320, 390, 480, 500, 768, 1280].flatMap(width => ['light', 'dark'].flatMap(theme => samples.map(sample => ({ width, theme, sample }))));
+  let next = 0;
+  const workers = await Promise.allSettled(Array.from({ length: 3 }, async (_, worker) => {
+    const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+    try {
+      while (next < cases.length) await checkCase(browser, cases[next++]);
+    } catch (error) {
+      const page = browser.contexts().flatMap(context => context.pages()).at(-1);
+      if (page && !page.isClosed()) await page.screenshot({ path: `${evidence}/failure-${worker}.png` });
+      throw error;
+    } finally { await browser.close(); }
+  }));
+  const failures = workers.filter(result => result.status === 'rejected');
+  if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Composer matrix failed');
+  assert.equal(results.length, 44, 'Every composer case runs');
+  results.sort((a, b) => a.width - b.width || a.theme.localeCompare(b.theme) || a.sample.localeCompare(b.sample) || a.bot.localeCompare(b.bot));
   await writeFile(`${evidence}/results.json`, JSON.stringify(results, null, 2));
   console.log(`PASS ${results.length} composer layout cases with typing, voice, sibling inputs and viewport checks`);
-} catch (error) {
-  if (lastPage && !lastPage.isClosed()) await lastPage.screenshot({ path: `${evidence}/failure.png` });
-  throw error;
-} finally { await browser.close(); await new Promise(resolve => vite.httpServer.close(resolve)); }
+} finally { await new Promise(resolve => vite.httpServer.close(resolve)); }

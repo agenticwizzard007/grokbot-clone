@@ -1,3 +1,4 @@
+import { Card as LayoutCard, ButtonGroup } from '../layout';
 import { PreviewBody, plainBodyText } from './PreviewBody';
 import { ConnectedAccountDetails, type DisplayAccount } from '../ConnectedAccountDetails';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
@@ -46,7 +47,7 @@ export function ApprovalCard({ body }: { body: Card<'approval'> }) {
   const ref = useRef<HTMLDivElement>(null);
   useRefocusOnResolve(pending, ref);
   return (
-    <div ref={ref} className={`card approval-card${pending ? '' : ' is-resolved'}`}>
+    <div ref={ref} className="approval-anchor"><LayoutCard className={`card approval-card${pending ? '' : ' is-resolved'}`}>
       <div className="card__head">
         {body.toolkit || body.toolkitName ? <ToolkitLogo slug={body.toolkit} name={name} logo={body.logo} size={44} /> : <BuiltinToolIcon tool={body.tool} />}
         <div className="card__titles">
@@ -58,11 +59,11 @@ export function ApprovalCard({ body }: { body: Card<'approval'> }) {
       <Suspense fallback={<div className="card__body" role="status">Loading preview…</div>}><ActionPreview tool={body.tool} args={body.args} /></Suspense>
       {pending ? (
         <>
-          <div className="card__actions">
+          <ButtonGroup stack className="card__actions">
             <button type="button" className="btn btn--secondary" disabled={!!busy} onClick={() => decide('deny')}>Don't allow</button>
             {body.tool !== 'update_profile:timezone' && <button type="button" className="btn btn--secondary" disabled={!!busy} onClick={() => decide('always')}>Always allow</button>}
             <button type="button" className="btn btn--primary" disabled={!!busy} onClick={() => decide('allow')}>Allow</button>
-          </div>
+          </ButtonGroup>
           {error && <div className="card__error" role="alert">{clean(error)}</div>}
         </>
       ) : (
@@ -71,7 +72,7 @@ export function ApprovalCard({ body }: { body: Card<'approval'> }) {
           {APPROVAL_OUTCOME[status]}
         </div>
       )}
-    </div>
+    </LayoutCard></div>
   );
 }
 

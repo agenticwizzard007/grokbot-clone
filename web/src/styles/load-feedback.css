@@ -6,3 +6,11 @@
 .transcript-wrap:has(> .load-feedback) > .transcript { position: relative; flex: 1; min-height: 0; }
 
 .boot--data { display: grid; place-items: center; min-height: 100%; }
+
+.load-feedback.layout-card { padding: var(--space-3); border-radius: var(--radius-card); }
+.chat-dock .setup-banner.layout-card { width: 100%; max-width: none; margin: 0; padding: var(--space-3); border-radius: var(--radius-card); }
+.connection-feedback { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); background: var(--color-warn-bg); }
+.plan-feedback { display: grid; gap: var(--space-3); }
+.plan-feedback__status { border-radius: var(--radius-full); padding: 4px 8px; background: var(--color-danger-bg); color: var(--color-danger-text); font-size: 12px; }
+.message-skeleton.layout-card { width: 100%; padding: var(--space-3); border-radius: var(--radius-card); }
+.message-skeleton p { margin: 0; color: var(--color-text-2); }

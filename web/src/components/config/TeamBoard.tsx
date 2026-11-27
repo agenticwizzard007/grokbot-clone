@@ -1,4 +1,4 @@
-import { plural } from '@shared/lib/plural';
+import { Card } from '../layout';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { teamApi, type TeamState } from '../../lib/teamApi';
 import { useNativeRefresh } from '../../lib/useNativeRefresh';
@@ -25,15 +25,15 @@ function label(value: string) {
 
 function TeamDisclosure({ title, copy, button = title, children, onOpen }: { title: string; copy: string; button?: string; children: ReactNode; onOpen?: () => void }) {
   const [open, setOpen] = useState(false);
-  return <div className="work-row">
-    <div className="work-row__body"><div><h3>{title}</h3><p className="work-meta">{copy}</p></div>
+  return <Card className="work-row">
+    <div className="work-row__body"><div><h3>{title}</h3></div>
       <button type="button" className="work-button" aria-expanded={open} onClick={() => { setOpen(!open); if (!open) onOpen?.(); }}>{button}</button>
     </div>
-    {open && <div className="work-stack">{children}</div>}
-  </div>;
+    {open && <div className="work-stack"><p className="work-meta">{copy}</p>{children}</div>}
+  </Card>;
 }
 
-export function TeamBoard({ botId, onGoals }: { botId?: string; onGoals?: () => void }) {
+export function TeamBoard({ botId }: { botId?: string; onGoals?: () => void }) {
   const userId = useStore(s => s.user?.id);
   const bots = useStore(s => s.bots);
   const [state, setState] = useState<TeamState | null>(null), [error, setError] = useState('');
@@ -79,22 +79,18 @@ export function TeamBoard({ botId, onGoals }: { botId?: string; onGoals?: () => 
     {error && <p className="work-error" role="alert">{state ? 'Board could not refresh. Showing the last loaded records. ' : ''}{error}</p>}
     {!state && !error && <p role="status">Loading team state…</p>}
     {state && healthy && <>
-      <div className="work-row">
-        <h3>Team snapshot</h3><p className="work-meta">{new Date(state.generatedAt).toLocaleString()} · Runtime {label(healthy.runtime).toLowerCase()}{healthy.lastTickAt ? ` · Last check ${new Date(healthy.lastTickAt).toLocaleTimeString()}` : ' · No runtime check recorded'}</p>
-        {healthy.lastError && <p className="work-error">Runtime: {healthy.lastError}</p>}
-        <label className="team-coordination"><input type="checkbox" role="switch" checked={enabledReceipt ?? healthy.runtime !== 'disabled'} disabled={setting || readBusy || !!error} onChange={event => void toggle(event.currentTarget.checked)} /> Account coordination</label>
-        <p className="work-meta">Applies to all Bots in this account. Turning coordination off keeps existing work and history visible.</p>
+      <Card className="work-row">
+        <label className="team-coordination"><input type="checkbox" role="switch" checked={enabledReceipt ?? healthy.runtime !== 'disabled'} disabled={setting || readBusy || !!error} onChange={event => void toggle(event.currentTarget.checked)} /> Coordination</label>
         {setting && <p role="status">Saving coordination preference…</p>}
         {settingError && <p className="work-error" role="alert">{settingError}</p>}
-        {!!state.humanSources?.pending && !botId && <p className="work-meta">{plural(state.humanSources.pending, 'user update')} waiting for coordinator review.</p>}
-        {Object.values(state.coverage ?? {}).some(coverage => coverage.omitted > 0) && <p className="work-meta">This snapshot is limited. More job records are available in work history.</p>}
-      </div>
-      {scoped(state.agents).map(agent => <div className="work-row" key={agent.botId}><div className="work-row__body">
-        <div><h3>{agent.name}</h3><p className="work-meta">{agent.pendingDecision ? 'Waiting for your decision' : label(agent.status)}{agent.isPrimary ? ' · Coordinator' : agent.parentBotId ? ' · Temporary helper' : ''}{agent.observation === 'no_recent_progress_observed' ? ' · No recent progress recorded' : ''}</p></div>
-        {bots.some(bot => bot.id === agent.botId) && <button className="work-button" type="button" aria-label={`Open ${agent.name} chat`} onClick={() => openWorkChat(agent.botId)}>Open chat</button>}
-      </div></div>)}
-      {!scoped(state.agents).length && <div className="work-row"><p className="work-meta">No Bots were found in this scope.</p></div>}
-      {scoped(state.goals ?? []).map(goal => <div className="work-row" key={goal.id}><h3>{goal.title}</h3><p className="work-meta">Goal {goalStatusLabel(goal).toLowerCase()} · Owner {name(goal.botId)}{goal.reason ? ` · ${goal.reason}` : ''}</p></div>)}
+      </Card>
+      {scoped(state.agents).map(agent => <Card className="work-row" key={agent.botId}><div className="work-row__body">
+        <div><h3>{agent.name}</h3><p className="work-meta">{agent.pendingDecision ? 'Needs you' : label(agent.status)}</p></div>
+        {bots.some(bot => bot.id === agent.botId) && <button className="work-button" type="button" aria-label={`Open ${agent.name} chat`} onClick={() => openWorkChat(agent.botId)}>Chat</button>}
+      </div></Card>)}
+      {!scoped(state.agents).length && <Card className="work-row"><p className="work-meta">No Bots were found in this scope.</p></Card>}
+      <details className="work-more"><summary>Details</summary><div className="work-stack">
+      {scoped(state.goals ?? []).map(goal => <Card className="work-row" key={goal.id}><h3>{goal.title}</h3><p className="work-meta">Goal {goalStatusLabel(goal).toLowerCase()} · Owner {name(goal.botId)}{goal.reason ? ` · ${goal.reason}` : ''}</p></Card>)}
       {workflows.map(workflow => <article className="team-workflow" key={workflow.id}>
         <h3 className="work-title">{workflow.title}</h3><p className="work-meta">{label(workflow.status)} · Coordinator {name(workflow.botId)}{workflow.reason ? ` · ${workflow.reason}` : ''}</p>
         {workflow.tasks.map(task => {
@@ -114,20 +110,21 @@ export function TeamBoard({ botId, onGoals }: { botId?: string; onGoals?: () => 
               })}</ul> : <p className="work-meta">No prerequisites.</p>}
               <p className="work-meta">Result: {task.resultValidated ? 'Validated result recorded.' : 'No validated result recorded.'}</p>
             </section>}
-          </TeamDisclosure> : <div className="work-row" key={task.id}><h4>{task.title}</h4><p className="work-meta">{copy} · No source evidence recorded.</p></div>;
+          </TeamDisclosure> : <Card className="work-row" key={task.id}><h4>{task.title}</h4><p className="work-meta">{copy} · No source evidence recorded.</p></Card>;
         })}
       </article>)}
-      {!workflows.length && <div className="work-row"><h3>Workflows</h3><p className="work-meta">No workflows in this view.</p></div>}
-      {scoped(state.artifacts).map(artifact => <div className="work-row" key={artifact.id}><div className="work-row__body">
+      {!workflows.length && <Card className="work-row"><h3>Workflows</h3><p className="work-meta">No workflows in this view.</p></Card>}
+      {scoped(state.artifacts).map(artifact => <Card className="work-row" key={artifact.id}><div className="work-row__body">
         <div><h3>{artifact.title}</h3><p className="work-meta">{name(artifact.botId)} · Saved report{state.deliveries.filter(delivery => delivery.artifactId === artifact.id).map(delivery => ` · Delivery: ${label(delivery.status)}`).join('')}</p></div>
         <a className="work-button" href={`/api/deliverables/artifacts/${encodeURIComponent(artifact.id)}/download`} download>Download report</a>
-      </div></div>)}
-      <TeamDisclosure title="Snapshot sources" copy="See which records this snapshot used."><p className="work-meta">Event cursor {state.eventCursor}. Records may change after this snapshot.</p><pre>{JSON.stringify(state.sourceVersions, null, 2)}</pre></TeamDisclosure>
+      </div></Card>)}
+      <TeamDisclosure title="Sources" copy="See which records this snapshot used."><p className="work-meta">Event cursor {state.eventCursor}. Records may change after this snapshot.</p><pre>{JSON.stringify(state.sourceVersions, null, 2)}</pre></TeamDisclosure>
       <InternalActivity botId={botId} />
       <WorkHistory name={name} botId={botId} />
+      </div></details>
     </>}
-    <div className="work-actions is-stack"><button className="work-button is-primary" type="button" onClick={() => { setSettingError(''); refresh(); }} disabled={setting || readBusy}>{readBusy ? 'Refreshing board…' : 'Refresh board'}</button>
-      {onGoals && <button className="work-button" type="button" onClick={onGoals}>Goals and workflows</button>}</div>
+    <div className="work-actions is-stack"><button className="work-button is-primary" type="button" onClick={() => { setSettingError(''); refresh(); }} disabled={setting || readBusy}>{readBusy ? 'Refreshing...' : 'Refresh'}</button>
+</div>
   </section>;
 }
 
@@ -146,7 +143,7 @@ function WorkHistory({ name, botId }: { name: (id: string | null) => string; bot
     finally { pending.current = false; if (lifetime.current) setBusy(false); }
   };
   const records = page?.records.filter(record => !botId || all || record.bot_id === botId);
-  return <TeamDisclosure title="Complete team work history" copy={botId && !all ? `See past jobs for ${name(botId)}.` : 'See past jobs across all Bots.'} onOpen={() => { if (!page) void load(); }}>
+  return <TeamDisclosure title="Work history" copy={botId && !all ? `See past jobs for ${name(botId)}.` : 'See past jobs across all Bots.'} onOpen={() => { if (!page) void load(); }}>
     {botId && <label className="team-coordination"><input type="checkbox" checked={all} onChange={event => setAll(event.currentTarget.checked)} /> Show all Bots in work history</label>}
     {error && <p className="work-error" role="alert">{error}</p>}
     {records?.length === 0 && <p className="work-meta">{page?.hasMore ? 'No matching work in the pages loaded so far.' : 'No past work recorded in this scope.'}</p>}
@@ -176,7 +173,7 @@ function InternalActivity({ botId }: { botId?: string }) {
     return () => { active = false; };
   }, [opened, botId, pages, revision]);
   const name = (id: string) => bots.find(bot => bot.id === id)?.name ?? 'Unavailable bot';
-  return <TeamDisclosure title="Internal team activity" copy="Read assignments and their recorded results." onOpen={() => setOpened(true)}>
+  return <TeamDisclosure title="Team activity" copy="Read assignments and their recorded results." onOpen={() => setOpened(true)}>
     <p className="work-meta">Admission means work was accepted; completion is recorded separately.</p>
     {error && <p className="work-error" role="alert">{error} <button className="work-button" type="button" onClick={refresh}>Refresh activity</button></p>}
     {!data && !error && <p role="status">Loading activity…</p>}

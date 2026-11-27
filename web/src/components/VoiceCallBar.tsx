@@ -1,3 +1,4 @@
+import { Card } from './layout';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { botVars } from '../lib/colors';
@@ -53,19 +54,19 @@ export function VoiceCallBar() {
 
   const working = v.working.length > 0;
   const status =
-    v.status === 'connecting' ? v.waitingForMic ? 'Waiting for microphone permission' : 'Connecting…'
+    v.status === 'connecting' ? v.waitingForMic ? 'Waiting for microphone permission' : 'Connecting'
     : v.status === 'error' ? v.error ?? 'Call ended'
     : v.speaking ? 'Speaking'
     : v.listening ? 'Listening'
-    : working ? 'Working on it…'
-    : v.thinking ? 'Thinking…'
+    : working ? 'Working'
+    : v.thinking ? 'Thinking'
     : v.muted ? 'Muted'
     : 'Listening';
   const lines = v.captions.filter((c) => c.text.trim());
   const last = lines.slice(-1);
 
   return (
-    <div
+    <Card
       className={`vcall is-${v.status}${v.speaking ? ' is-speaking' : ''}${v.listening ? ' is-listening' : ''}${working ? ' is-working' : ''}`}
       style={botVars(bot.avatarColor)}
       role="region"
@@ -77,9 +78,6 @@ export function VoiceCallBar() {
           <BotAvatarFor bot={bot} size={36} />
         </span>
         <div className="vcall__info">
-          <div className="vcall__title">
-            <span className="vcall__name">{bot.name}</span>
-          </div>
           <div className={`vcall__status${working && !v.speaking && !v.listening ? ' vcall__shimmer' : ''}`} aria-live="polite">
             {v.status === 'live' && v.startedAt && <span className="vcall__time">{fmt(now - v.startedAt)} · </span>}{status}
           </div>
@@ -115,11 +113,11 @@ export function VoiceCallBar() {
           <button type="button" className="vcall__captions" onClick={() => setExpanded(true)} aria-label="Show transcript">
             {last.length ? last.map((c) => (
               <span key={c.id} className={`vcall__caption is-${c.role}${c.final ? '' : ' is-partial'}`}>{c.text}</span>
-            )) : <span className="vcall__caption is-empty">{v.muted ? 'You’re muted.' : `Say hi to ${bot.name}.`}</span>}
-            <span className="vcall__captions-label" aria-hidden>Show transcript</span>
+            )) : null}
+            <span className="vcall__captions-label" aria-hidden>Transcript</span>
           </button>
         )
       )}
-    </div>
+    </Card>
   );
 }

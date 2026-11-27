@@ -142,3 +142,8 @@
 .voice-settings__sample { flex-wrap: wrap; }
 .voice-settings__sample > div { flex: 1 1 160px; min-width: 0; }
 .voice-preview { flex: 0 0 auto; min-width: max-content; white-space: nowrap; overflow-wrap: normal; }
+
+.app.paper-shell .chat-dock .vcall.layout-card { width: 100%; max-width: none; margin: 0; padding: var(--space-3); border-radius: var(--radius-card); background: var(--color-bg-active); }
+.app.paper-shell .vcall__name, .app.paper-shell .vcall__caption { white-space: normal; overflow: visible; text-overflow: clip; word-break: normal; overflow-wrap: normal; }
+.app.paper-shell .vcall__main { flex-wrap: wrap; }
+.app.paper-shell .vcall__actions { margin-left: auto; }
