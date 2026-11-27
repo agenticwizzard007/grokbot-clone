@@ -1,0 +1,303 @@
+{
+  "v": 1,
+  "botId": "flow-rich",
+  "version": 1,
+  "inputsHash": "a8b641c1f2d0584ecd9f02fc76eadfa26419f5299769e35275f10759eb139f9b",
+  "generatedAt": 0,
+  "source": "auto",
+  "lanes": [
+    {
+      "id": "triggers",
+      "label": "Triggers",
+      "nodes": [
+        {
+          "id": "triggers:routine:weekly",
+          "kind": "routine",
+          "label": "Weekly review",
+          "target": {
+            "hash": "#bot/flow-rich/settings/routines",
+            "focus": "routine:weekly"
+          },
+          "state": "ok",
+          "detail": "Mondays 09:00"
+        },
+        {
+          "id": "triggers:event:event",
+          "kind": "event",
+          "label": "New issue",
+          "target": {
+            "hash": "#bot/flow-rich/settings/routines",
+            "focus": "routine:event"
+          },
+          "state": "ok",
+          "detail": "When an issue opens"
+        },
+        {
+          "id": "triggers:routine:paused",
+          "kind": "routine",
+          "label": "Daily check",
+          "target": {
+            "hash": "#bot/flow-rich/settings/routines",
+            "focus": "routine:paused"
+          },
+          "state": "disabled",
+          "detail": "Weekdays 08:00",
+          "badge": "Paused"
+        },
+        {
+          "id": "triggers:message:chat",
+          "kind": "message",
+          "label": "You message me",
+          "target": {
+            "hash": "#bot/flow-rich"
+          },
+          "state": "ok"
+        },
+        {
+          "id": "triggers:inbound_handoff:receive",
+          "kind": "inbound_handoff",
+          "label": "From Review agent",
+          "target": {
+            "hash": "#bot/flow-rich/details/flow?link=receive",
+            "focus": "link-source:flow-checker"
+          },
+          "state": "ok"
+        }
+      ],
+      "more": 0
+    },
+    {
+      "id": "inputs",
+      "label": "Inputs",
+      "nodes": [
+        {
+          "id": "inputs:app:github",
+          "kind": "app",
+          "label": "GitHub",
+          "target": {
+            "hash": "#settings/apps",
+            "focus": "app:github"
+          },
+          "state": "ok",
+          "logo": {
+            "kind": "toolkit",
+            "id": "github"
+          }
+        },
+        {
+          "id": "inputs:mcp:docs",
+          "kind": "mcp",
+          "label": "Reference library",
+          "target": {
+            "hash": "#settings/mcp",
+            "focus": "mcp:docs"
+          },
+          "state": "ok",
+          "logo": {
+            "kind": "icon",
+            "id": "server"
+          }
+        },
+        {
+          "id": "inputs:knowledge:knowledge",
+          "kind": "knowledge",
+          "label": "Knowledge",
+          "target": {
+            "hash": "#bot/flow-rich/settings/memories"
+          },
+          "state": "ok",
+          "detail": "2 to 5 memories"
+        },
+        {
+          "id": "inputs:suggested_mcp:catalog",
+          "kind": "suggested_mcp",
+          "label": "Document catalog",
+          "target": {
+            "hash": "#settings/mcp",
+            "focus": "mcp:catalog"
+          },
+          "state": "suggested",
+          "badge": "Suggested",
+          "detail": "Connect",
+          "logo": {
+            "kind": "icon",
+            "id": "catalog"
+          }
+        },
+        {
+          "id": "inputs:suggested_app:googledrive",
+          "kind": "suggested_app",
+          "label": "Google Drive",
+          "target": {
+            "hash": "#apps/connect",
+            "focus": "app:googledrive"
+          },
+          "state": "suggested",
+          "badge": "Suggested",
+          "detail": "Connect",
+          "logo": {
+            "kind": "toolkit",
+            "id": "googledrive"
+          }
+        }
+      ],
+      "more": 0
+    },
+    {
+      "id": "steps",
+      "label": "Steps",
+      "nodes": [
+        {
+          "id": "steps:step:1",
+          "kind": "step",
+          "label": "Collect release notes",
+          "target": {
+            "hash": "#bot/flow-rich/details/setup/responsibilities"
+          },
+          "state": "ok",
+          "badge": "Auto"
+        },
+        {
+          "id": "steps:step:2",
+          "kind": "step",
+          "label": "Compare recent changes",
+          "target": {
+            "hash": "#bot/flow-rich/details/setup/responsibilities"
+          },
+          "state": "ok",
+          "badge": "Auto"
+        },
+        {
+          "id": "steps:step:3",
+          "kind": "step",
+          "label": "Draft a weekly report",
+          "target": {
+            "hash": "#bot/flow-rich/details/setup/responsibilities"
+          },
+          "state": "ok",
+          "badge": "Auto"
+        },
+        {
+          "id": "steps:skill:verify",
+          "kind": "skill",
+          "label": "Skill: Fact verification",
+          "target": {
+            "hash": "#bot/flow-rich/settings/skills",
+            "focus": "skill:verify"
+          },
+          "state": "ok",
+          "badge": "Auto"
+        }
+      ],
+      "more": 0
+    },
+    {
+      "id": "outputs",
+      "label": "Outputs",
+      "nodes": [
+        {
+          "id": "outputs:report:reports",
+          "kind": "report",
+          "label": "Reports",
+          "target": {
+            "hash": "#bot/flow-rich/details/files/reports"
+          },
+          "state": "ok",
+          "detail": "1 reports"
+        },
+        {
+          "id": "outputs:files:files",
+          "kind": "files",
+          "label": "Files",
+          "target": {
+            "hash": "#bot/flow-rich/details/files"
+          },
+          "state": "ok",
+          "detail": "2 to 5 files"
+        },
+        {
+          "id": "outputs:message_out:chat",
+          "kind": "message_out",
+          "label": "Chat messages",
+          "target": {
+            "hash": "#settings/messaging"
+          },
+          "state": "ok"
+        },
+        {
+          "id": "outputs:message_out:iMessage",
+          "kind": "message_out",
+          "label": "iMessage",
+          "target": {
+            "hash": "#settings/messaging"
+          },
+          "state": "ok"
+        },
+        {
+          "id": "outputs:task:tasks",
+          "kind": "task",
+          "label": "Tasks",
+          "target": {
+            "hash": "#bot/flow-rich/details/tasks"
+          },
+          "state": "ok",
+          "detail": "2 to 5 tasks"
+        }
+      ],
+      "more": 0
+    },
+    {
+      "id": "handoffs",
+      "label": "Handoffs",
+      "nodes": [
+        {
+          "id": "handoffs:handoff_from:receive",
+          "kind": "handoff_from",
+          "label": "Review agent",
+          "target": {
+            "hash": "#bot/flow-rich/details/flow?link=receive",
+            "focus": "link-source:flow-checker"
+          },
+          "state": "ok",
+          "badge": "Suggest",
+          "detail": "Receives work",
+          "logo": {
+            "kind": "bot",
+            "id": "flow-checker"
+          }
+        },
+        {
+          "id": "handoffs:handoff_to:send",
+          "kind": "handoff_to",
+          "label": "Review agent",
+          "target": {
+            "hash": "#bot/flow-rich/details/flow?link=send",
+            "focus": "link-source:flow-rich"
+          },
+          "state": "ok",
+          "badge": "Suggest",
+          "detail": "Sends work",
+          "logo": {
+            "kind": "bot",
+            "id": "flow-checker"
+          }
+        },
+        {
+          "id": "handoffs:loop:lp_fixture",
+          "kind": "loop",
+          "label": "Release review loop",
+          "target": {
+            "hash": "#loop/lp_fixture"
+          },
+          "state": "ok"
+        }
+      ],
+      "more": 0
+    }
+  ],
+  "loopBack": {
+    "kind": "repeats",
+    "label": "Repeats"
+  },
+  "warnings": []
+}

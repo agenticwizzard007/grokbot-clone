@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Settings, MessageSquare, ChartNoAxesColumn, ListTodo, Folder, SlidersHorizontal } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, lazy, Suspense } from 'react';
+import { Settings, MessageSquare, ChartNoAxesColumn, ListTodo, Folder, SlidersHorizontal, GitBranch, ChevronLeft } from 'lucide-react';
 import type { Bot } from '@shared/types';
 import { clearImportedSetup, hasImportedSetup } from '../lib/setupApi';
 import { useSelectedBot, useStore } from '../store';
@@ -12,8 +12,11 @@ import { BotTasksPage } from './config/BotTasksPage';
 import { AgentConfiguration } from './config/AgentConfiguration';
 import { hasOpenModal } from './modals/Modal';
 import { computerStatusText } from './config/computerStatus';
+import { BotAvatarFor } from '../avatar/BotAvatar';
 import { Page } from './layout';
 import { BotActivity } from './config/BotActivity';
+import { flowLocation, openFlow, leaveFlow, flowApi } from '../flow/api';
+const FlowTab = lazy(() => import('../flow/FlowTab'));
 import '../styles/setup-paper.css';
 import '../styles/bot-details.css';
 
@@ -21,7 +24,8 @@ import '../styles/bot-details.css';
 export { computerStatusText };
 
 const sections = [
-  { id: 'activity', label: 'Activity', icon: ChartNoAxesColumn }, { id: 'tasks', label: 'Tasks', icon: ListTodo }, { id: 'library', label: 'Files', icon: Folder }, { id: 'configuration', label: 'Setup', icon: SlidersHorizontal },
+  { id: 'flow', label: 'Flow', icon: GitBranch },
+  { id: 'activity', label: 'Activity', icon: ChartNoAxesColumn }, { id: 'tasks', label: 'Tasks', icon: ListTodo }, { id: 'library', label: 'Files', icon: Folder }, { id: 'configuration', label: 'Setup', icon: SlidersHorizontal, GitBranch, ChevronLeft },
 ] as const;
 type DetailTab = typeof sections[number]['id'];
 
@@ -36,9 +40,23 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
   const [headerHost, setHeaderHost] = useState<Element | null>(null);
   useLayoutEffect(() => { setHeaderHost(document.querySelector('.shell-header')); }, []);
   const returnFocus = useRef<HTMLElement | null>(null);
-  const tab = useConfigUI(state => state.detailsTab);
+  const storedTab = useConfigUI(state => state.detailsTab);
+  const [flowEnabled, setFlowEnabled] = useState(true);
+  const [flow, setFlow] = useState(() => bot.kind !== 'room' && (Boolean(flowLocation()) || (storedTab === 'activity' && (Date.now() - bot.createdAt < 3 * 86400_000 || !bot.lastActivityAt))));
+  const choseTab = useRef(false);
+  const tab = flow && storedTab === 'activity' && bot.kind !== 'room' ? 'flow' : storedTab;
+  useEffect(() => { const sync = () => setFlow(Boolean(flowLocation())); window.addEventListener('swarm:flow-location', sync); return () => window.removeEventListener('swarm:flow-location', sync); }, []);
+  useEffect(() => { if (flow && storedTab === 'activity' && !flowLocation()) openFlow(bot.id, undefined, true); }, []);
+  useEffect(() => {
+    if (bot.kind === 'room') return;
+    const controller = new AbortController();
+    void flowApi.hasRuns(bot.id, controller.signal).then(hasRuns => { if (!hasRuns && storedTab === 'activity' && !flow && !controller.signal.aborted && !choseTab.current) { setFlow(true); openFlow(bot.id, undefined, true); } }).catch(error => { if (!controller.signal.aborted && error.code === 'disabled') { setFlowEnabled(false); setFlow(false); if (flowLocation()) { leaveFlow(); useConfigUI.getState().setDetailsTab('activity'); } } });
+    return () => controller.abort();
+  }, []);
+  const covered = useConfigUI(state => Boolean(state.appSettings || state.botSettings));
+  const modal = useStore(state => state.modal);
   const reports = useConfigUI(state => state.detailsReports);
-  const setTab = (tab: DetailTab) => useConfigUI.getState().setDetailsTab(tab);
+  const setTab = (tab: DetailTab) => { choseTab.current = true; setFlow(tab === 'flow'); if (tab === 'flow') openFlow(bot.id); else { leaveFlow(); useConfigUI.getState().setDetailsTab(tab); } };
   const setReports = (reports: boolean) => useConfigUI.getState().setDetailsTab('library', undefined, reports);
   useEffect(() => {
     if (hasImportedSetup(userId, bot.id)) useConfigUI.getState().setDetailsTab('configuration');
@@ -79,14 +97,16 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
   const openSettings = () => useConfigUI.getState().openBotSettings(bot.id);
   const navigation = <nav className="pb-bot-tabs" aria-label="Conversation details sections">
     <button type="button" onClick={() => openConversation(bot.id)}><MessageSquare size={18} aria-hidden /><span>Chat</span></button>
-    {sections.filter(section => bot.kind !== 'room' || section.id !== 'configuration').map(section =>
+    {sections.filter(section => (flowEnabled || section.id !== 'flow') && (bot.kind !== 'room' || !['configuration', 'flow'].includes(section.id))).map(section =>
       <button key={section.id} type="button" aria-current={tab === section.id || undefined} onClick={() => setTab(section.id)}><section.icon size={18} aria-hidden /><span>{section.label}</span></button>)}
     <button type="button" className="pb-bot-tabs__settings" aria-label="Bot settings" onClick={openSettings}><Settings size={18} aria-hidden /><span>Settings</span></button>
   </nav>;
   return <aside id="bot-details" ref={panel} className={`details details--page pb-details${tab === 'configuration' ? ' details--configuration' : ''}`} aria-label="Conversation details">
+    {headerHost && tab === 'flow' && !covered && !modal && createPortal(<div className="flow-header"><button type="button" className="shell-back" aria-label="Back" onClick={() => { leaveFlow(); openConversation(bot.id); }}><ChevronLeft size={20} aria-hidden /><span>Back</span></button><BotAvatarFor bot={bot} size={32} /><div><strong>{bot.name}</strong><span>Flow</span></div></div>, headerHost)}
     {headerHost && createPortal(<button type="button" className="pb-bot-settings-gear" aria-label="Bot settings" onClick={openSettings}><Settings size={20} aria-hidden /></button>, headerHost)}
     {navigation}
-    <Page type="form">
+    <Page type={tab === 'flow' ? 'list' : 'form'} className={tab === 'flow' ? 'flow-page' : undefined}>
+      {tab === 'flow' && <Suspense fallback={<p role="status">Loading flow...</p>}><FlowTab botId={bot.id} /></Suspense>}
       {tab === 'activity' && <BotActivity bot={bot} />}
       {tab === 'tasks' && <BotTasksPage bot={bot} />}
       {tab === 'configuration' && <AgentConfiguration bot={bot} />}
