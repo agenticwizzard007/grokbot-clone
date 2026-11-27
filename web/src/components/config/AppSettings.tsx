@@ -1,4 +1,4 @@
-import { InfoTip, SettingsMenu } from './SettingsControls';
+import { SettingsMenu } from './SettingsControls';
 import { AgentsInfoTip } from '../../handoffs/AgentsInfoTip';
 import { Section, Card, Row, ButtonGroup } from '../layout';
 import { ProviderMark } from '../ProviderMark';
