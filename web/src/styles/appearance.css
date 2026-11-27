@@ -55,7 +55,7 @@
 .appearance-dialog .cfg-btn--danger, .appearance-dialog .cfg-btn--danger:hover:not(:disabled) { background: var(--color-danger-bg); color: var(--color-danger-text); }
 
 /* The optional profile is one compact card with one action. */
-.requirements-card { display: grid; gap: 16px; font-size: 14px; line-height: 20px; }
+.requirements-card { display: grid; gap: 8px; font-size: 14px; line-height: 20px; }
 .requirements-card p { margin: 0; }
 .requirements-card .layout-row__title { font-size: 14px; line-height: 20px; }
 .requirements-card .layout-row__subtitle { margin-top: 8px; font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }
