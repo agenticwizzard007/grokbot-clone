@@ -11,7 +11,7 @@ import { inspectAlignment } from '../layout-alignment-ui.mjs';
 
 // Same isolated seed, offline boundary and server as layout-fixture.mjs, with
 // a second seed process for handoff records and a local mock provider.
-async function integrationServer(evidence) {
+export async function integrationServer(evidence) {
   const root = process.cwd(), temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ho-i-'));
   async function port() { const server = net.createServer().listen(0, '127.0.0.1'); await once(server, 'listening'); const value = server.address().port; await new Promise(resolve => server.close(resolve)); return value; }
   const apiPort = await port(), uiPort = await port(), mockPort = await port(), base = `http://127.0.0.1:${uiPort}`;
