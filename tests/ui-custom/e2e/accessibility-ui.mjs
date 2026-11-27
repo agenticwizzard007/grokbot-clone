@@ -19,7 +19,7 @@ fs.mkdirSync(out, { recursive: true });
 const results = [];
 async function openRoutines(page) {
   await page.getByRole('button', { name: 'Routines', exact: true }).click();
-  await page.getByRole('heading', { name: 'Fixture routine 1', exact: true }).waitFor();
+  await page.getByRole('region', { name: 'Routines', exact: true }).getByRole('switch').first().waitFor();
 }
 const routes = [...navigationRoutes.map(hash => ({ name: hash || 'home', hash })),
   { name: 'routines', hash: '#bot/coordinator/reports', action: openRoutines },
