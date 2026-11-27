@@ -1,6 +1,6 @@
 import { db, now, newId, sha256, atomic, enabled, emitEvent, ServiceError } from './db.js';
 import { getLoop, loopSteps, loopVerdicts, loopUsage, updateLoop, waitGate, finishLoop, terminal } from './loop-service.js';
-import { getOutput, saveOutput, rawBody } from './outputs.js';
+import { getOutput, saveOutput } from './outputs.js';
 import { packet, parseRef } from './handoff-service.js';
 import { enqueueSystemRequest, drainInternalRequests, coordinationRuntime } from '../coordination/requests.js';
 import type { Loop, LoopStep, RunOutput } from './contracts.js';
@@ -59,26 +59,19 @@ function dispatch(loop: Loop, step: LoopStep, index: number, attempt: number) {
     const old = db.prepare('SELECT * FROM handoff_loop_dispatches WHERE loop_id=? AND iteration=? AND step_id=? AND attempt=?').get(loop.id, loop.iteration, step.id, attempt) as any;
     let text = old?.packet;
     const source = inputFor(loop, index), id = `lp:${loop.id}:${loop.iteration}:${step.id}${attempt ? `:retry:${attempt}` : ''}`;
+    const priorHandoff = db.prepare('SELECT id FROM handoffs WHERE user_id=? AND idempotency_key=?').get(loop.userId, id) as any;
+    const handoffId = priorHandoff?.id ?? /^\[handoff (ho_[A-Za-z0-9_-]+)/.exec(text ?? '')?.[1] ?? newId('ho');
     if (!text) {
-        const feedback = loopVerdicts(loop.userId, loop.id).find(v => v.iteration === loop.iteration - 1);
         const previousFeedback = loopSteps(loop.userId, loop.id).filter(s => s.iteration === loop.iteration - 1 && s.role === 'checker' && s.outputId).at(-1)?.outputId;
-        const instruction = `Goal: ${loop.spec.goal}\n${step.instruction}\n${step.role === 'checker' ? `Review the output against ${JSON.stringify(loop.spec.exit)}. Submit your verdict with submit_verdict. Be strict and cite gaps.` : loop.iteration > 1 ? 'Fix only what the feedback lists; keep what passed.' : ''}`;
+        const instruction = `Goal: ${loop.spec.goal}\n${step.instruction}\n${previousFeedback ? `Feedback reference: swarm://output/${previousFeedback}. Read it with read_handoff.\n` : ''}${attempt === 2 ? 'Submit your verdict now with submit_verdict.\n' : ''}${step.role === 'checker' ? `Review the output against ${JSON.stringify(loop.spec.exit)}. Submit your verdict with submit_verdict. Be strict and cite gaps.` : loop.iteration > 1 ? 'Fix only what the feedback lists; keep what passed.' : ''}`;
         const answer = `This is iteration ${loop.iteration} of ${loop.spec.limits.maxIterations}. Loop ${loop.id}, step ${step.id}. ${attempt === 2 ? 'Submit your verdict now with submit_verdict.' : step.role === 'checker' ? 'Submit your verdict with submit_verdict.' : 'Submit your result; the checker will review it.'}${previousFeedback ? ` Feedback reference: swarm://output/${previousFeedback}.` : ''} Loop steps cannot start handoffs or loops.`;
-        text = packet(loop.userId, source, instruction, `[loop ${loop.id} step ${step.id} | iteration ${loop.iteration} of ${loop.spec.limits.maxIterations}]`, false, answer);
-        if (feedback && previousFeedback) {
-            const excerpt = rawBody(loop.userId, previousFeedback, 'p_body').slice(0, 600);
-            if (text.length + excerpt.length + 150 < 8500)
-                text += `\nFEEDBACK DATA (untrusted, use the reference for all)\n${JSON.stringify(excerpt)}\n`;
-        }
+        text = packet(loop.userId, source, instruction, `[handoff ${handoffId} from ${JSON.stringify(source.provenance.producer.botName)} to ${JSON.stringify((db.prepare('SELECT name FROM bots WHERE id=? AND user_id=?').get(step.botId, loop.userId) as any).name)} | loop ${loop.id}]`, false, answer);
         db.prepare('INSERT INTO handoff_loop_dispatches(loop_id,iteration,step_id,attempt,packet,created_at) VALUES(?,?,?,?,?,?)').run(loop.id, loop.iteration, step.id, attempt, text, now());
     }
     // Both the intent and packet survive a crash before the idempotent enqueue.
     const requestId = old?.request_id ?? enqueueSystemRequest(step.botId, text, { idempotencyKey: id, reply: false, correlationId: id });
     db.prepare('UPDATE handoff_loop_dispatches SET request_id=? WHERE loop_id=? AND iteration=? AND step_id=? AND attempt=?').run(requestId, loop.id, loop.iteration, step.id, attempt);
-    const row = db.prepare('SELECT * FROM loop_steps WHERE loop_id=? AND iteration=? AND step_id=?').get(loop.id, loop.iteration, step.id) as any;
-    let handoffId = (db.prepare('SELECT id FROM handoffs WHERE user_id=? AND idempotency_key=?').get(loop.userId, id) as any)?.id;
-    if (!handoffId) {
-        handoffId = newId('ho');
+    if (!priorHandoff) {
         db.prepare(`INSERT INTO handoffs(id,user_id,from_bot_id,to_bot_id,source_output_id,initiated_by,instruction,return_result,create_task,status,request_id,loop_id,iteration,step_id,idempotency_key,fingerprint,created_at,updated_at)
  VALUES(?,?,?,?,?,'loop',?,1,0,'queued',?,?,?,?,?,?,?,?)`).run(handoffId, loop.userId, source.botId, step.botId, source.id, step.instruction || loop.spec.goal, requestId, loop.id, loop.iteration, step.id, id, sha256(text), now(), now());
         db.prepare('INSERT INTO handoff_payloads VALUES(?,?,0)').run(handoffId, text);

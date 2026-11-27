@@ -11,6 +11,10 @@ test('two Bot loop converges at pass three with durable outputs, suppressed repl
     const steps = loops.loopSteps(f.userId, l.id);
     assert.equal(steps.length, 6);
     assert.equal(done.bestOutputId, steps[4].outputId);
+    for (const h of db.prepare('SELECT h.id,r.text FROM handoffs h JOIN coordination_requests r ON r.id=h.request_id WHERE h.loop_id=?').all(l.id) as any[])
+        assert.ok(h.text.startsWith(`[handoff ${h.id} `));
+    const secondMaker = db.prepare('SELECT packet FROM handoff_loop_dispatches WHERE loop_id=? AND iteration=2 AND step_id=?').get(l.id, 'maker') as any;
+    assert.ok(secondMaker.packet.includes(`swarm://output/${steps[1].outputId}`));
     assert.equal((db.prepare("SELECT count(*) n FROM coordination_requests WHERE user_id=? AND kind='result'").get(f.userId) as any).n, 0);
     assert.ok((db.prepare('SELECT depth,reply,from_bot_id,to_bot_id FROM coordination_requests WHERE user_id=?').all(f.userId) as any[]).every(r => r.depth === 0 && r.reply === 0 && r.from_bot_id === r.to_bot_id));
     const sequence = hdb.events(f.userId, { loopId: l.id }).map(e => e.type);
