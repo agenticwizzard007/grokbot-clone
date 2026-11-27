@@ -18,7 +18,8 @@ try {
       await page.getByText('Nothing here yet', { exact: true }).waitFor(); fixture.state.listEmpty = false;
     });
     await check(`${width} list retry`, async () => {
-      fixture.state.failures['/api/loops'] = 1; await view.open();
+      fixture.state.failures['/api/loops'] = 100; await view.open();
+      await page.getByRole('button', { name: 'Retry', exact: true }).waitFor(); fixture.state.failures['/api/loops'] = 0;
       await page.getByRole('button', { name: 'Retry', exact: true }).click();
       await page.locator('.ho-loop-title-link').first().waitFor();
     });

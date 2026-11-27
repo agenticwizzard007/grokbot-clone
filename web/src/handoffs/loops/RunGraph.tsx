@@ -41,7 +41,7 @@ export function RunGraph({ detail, events }: { detail: LoopDetail; events: LoopE
       <h3>Pass {iteration}</h3><ol aria-label={`Steps in pass ${iteration}`}>{plan.nodes.filter(node => node.iteration === iteration).map(node => {
         const step = detail.steps.find(step => step.iteration === node.iteration && step.stepId === node.stepId);
         const edge = plan.edges.find(edge => edge.from === node.id);
-        const content = <><strong>{step?.botName ?? 'Agent'}</strong><span>{step?.role === 'maker' ? 'Maker' : step?.role === 'checker' ? 'Checker' : 'Step'} · {step?.status === 'completed' ? 'Complete' : step?.status === 'running' ? 'Working' : step?.status === 'failed' ? 'Failed' : 'Queued'}</span><span>{node.label}</span></>;
+        const content = <><strong>{step?.botName ?? 'Agent'}</strong><span>{step?.role === 'maker' ? 'Maker' : step?.role === 'checker' ? 'Checker' : 'Step'} · {step?.status === 'completed' ? 'Complete' : step?.status === 'running' ? 'Working' : step?.status === 'failed' ? 'Failed' : 'Queued'}</span></>;
         return <li key={node.id} style={{ marginLeft: node.x, width: node.w, minHeight: node.h }}>
           {node.outputId ? <a className="ho-loop-graph-node" data-graph-node={node.id} href={outputHref({ id: node.outputId })}>{content}</a> : <div className="ho-loop-graph-node" data-graph-node={node.id}>{content}</div>}
           {edge && <div className="ho-loop-graph-then"><span>then · {edge.label}{edge.loopBack ? ' · next pass' : ''}</span></div>}

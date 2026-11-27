@@ -6,6 +6,7 @@ import { useStore } from '../../store';
 export type { Loop, LoopSpec, LoopStatus };
 export type LoopAction = 'start' | 'pause' | 'resume' | 'stop' | 'approve' | 'decline' | 'extend';
 export interface LoopBot { id: string; name: string; kind?: string; hidden?: boolean; isConfiguring?: boolean }
+export interface LoopTask { id: string; title: string }
 export interface OutputLink { id: string; title: string; partId?: string }
 export interface LoopStepRun {
   id: string; iteration: number; stepId: string; botId: string; botName?: string;
@@ -22,10 +23,12 @@ export interface LoopDetail {
   usage?: { tracked: boolean; costUsd?: number; tokens?: number };
   gate?: { kind: 'first' | 'iteration' | 'cap' | 'manual'; iteration: number; expiresAt?: number };
   canExtend?: boolean;
+  bots?: LoopBot[];
 }
 export interface LoopApi {
   list(signal?: AbortSignal, after?: string): Promise<{ loops: Loop[]; next?: string | null }>;
   bots(signal?: AbortSignal): Promise<LoopBot[]>;
+  tasks?(signal?: AbortSignal): Promise<LoopTask[]>;
   get(id: string, signal?: AbortSignal): Promise<LoopDetail>;
   events(id: string, after: number, signal?: AbortSignal): Promise<{ events: LoopEvent[]; next?: number | null }>;
   create(spec: LoopSpec, idempotencyKey: string): Promise<{ loop: Loop }>;
@@ -73,6 +76,7 @@ export function subscribeLoopEvents(listener: (id?: string) => void) {
 export const loopsApi: LoopApi = {
   list: (signal, after) => request(`/loops?limit=50${after ? `&after=${encodeURIComponent(after)}` : ''}`, signal),
   bots: async signal => (await request<{ bots: LoopBot[] }>('/bots', signal)).bots,
+  tasks: async signal => (await request<{ tasks: LoopTask[] }>('/tasks', signal)).tasks,
   get: (id, signal) => request(`/loops/${encodeURIComponent(id)}`, signal),
   events: (id, after, signal) => request(`/loops/${encodeURIComponent(id)}/events?after=${after}&limit=200`, signal),
   create: (spec, idempotencyKey) => request('/loops', undefined, { spec, idempotencyKey, start: true }),

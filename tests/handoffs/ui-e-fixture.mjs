@@ -70,6 +70,7 @@ export async function loopFixture({ output = '.context/handoffs/ui-e' } = {}) {
     const input = body ? JSON.parse(body) : {};
     const json = value => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); };
     if (url.pathname === '/api/bots') return json({ bots });
+    if (url.pathname === '/api/tasks') return json({ tasks: [{ id: 'task_fixture', title: 'Prepare the release note' }] });
     if (url.pathname === '/api/loops' && req.method === 'GET') return json({ loops: state.listEmpty ? [] : Object.values(state.runs).map(run => run.detail.loop), next: null });
     if (url.pathname === '/api/loops' && req.method === 'POST') {
       state.calls.at(-1).body = input;
@@ -140,13 +141,13 @@ createRoot(document.getElementById('root')).render(<App />);
       await context.route('**/*', async route => {
         const url = new URL(route.request().url());
         if (!['127.0.0.1', 'localhost'].includes(url.hostname)) return route.abort();
-        if (url.pathname.startsWith('/api/loops') || url.pathname === '/api/bots') {
+        if (url.pathname.startsWith('/api/loops') || url.pathname === '/api/bots' || url.pathname === '/api/tasks') {
           const response = await fetch(mockBase + url.pathname + url.search, { method: route.request().method(), headers: { 'Content-Type': 'application/json' }, body: route.request().postData() || undefined });
           return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
         }
         return route.continue();
       });
-      return { page, errors, async open(hash = '#loops', query = '') { await page.goto(`${seeded.base}/@fs${out}/harness.html?theme=${theme}${query}${hash}`); await page.getByRole('heading', { level: 1 }).waitFor(); }, async close() { assert.deepEqual(errors, [], 'No browser exceptions'); await context.close(); } };
+      return { page, errors, async open(hash = '#loops', query = '') { await page.goto('about:blank'); await page.goto(`${seeded.base}/@fs${out}/harness.html?theme=${theme}${query}${hash}`); await page.getByRole('heading', { level: 1 }).waitFor(); }, async close() { assert.deepEqual(errors, [], 'No browser exceptions'); await context.close(); } };
     },
     async close() { await browser.close(); for (const response of state.streams) response.end(); await new Promise(resolve => mock.close(resolve)); await seeded.close(); },
   };

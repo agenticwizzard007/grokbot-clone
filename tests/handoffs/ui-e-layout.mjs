@@ -42,7 +42,7 @@ export async function audit(page, { modal = false } = {}) {
   const selector = modal ? '.ho-loop-sheet' : '#root';
   assert.deepEqual(await page.evaluate(inspectAlignment, { selector }), [], 'Paper alignment');
   await readableWords(page.locator(selector));
-  assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1, 'One Back control');
+  assert.equal(await page.locator(selector).getByRole('button', { name: 'Back', exact: true }).count(), 1, 'One Back control on the active surface');
   await accessibility(page);
 }
 

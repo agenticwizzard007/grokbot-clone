@@ -5,7 +5,7 @@ export function GateCard({ detail, onAction, pending }: { detail: LoopDetail; on
   const { loop, gate } = detail;
   if (loop.status !== 'awaiting_approval') return null;
   const spec = loop.spec;
-  const names = spec.steps.map(step => detail.steps.find(run => run.botId === step.botId)?.botName ?? (step.role === 'maker' ? 'Maker' : step.role === 'checker' ? 'Checker' : 'Agent'));
+  const names = spec.steps.map(step => detail.bots?.find(bot => bot.id === step.botId)?.name ?? detail.steps.find(run => run.botId === step.botId)?.botName ?? 'Agent');
   return <Section title="Your approval"><Card tone="warning">
     <Row title={gate?.kind === 'cap' ? 'Pass limit reached' : gate?.kind === 'manual' ? 'Done or another pass?' : `Ready for pass ${gate?.iteration ?? loop.iteration + 1}`} subtitle={spec.goal} />
     <Row title="Agents" subtitle={names.join(', ')} />

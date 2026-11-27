@@ -1,7 +1,7 @@
 import { useId, useRef, useState } from 'react';
 import { Modal } from '../../components/modals/Modal';
 import { ButtonGroup, Card, Page, Row, Section } from '../../components/layout';
-import { eligibleBot, errorText, loopsApi, type LoopApi, type LoopBot, type LoopSpec } from './api';
+import { eligibleBot, errorText, loopsApi, type LoopApi, type LoopBot, type LoopSpec, type LoopTask } from './api';
 import './loops.css';
 
 /** Controlled value shared with HO-D's Keep improving section. */
@@ -21,7 +21,8 @@ export function validateLoop(value: LoopDraft, bots: LoopBot[], compact = false)
   if (!value.name.trim() || value.name.length > 80) errors.name = 'Use a name from 1 to 80 characters.';
   if (!value.goal.trim() || value.goal.length > 2000) errors.goal = 'Add a goal, up to 2000 characters.';
   if (!value.seed.text?.trim() && !value.seed.outputRef) errors.seed = 'Add a starting brief or output reference.';
-  if (value.seed.outputRef && !/^swarm:\/\/output\/out_[A-Za-z0-9_-]+(?:#[A-Za-z0-9_-]+)?$/.test(value.seed.outputRef)) errors.seed = 'Use a Swarm output reference.';
+  if (value.seed.text && value.seed.text.length > 2000) errors.seed = 'Use a brief up to 2000 characters.';
+  if (value.seed.outputRef && !/^swarm:\/\/output\/out_[A-Za-z0-9_-]+$/.test(value.seed.outputRef)) errors.seed = 'Use a Swarm output reference.';
   const valid = new Set(bots.filter(eligibleBot).map(bot => bot.id));
   for (const [index, step] of value.steps.entries()) {
     if (!valid.has(step.botId)) errors[`bot${index}`] = 'Choose an available agent.';
@@ -51,10 +52,10 @@ export function validateLoop(value: LoopDraft, bots: LoopBot[], compact = false)
 
 export interface LoopFieldsProps {
   value: LoopDraft; onChange: (value: LoopDraft) => void; bots: LoopBot[];
-  errors?: LoopFieldErrors; compact?: boolean; usageTracked?: boolean;
+  errors?: LoopFieldErrors; compact?: boolean; usageTracked?: boolean; tasks?: LoopTask[];
 }
 /** No form or modal wrapper: safe to embed inside the Send sheet. */
-export function LoopFields({ value, onChange, bots, errors = {}, compact = false, usageTracked = true }: LoopFieldsProps) {
+export function LoopFields({ value, onChange, bots, errors = {}, compact = false, usageTracked = true, tasks = [] }: LoopFieldsProps) {
   const prefix = useId();
   const available = bots.filter(eligibleBot);
   const patch = (change: Partial<LoopDraft>) => onChange({ ...value, ...change });
@@ -74,7 +75,8 @@ export function LoopFields({ value, onChange, bots, errors = {}, compact = false
     {!compact && <>
       <div className="ho-loop-field"><label htmlFor={`${prefix}-name`}>Name</label><input {...field('name')} maxLength={80} value={value.name} onChange={event => patch({ name: event.target.value })} />{error('name')}</div>
       <div className="ho-loop-field"><label htmlFor={`${prefix}-goal`}>Goal</label><textarea {...field('goal')} maxLength={2000} value={value.goal} onChange={event => patch({ goal: event.target.value })} />{error('goal')}</div>
-      <div className="ho-loop-field"><label htmlFor={`${prefix}-seed`}>{value.seed.outputRef ? 'Starting output' : 'Starting brief'}</label>{value.seed.outputRef ? <input {...field('seed')} value={value.seed.outputRef} onChange={event => patch({ seed: { outputRef: event.target.value } })} /> : <textarea {...field('seed')} value={value.seed.text ?? ''} maxLength={20000} onChange={event => patch({ seed: { text: event.target.value } })} />}{error('seed')}</div>
+      <div className="ho-loop-field"><label htmlFor={`${prefix}-input`}>Start with</label><select id={`${prefix}-input`} value={value.seed.outputRef !== undefined ? 'output' : 'brief'} onChange={event => patch({ seed: event.target.value === 'output' ? { outputRef: '' } : { text: '' } })}><option value="brief">A brief</option><option value="output">An output</option></select></div>
+      <div className="ho-loop-field"><label htmlFor={`${prefix}-seed`}>{value.seed.outputRef !== undefined ? 'Starting output' : 'Starting brief'}</label>{value.seed.outputRef !== undefined ? <input {...field('seed')} value={value.seed.outputRef} onChange={event => patch({ seed: { outputRef: event.target.value } })} /> : <textarea {...field('seed')} value={value.seed.text ?? ''} maxLength={2000} onChange={event => patch({ seed: { text: event.target.value } })} />}{error('seed')}</div>
       <div className="ho-loop-field"><label htmlFor={`${prefix}-kind`}>Process</label><select id={`${prefix}-kind`} value={value.kind} onChange={event => {
         const kind = event.target.value as LoopSpec['kind'];
         patch({ kind, steps: value.steps.slice(0, 2).map((step, index) => ({ ...step, role: index === 1 ? 'checker' : kind === 'maker_checker' ? 'maker' : 'step' })) });
@@ -103,14 +105,14 @@ export function LoopFields({ value, onChange, bots, errors = {}, compact = false
       <label className="ho-loop-check"><input type="checkbox" checked={value.exit.mode === 'judge'} onChange={event => changeMode(event.target.checked ? 'judge' : 'verdict')} /><span>Use a judge rubric</span></label>
       {value.exit.mode === 'judge' && <>{picker('judgeBotId', 'Judge', value.exit.judgeBotId ?? '', judgeBotId => { if (value.exit.mode === 'judge') patch({ exit: { ...value.exit, judgeBotId: judgeBotId || undefined } }); }, true)}<div className="ho-loop-field"><label htmlFor={`${prefix}-rubric`}>Rubric</label><textarea {...field('rubric')} value={value.exit.rubric} maxLength={2000} onChange={event => { if (value.exit.mode === 'judge') patch({ exit: { ...value.exit, rubric: event.target.value } }); }} />{error('rubric')}</div></>}
       {value.exit.mode === 'checklist' && <div className="ho-loop-field"><label htmlFor={`${prefix}-minScore`}>Minimum score</label><input {...field('minScore')} type="number" min={0} max={1} step={0.05} value={value.exit.minScore ?? ''} onChange={event => { if (value.exit.mode === 'checklist') patch({ exit: { ...value.exit, minScore: event.target.value === '' ? undefined : event.target.valueAsNumber } }); }} />{error('minScore')}</div>}
-      {!compact && <><div className="ho-loop-field"><label htmlFor={`${prefix}-room`}>Post progress in room</label><select id={`${prefix}-room`} value={value.roomId ?? ''} onChange={event => patch({ roomId: event.target.value || undefined })}><option value="">No room</option>{bots.filter(bot => bot.kind === 'room').map(bot => <option key={bot.id} value={bot.id}>{bot.name}</option>)}</select></div><div className="ho-loop-field"><label htmlFor={`${prefix}-task`}>Task reference</label><input id={`${prefix}-task`} value={value.taskId ?? ''} onChange={event => patch({ taskId: event.target.value || undefined })} /></div></>}
+      {!compact && <><div className="ho-loop-field"><label htmlFor={`${prefix}-room`}>Post progress in room</label><select id={`${prefix}-room`} value={value.roomId ?? ''} onChange={event => patch({ roomId: event.target.value || undefined })}><option value="">No room</option>{bots.filter(bot => bot.kind === 'room').map(bot => <option key={bot.id} value={bot.id}>{bot.name}</option>)}</select></div><div className="ho-loop-field"><label htmlFor={`${prefix}-task`}>Task</label><select id={`${prefix}-task`} value={value.taskId ?? ''} onChange={event => patch({ taskId: event.target.value || undefined })}><option value="">No task</option>{tasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}{value.taskId && !tasks.some(task => task.id === value.taskId) && <option value={value.taskId}>Linked task</option>}</select></div></>}
     </div></details>
   </div>;
 }
 
-export function LoopSheet({ bots, onClose, onCreated, initial, api = loopsApi, usageTracked = true }: {
+export function LoopSheet({ bots, onClose, onCreated, initial, api = loopsApi, usageTracked = true, tasks = [] }: {
   bots: LoopBot[]; onClose: () => void; onCreated: (id: string) => void;
-  initial?: LoopDraft; api?: LoopApi; usageTracked?: boolean;
+  initial?: LoopDraft; api?: LoopApi; usageTracked?: boolean; tasks?: LoopTask[];
 }) {
   const [value, setValue] = useState(() => initial ?? newLoopSpec());
   const [errors, setErrors] = useState<LoopFieldErrors>({});
@@ -134,7 +136,7 @@ export function LoopSheet({ bots, onClose, onCreated, initial, api = loopsApi, u
   };
   return <Modal label="New loop" className="ho-loop-sheet" onClose={onClose}>
     <Page title="New loop" className="ho-loops"><form onSubmit={submit} noValidate>
-      <Section><Card><LoopFields value={value} onChange={setValue} bots={bots} errors={errors} usageTracked={usageTracked} /></Card></Section>
+      <Section><Card><LoopFields value={value} onChange={setValue} bots={bots} errors={errors} usageTracked={usageTracked} tasks={tasks} /></Card></Section>
       {Object.keys(errors).length > 0 && <p role="alert" className="ho-loop-error">Check the highlighted fields.</p>}
       {serverError && <p role="alert" className="ho-loop-error">{serverError}</p>}
       <Row title="Limits apply to every pass" subtitle="Up to 10 passes. You can stop at any time." />

@@ -49,13 +49,15 @@
 .ho-loop-graph-list { position: relative; }
 .ho-loop-graph-node { min-height: 56px; display: flex; flex-direction: column; gap: var(--space-1); justify-content: center; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-elevated); color: var(--color-text-primary); text-decoration: none; }
 .ho-loop-graph-node:hover { border-color: var(--color-primary); }
+.ho-loop-graph-node > span { font-size: var(--text-xs); line-height: 14px; }
 .ho-loop-graph-connectors { position: absolute; inset: 0; width: 100%; pointer-events: none; color: var(--color-border-focus); }
 .ho-loop-graph-connectors path { fill: none; stroke: currentColor; stroke-width: 1.5; }
 .ho-loop-graph-then { font-size: var(--text-xs); color: var(--color-text-secondary); padding-block: var(--space-2); }
 .ho-loop-graph-then span { position: relative; background: var(--color-bg-pane); }
 .ho-loop-graph-pass > h3 { font-size: var(--text-sm); padding-block: var(--space-2); }
 @media (max-width: 760px) {
-  .ho-loop-sheet.modal { align-self: flex-end; margin: 0; width: 100%; max-height: 94dvh; border-radius: var(--radius-card) var(--radius-card) 0 0; }
+  .modal-root:has(.ho-loop-sheet) { padding: 0; }
+  .modal-root .ho-loop-sheet.modal { align-self: flex-end; margin: 0; width: 100%; height: 100dvh !important; max-height: 100dvh; border-radius: 0; border: 0; }
   .ho-loop-heading .ho-loop-back { flex-basis: 100%; justify-content: flex-start; width: max-content; border: 0; padding-inline: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .ho-loops * { animation: none !important; transition: none !important; } }

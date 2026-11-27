@@ -26,7 +26,7 @@ export function LoopRun({ id, api = loopsApi, showBack = true, onBack = () => { 
     try { await navigator.clipboard.writeText(JSON.stringify({ id: loop.id, status: loop.status, stopReason: loop.stopReason, revision: loop.revision, events: events.map(event => ({ seq: event.seq, type: event.type })) }, null, 2)); setCopied('Details copied'); }
     catch { setCopied('Could not copy details'); }
   };
-  return <Page type="list" className="ho-loops">
+  return <Page type="list" className="ho-loops" data-loop-revision={loop.revision}>
     <header className="ho-loop-heading">{back}<h1>{loop.spec.name}</h1><span className={`ho-loop-chip ho-loop-status-${loop.status}`} role="status">{statusLabel[loop.status]}</span></header>
     <div><p className="ho-loop-goal">{shortGoal && !fullGoal ? words.slice(0, 28).join(' ') : loop.spec.goal}</p>{shortGoal && <button className="ho-loop-button" aria-expanded={fullGoal} onClick={() => setFullGoal(!fullGoal)}>{fullGoal ? 'Less goal' : 'Full goal'}</button>}</div>
     <div className="ho-loop-progress"><label htmlFor={`${tabsId}-progress`}>{loop.iteration} of {loop.spec.limits.maxIterations} passes</label><progress id={`${tabsId}-progress`} max={loop.spec.limits.maxIterations} value={loop.iteration} /></div>

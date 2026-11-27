@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { errorText, loopsApi, type LoopAction, type LoopApi, type LoopDetail, type LoopEvent } from './api';
+import { errorText, loopsApi, type LoopAction, type LoopApi, type LoopBot, type LoopDetail, type LoopEvent } from './api';
 
 export function mergeEvents(before: LoopEvent[], incoming: LoopEvent[]) {
   return [...new Map([...before, ...incoming].map(event => [event.seq, event])).values()].sort((a, b) => a.seq - b.seq);
@@ -16,6 +16,7 @@ export function useLoop(id: string, api: LoopApi = loopsApi) {
     const controller = new AbortController();
     let refreshing = false, again = false, cursor = 0;
     let events: LoopEvent[] = [];
+    let bots: LoopBot[] | undefined;
     setState({ id, detail: null, events: [], loading: true, error: '' });
     setActionError('');
     const refresh = async () => {
@@ -33,7 +34,9 @@ export function useLoop(id: string, api: LoopApi = loopsApi) {
             next = page.next;
             if (next != null && next <= previous) throw new Error('Could not read the next events. Try again.');
           } while (next != null);
-          const detail = await api.get(id, controller.signal);
+          const [snapshot, agents] = await Promise.all([api.get(id, controller.signal), bots ? Promise.resolve(bots) : api.bots(controller.signal)]);
+          bots = agents;
+          const detail: LoopDetail = { ...snapshot, bots: snapshot.bots ?? agents, steps: snapshot.steps.map(step => ({ ...step, botName: step.botName ?? agents.find(bot => bot.id === step.botId)?.name })) };
           if (controller.signal.aborted) return;
           cursor = events.at(-1)?.seq ?? 0;
           setState(previous => ({ id, detail: previous.id === id && previous.detail && previous.detail.loop.revision > detail.loop.revision ? previous.detail : detail, events, loading: false, error: '' }));
