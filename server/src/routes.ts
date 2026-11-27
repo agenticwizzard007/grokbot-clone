@@ -837,8 +837,7 @@ api.get('/apps/callback', async (c) => {
               row.body.connectionAttempt && row.body.connectionAttempt === c.req.query('attempt') &&
               ['pending', 'connected'].includes(row.body.status)) {
             const connectedAccountId = row.body.connectedAccountId;
-            const accounts = await connectionsDetail(userId, { details: true }).catch(() => []);
-            snapshotFlowConnections(userId, accounts);
+            const accounts = await connectionsDetail(userId, { details: true }).then(accounts => { snapshotFlowConnections(userId, accounts); return accounts; }).catch(() => []);
             // The user's other ACTIVE account must not confirm this sign-in attempt.
             const verified = accounts.find(a => a.id === connectedAccountId && a.toolkit === slug && a.status === 'ACTIVE' && !a.isDisabled);
             const currentBot = ownBot(userId, botId);

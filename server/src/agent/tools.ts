@@ -136,7 +136,12 @@ export const TOOLS: ToolDef[] = [
   ...WORKFLOW_TOOLS,
   ...DELIVERABLE_TOOLS,
   ...UI_TOOLS,
-  ...HANDOFF_TOOLS,
+  ...HANDOFF_TOOLS.map(tool => tool.name === 'start_loop' ? { ...tool, parameters: { ...tool.parameters, examples: [{
+    goal: 'Review a placeholder draft.', exit: { mode: 'verdict' },
+    steps: [{ id: 'maker', botId: 'bot_maker', role: 'maker', instruction: 'Draft the result.' },
+      { id: 'checker', botId: 'bot_checker', role: 'checker', instruction: 'Review the result.' }],
+    limits: { maxIterations: 4, maxMinutes: 30, stepTimeoutMinutes: 10 },
+  }] } } : tool),
   ...FLOW_TOOLS,
   {
     name: 'get_platform_state',
