@@ -15,6 +15,7 @@ import '../../styles/settings-v3.css';
 // Only page contents wait for code or data. Navigation stays mounted and usable.
 const AppearanceSettings = lazy(() => import('./AppearanceSettings').then(m => ({ default: m.AppearanceSettings })));
 const Requirements = lazy(() => import('./appearance/Requirements').then(m => ({ default: m.Requirements })));
+const AgentsSettings = lazy(() => import('./AppSettings').then(m => ({ default: m.AgentsSection })));
 const ConfigLayer = lazy(() => import('./ConfigLayer').then(m => ({ default: m.ConfigLayer })));
 
 let settingsCaller: HTMLElement | null = null;
@@ -127,7 +128,7 @@ export function AppSettings() {
       <span ref={heading} tabIndex={-1} className="sr-only">{showList ? 'Settings' : sectionLabel}</span>
       {showList ? <Page type="form">{nav}</Page> : <Page type="form" title={compact ? undefined : section === 'subscriptions' ? 'Models & access' : sectionLabel} className="app-settings__page" key={aboutUse ? 'appearance/use' : section}>
         <Suspense fallback={<div className="settings-page-loading" role="status">Loading settings</div>}>
-          {aboutUse ? <Requirements /> : section === 'appearance' ? <AppearanceSettings /> : <ConfigLayer />}
+          {aboutUse ? <Requirements /> : section === 'appearance' ? <AppearanceSettings /> : section === 'agents' ? <AgentsSettings key={user?.id} /> : <ConfigLayer />}
         </Suspense>
       </Page>}
     </div>

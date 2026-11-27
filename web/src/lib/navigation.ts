@@ -1,10 +1,10 @@
 import { botSlug, routeBot, linkedWork, workHash, workTabLabel, type WorkRoute } from './userRoutes';
 
-export const APP_SECTIONS = ['general', 'appearance', 'keys', 'usage', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions', 'learning'] as const;
+export const APP_SECTIONS = ['general', 'appearance', 'agents', 'keys', 'usage', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions', 'learning'] as const;
 export const SETTINGS_LABELS: Record<AppSection, string> = {
   general: 'General', appearance: 'Appearance', keys: 'API keys', usage: 'Usage', computer: 'Computer', messaging: 'Messaging',
   permissions: 'Permissions', apps: 'Connected apps', mcp: 'MCP servers', account: 'Account',
-  subscriptions: 'Models & access', learning: 'Learning',
+  subscriptions: 'Models & access', learning: 'Learning', agents: 'Agents',
 };
 export const BOT_TABS = ['general', 'skills', 'memories', 'routines', 'learning', 'analytics'] as const;
 export type AppSection = typeof APP_SECTIONS[number];
