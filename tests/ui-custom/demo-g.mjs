@@ -46,6 +46,11 @@ try {
     await screen.getByRole('button', { name: 'Forest', exact: true }).click();
     const card = screen.locator('.ui-preview-card'); await card.getByRole('button', { name: 'Apply', exact: true }).waitFor();
     assert.equal((await saved(page)).revision, current.revision, 'preset previews do not save');
+    await page.getByRole('status', { name: 'Appearance preview', exact: true }).waitFor();
+    await page.waitForTimeout(400);
+    assert.equal(await page.getByRole('status', { name: 'Appearance preview', exact: true }).isVisible(), true, 'late pending SSE preserves the manual preview');
+    assert.ok(await page.evaluate(() => document.querySelector('.app').getBoundingClientRect().bottom <= innerHeight + 1), 'the signed-in shell fits below the preview banner');
+    await page.waitForFunction(color => getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim().toUpperCase() === color, theme === 'light' ? '#0F766E' : '#5EEAD4');
     await shot('preset-preview');
     await card.getByRole('button', { name: 'Apply', exact: true }).click();
     await waitForSaved(page, c => c.doc.preset === 'forest', 'preset');
@@ -95,7 +100,7 @@ try {
     const download = await downloadPromise, exportPath = path.join(evidence, `${width}-${theme}-export.json`); await download.saveAs(exportPath);
     assert.equal(download.suggestedFilename(), 'swarm-appearance.json');
     await screen.getByLabel('Import appearance file').setInputFiles(exportPath);
-    await card.getByRole('button', { name: 'Apply', exact: true }).waitFor(); await shot('import-preview');
+    await card.getByRole('button', { name: 'Apply', exact: true }).waitFor(); await page.getByRole('status', { name: 'Appearance preview', exact: true }).waitFor(); await shot('import-preview');
     await card.getByRole('button', { name: 'Apply', exact: true }).click(); await card.getByText('Applied', { exact: true }).waitFor();
     await card.getByRole('button', { name: 'Undo', exact: true }).click(); await card.getByText('Undone', { exact: true }).waitFor();
     await shot('undo'); pass('export, import preview, Apply and Undo');
