@@ -52,6 +52,9 @@ export async function runAboutYouUi(output = 'shots/polish/after') {
       assert.equal(response.status(), 200, await response.text());
       await page.reload(); await section.getByText('Operations lead', { exact: true }).waitFor();
       await capture('about-you');
+      await page.goto(`${server.base}/#settings/appearance/use`);
+      await section.getByText('Operations lead', { exact: true }).waitFor();
+      await capture('about-you-page');
       const saved = await read('requirements');
       const writes = [];
       page.on('request', request => { if (!['GET','HEAD'].includes(request.method()) && /\/api\/(ui\/|bots\/[^/]+\/messages)/.test(request.url())) writes.push(request.url()); });

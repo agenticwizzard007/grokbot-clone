@@ -112,7 +112,10 @@ try {
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.getByRole('button', { name: 'Add widget', exact: true }).click();
     await capture(page, 'add-widget', width, theme, '.dashboard-dialog');
-    await page.getByRole('button', { name: before ? 'Cancel' : 'Close', exact: true }).click();
+    const close = page.getByRole('button', { name: before ? 'Cancel' : 'Close', exact: true });
+    // Main 3cf57e0 registers Agent without its sheet icon; preserve that broken before view.
+    if (before && !await close.isVisible()) await page.reload();
+    else await close.click();
     await page.goto(`${server.base}/#dash/${boards[1].id}`); await page.getByText('Your dashboard is empty.', { exact: true }).waitFor();
     await capture(page, 'empty-dashboard', width, theme, '.dashboard-page');
     await page.goto(`${server.base}/#settings/appearance`); await page.locator('.appearance-fields').waitFor();
