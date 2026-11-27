@@ -73,7 +73,7 @@ for (let i=0; i<40; i++) {
 }
 const finished = loops.getLoop(userId, loop.id); if (finished.status !== 'succeeded') throw new Error('Seed loop did not converge: '+finished.status);
 const chatJob = jobs.acceptJob(maker, {type:'user',text:'Draft a release note.'}); jobs.beginJob(chatJob.id); jobs.finishJob(chatJob.id,true);
-hooks.onJobFinished({userId,botId:maker,jobId:chatJob.id,status:'completed',finalText:'Release note draft ready for review.'});
+hooks.onJobFinished({userId,botId:maker,jobId:chatJob.id,status:'completed',finalText:'Release note draft\\nVersion 2.0 improves search and simplifies setup. Try it in your next project.'});
 appendRow(maker,'message',{type:'message',role:'assistant',jobId:chatJob.id,text:'Release note draft ready for review.'});
 const paused = loops.createLoop(userId, { spec: {...spec,name:'Follow-up review'}, idempotencyKey:'integration-paused', start:false } as any).loop;
 db.prepare("UPDATE loops SET status='paused' WHERE id=?").run(paused.id);
@@ -120,7 +120,7 @@ export async function runIntegrationDemo() {
       await page.locator('.ho-output-card').getByRole('button', { name: 'Send to agent', exact: true }).first().click();
       const sheet = page.getByRole('dialog', { name: 'Send to agent' });
       await sheet.getByRole('button', { name: /Research/ }).click();
-      const instruction = 'Review the release note against the brief.';
+      const instruction = width === 390 ? 'Review the release note against the brief.' : 'Check the release note for missing details.';
       await sheet.getByLabel('Ask', { exact: true }).fill(instruction);
       await sheet.getByRole('button', { name: 'Send', exact: true }).click();
       const receipt = page.locator('.ho-receipt').filter({ hasText: instruction });
@@ -191,7 +191,7 @@ export async function runIntegrationDemo() {
       await openBot('Coordinator');
       await page.locator('.ho-output-card').getByRole('button', { name: 'Send to agent', exact: true }).first().click();
       await sheet.getByRole('button', { name: /Research/ }).click();
-      await page.waitForFunction(() => document.querySelector('.ho-dialog textarea')?.value.includes('Release note draft ready'));
+      await page.waitForFunction(() => document.querySelector('.ho-dialog textarea')?.value.includes('Release note draft'));
       await sheet.getByLabel('Ask', { exact: true }).fill('Review the next release draft.');
       await sheet.getByLabel('Keep improving', { exact: true }).check();
       await sheet.getByLabel('Stop when', { exact: true }).selectOption('manual');

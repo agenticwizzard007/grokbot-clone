@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { checkQualityGuards } from './quality-guards.mjs';
 import { polishFixture, screens } from './polish-fixture.mjs';
 
 // Executed in the browser. Only rendered text counts; closed details and screen
@@ -47,7 +48,7 @@ export function inspectQuality({ selector, finished = false }) {
       const leading = el.querySelector(':scope > .layout-row__leading'), title = el.querySelector(':scope > .layout-row__text > .layout-row__title');
       if (leading && title) { const icon = leading.getBoundingClientRect(), text = title.getBoundingClientRect(); check('j.icon', Math.abs(icon.top + icon.height/2 - text.top - parseFloat(getComputedStyle(title).lineHeight)/2) <= 2, el); }
       const action = el.querySelector(':scope > .layout-row__trailing');
-      if (action) { const a = action.getBoundingClientRect(); check('j.trailing', Math.abs(a.top+a.height/2-r.top-r.height/2) <= 2, el); }
+      if (action) { const a = action.getBoundingClientRect(); check('j.trailing', Math.abs(a.top+a.height/2-r.top-r.height/2) <= 2, el); check('j.trailing-edge', close(a.right, r.right - parseFloat(css.paddingRight)), el); }
     }
     if (el.matches('.flow-node button')) {
       const icon = el.querySelector('.flow-node__logo').getBoundingClientRect(), text = el.querySelector('strong').getBoundingClientRect();
@@ -69,6 +70,7 @@ export async function runQuality() {
   const out = path.resolve('.context/ho-p/quality'); fs.mkdirSync(out,{recursive:true});
   const fixture = await polishFixture(), report = [];
   try {
+    await checkQualityGuards(fixture, inspectQuality);
     for (const width of (process.env.HO_WIDTHS || '320,390,500,1280').split(',').map(Number)) for (const theme of (process.env.HO_THEMES || 'light,dark').split(',')) for (const name of (process.env.HO_SCREENS ? process.env.HO_SCREENS.split(',') : screens)) {
       let state;
       try {

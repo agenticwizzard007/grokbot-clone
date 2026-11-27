@@ -10,6 +10,7 @@ try {
   for (const name of screens.slice(0,15)) for (const width of ['receipt','loop-timeline','flow-tab'].includes(name) ? [320,390,500,1280] : [390,1280]) {
     const state = await fixture.open(name, width, 'light');
     const { page } = state;
+    if (['receipt','loop-timeline','loop-graph','flow-tab'].includes(name)) { const height = await page.locator('.transcript, .ho-route, .flow-page').evaluateAll(els => Math.max(...els.map(el => el.scrollHeight))); if (height > 1000) await page.setViewportSize({width,height:Math.min(5000,height+160)}); }
     const surface = page.locator(state.selector).first(); await surface.scrollIntoViewIfNeeded();
     const file = path.join(output, `${name}-${width}-${phase}.png`);
     await page.screenshot({ path: file, fullPage: true });

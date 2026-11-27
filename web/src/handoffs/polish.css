@@ -4,14 +4,14 @@
 }
 :is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-card,
 .flow-compact.layout-card { padding: var(--card-pad); }
-:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-row {
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-row, .ho.layout-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-2);
   min-height: var(--control-h);
   align-items: center;
 }
-:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-row:has(> .layout-row__leading) {
+:is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-row:has(> .layout-row__leading), .ho.layout-row:has(> .layout-row__leading) {
   grid-template-columns: 20px minmax(0, 1fr) auto;
 }
 :is(.ho, .ho-loops, .ho-loop-sheet, .flow-tab, .flow-compact, .flow-sheet) .layout-row__leading {

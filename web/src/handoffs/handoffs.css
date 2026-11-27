@@ -51,3 +51,4 @@
 .ho-chip-link { display: inline-flex; align-items: center; min-height: var(--control-h); text-decoration: none; }
 .ho .ho-status { font: 500 var(--text-xs)/var(--line-caption) var(--font-stack); }
 .ho-part-text { font-size: var(--text-base); }
+.ho-message-actions { display: flex; margin-left: auto; }

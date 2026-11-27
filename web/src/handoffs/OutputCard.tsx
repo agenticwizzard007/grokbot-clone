@@ -1,8 +1,9 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { FileText, Send } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import { ButtonGroup, Card, Row } from '../components/layout';
 import type { HandoffLink, RunOutput } from './api';
 import { handoffText, outputHref } from './useHandoffs';
+import { outputPreview } from './presentation';
 import { HandoffState } from './HandoffRow';
 import './handoffs.css';
 
@@ -24,11 +25,10 @@ export function OutputCard({ output, loading, error, onRetry, onSend, openLabel 
     return () => observer.disconnect();
   }, [output]);
   const title = handoffText(output?.title ?? '');
-  const preview = handoffText(output?.summary ?? '').trim();
-  const content = preview.toLowerCase().startsWith(title.toLowerCase()) ? preview.slice(title.length).replace(/^[\s:.,]+/, '') : preview;
+  const content = outputPreview(title, handoffText(output?.summary ?? ''));
   return <Card className="ho ho-output-card">
     {!output || error ? <HandoffState loading={loading} error={error} retry={onRetry} empty="No output yet" /> : <>
-      <Row title={title} leading={<FileText size={18} aria-hidden="true" />}
+      <Row title={title} leading={<FileText size={20} aria-hidden="true" />}
         subtitle={output.status === 'draft' ? 'Incomplete' : output.status === 'superseded' ? 'Earlier output' : 'Output'} />
       {content && <p ref={summary} className={`ho-summary${expanded ? ' is-expanded' : ''}`}>{content}</p>}
       {overflows && <button className="ho-button ho-button--quiet" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? 'Show less' : 'Show more'}</button>}
@@ -38,7 +38,7 @@ export function OutputCard({ output, loading, error, onRetry, onSend, openLabel 
           return count ? <span key={kind} className="ho-chip">{count} {kind}{count === 1 ? '' : 's'}</span> : null;
         })}
       </div>
-      <ButtonGroup><button className="ho-button ho-button--primary" onClick={() => onSend(output)}><Send size={16} aria-hidden="true" />Send to agent</button>
+      <ButtonGroup><button className="ho-button ho-button--primary" onClick={() => onSend(output)}>Send to agent</button>
         <a className="ho-button" href={outputHref(output.id)}>{openLabel}</a></ButtonGroup>
     </>}
   </Card>;

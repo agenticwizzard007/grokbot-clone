@@ -29,6 +29,7 @@ import { Copy } from 'lucide-react';
 import { toast } from '../lib/toast';
 import { stepApprovalOutcome } from '../lib/stepApproval';
 import { savedFileResult, savedFileLinksByMessage } from '../lib/savedFiles';
+import { handoffTurnFinished } from '../handoffs/presentation';
 import { HandoffRow, type HandoffRowBody } from '../handoffs/HandoffRow';
 import type { ReactNode } from 'react';
 
@@ -304,7 +305,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
     return buildItems(visibleRows, groups, separateReplies);
   }, [visibleRows, groups, firstReply?.seq]);
   const interruptedTurn = !running && visibleRows.some(row => row.seq > promptSeq && row.body.type === 'notice' && (row.body.recovery || row.body.terminal || row.body.tone === 'error' || row.body.text === 'Stopped.'));
-  const pendingResponse = loaded && !firstReply && !interruptedTurn;
+  const pendingResponse = loaded && !firstReply && !interruptedTurn && !handoffTurnFinished(visibleRows, promptSeq, running);
   const processing = pendingResponse && running && !live?.awaiting && live?.activity?.kind !== 'waiting_for_you' && !streamingNow;
   const empty = loaded && !paging?.error && !paging?.loading && visibleRows.length === 0 && groups.length === 0;
   const activeTools = visibleRows.some(row => row.body.type === 'tool-call' && ['queued', 'running', 'awaiting-approval'].includes(row.body.status));

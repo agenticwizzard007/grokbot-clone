@@ -18,7 +18,7 @@ export const output = {
     { id: 'p_data', kind: 'data', name: 'Review checklist', bytes: 120, sha256: 'fixture' },
     { id: 'p_link', kind: 'link', url: 'https://example.com/brief', title: 'Release brief', relation: 'source' },
   ],
-  provenance: { producer: { botId: 'bot_maker', botName: 'Maker' }, jobId: 'job_fixture', trigger: 'user', model: 'openai/gpt-fixture', effort: 'Standard', startedAt: stamp, finishedAt: stamp + 60000, consumed: [], handoffId: null, loopId: null, iteration: null, stepId: null, tools: [], declaredBy: 'auto' },
+  provenance: { producer: { botId: 'bot_maker', botName: 'Maker' }, jobId: 'job_fixture', trigger: 'user', model: 'openai/gpt-4.1', effort: 'Standard', startedAt: stamp, finishedAt: stamp + 60000, consumed: [], handoffId: null, loopId: null, iteration: null, stepId: null, tools: [], declaredBy: 'auto' },
   contentHash: 'fixture', createdAt: stamp, finalizedAt: stamp + 60000,
 };
 const agent = (id, name, label, extra = {}) => ({ id, name, label, kind: 'agent', onboarding: { status: 'active' }, avatarShape: 'bird-sparrow', avatarColor: 'blue', lastActivityAt: stamp, ...extra });

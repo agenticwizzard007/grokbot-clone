@@ -14,7 +14,8 @@ export const screens = [
   'flow-suggestions', 'flow-long', 'link-edit', 'send-error', 'send-loop',
 ];
 export async function polishFixture() {
-  const dir = path.resolve('.context/ho-p/fixture'); fs.mkdirSync(dir, { recursive: true });
+  const root = path.resolve('.context/ho-p'); fs.mkdirSync(root, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(root, 'fixture-'));
   const server = await integrationServer(dir);
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const d = await handoffFixture();

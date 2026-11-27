@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+
+/** Prove the gate rejects regressions instead of only passing our fixtures. */
+export async function checkQualityGuards(fixture, inspect) {
+  const state = await fixture.open('output-card',390,'light');
+  const { page, selector } = state;
+  const cases = [
+    ['a.type', el => { el.querySelector('.layout-row__title').style.fontSize = '11px'; }],
+    ['b.target', el => { const b=el.querySelector('button'); b.style.setProperty('min-height','20px','important'); b.style.setProperty('height','20px','important'); b.style.padding='0'; }],
+    ['c.equal-actions', el => { el.querySelector('.layout-button-group > *').style.width='40px'; }],
+    ['c.two-actions', el => { const g=el.querySelector('.layout-button-group'); g.append(g.firstElementChild.cloneNode(true)); }],
+    ['d.card', el => { el.style.padding='8px'; }],
+    ['e.chip', el => { const chip=document.createElement('span'); chip.className='ho-chip'; chip.textContent='Loop'; chip.style.textDecoration='underline'; el.append(chip); }],
+    ['e.overflow', el => { el.style.width='2000px'; }],
+    ['f.spacing', el => { const list=document.createElement('div'); list.style.display='grid'; list.style.gap='5px'; for(let i=0;i<3;i++){const row=document.createElement('div');row.dataset.layout='row';row.textContent='Release note';list.append(row);} el.append(list); }],
+    ['g.unique-title', el => { const p=document.createElement('p'); p.textContent=el.querySelector('.layout-row__title').textContent; el.prepend(p); }],
+    ['h.copy', el => { el.append(document.createTextNode('mock: review')); }],
+    ['i.finished', el => { const pending=document.createElement('div');pending.className='first-response';el.append(pending); }],
+    ['j.icon', el => { el.querySelector('.layout-row__leading').style.transform='translateY(8px)'; }],
+    ['j.trailing', el => { const row=el.querySelector('.layout-row');const trailing=document.createElement('div');trailing.className='layout-row__trailing';trailing.textContent='Open';trailing.style.transform='translateY(12px)';row.append(trailing); }],
+  ];
+  try {
+    const original = await page.locator(selector).first().evaluate(el => el.outerHTML);
+    for (const [rule, mutate] of cases) {
+      await page.locator(selector).first().evaluate(mutate);
+      const result = await page.evaluate(inspect,{selector,finished:true});
+      assert.ok(result.issues.some(issue=>issue.startsWith(`${rule}:`)),`Gate must reject ${rule}`);
+      await page.locator(selector).first().evaluate((el, html)=>{el.outerHTML=html;},original);
+      console.log(`PASS quality guard ${rule}`);
+    }
+  } finally { await state.close(); }
+  return cases.length;
+}
