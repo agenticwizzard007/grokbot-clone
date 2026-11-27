@@ -27,6 +27,11 @@ export async function accessibilityFixture() {
   ] }, { id: 'd_a11y0002', name: 'Blank dashboard', icon: 'layout-dashboard', widgets: [] }];
   const response = await fetch(`${server.base}/api/ui/config`, { method: 'PUT', headers: { cookie: 'swarm_session=layout-test-token', origin: server.base, 'content-type': 'application/json', 'if-match': '"0"' }, body: JSON.stringify(doc) });
   assert.equal(response.status, 200, await response.text());
+  const profile = await fetch(`${server.base}/api/ui/requirements`, { method: 'PUT', headers: { cookie: 'swarm_session=layout-test-token', origin: server.base, 'content-type': 'application/json', 'if-match': '"0"' }, body: JSON.stringify({ patch: [
+    { op: 'replace', path: '/role', value: 'Project coordinator' }, { op: 'replace', path: '/goals', value: ['Review open tasks', 'Plan the next launch'] },
+    { op: 'replace', path: '/workflows', value: [{ name: 'Weekly review', cadence: 'weekly' }] },
+  ] }) });
+  assert.equal(profile.status, 200, await profile.text());
   return { ...server,
     async preset(id) {
       const { presetConfig } = await tsImport('../../../server/src/ui-config/presets.ts', import.meta.url);
@@ -73,13 +78,28 @@ export async function accessibilityFixture() {
     await context.addInitScript(() => localStorage.setItem('swarm.sidebarCollapsed', '0'));
     return context;
   }, async open(page, hash) {
+    if (!page.a11yTraffic) {
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Network.setCacheDisabled', { cacheDisabled: false });
+      const pending = new Set(); let last = Date.now();
+      page.a11yTraffic = { pending, last: () => last };
+      page.on('request', request => { if (request.resourceType() !== 'eventsource') { pending.add(request); last = Date.now(); } });
+      const done = request => { if (pending.delete(request)) last = Date.now(); };
+      page.on('requestfinished', done); page.on('requestfailed', done);
+    }
     hash = hash.replaceAll('coordinator', server.fixture.bot.id).replaceAll('project-room', server.fixture.room);
     await page.goto('about:blank');
     await page.goto(`${server.base}/${hash}`);
     await page.locator('.shell-header').waitFor();
     await page.waitForFunction(() => !document.querySelector('.shell-loading'));
     await page.evaluate(() => document.fonts.ready);
-    await page.waitForTimeout(600);
+    await page.locator('[data-layout="page"]:visible').first().waitFor();
+    const deadline = Date.now() + 15000;
+    while (page.a11yTraffic.pending.size || Date.now() - page.a11yTraffic.last() < 200) {
+      assert.ok(Date.now() < deadline, `Screen did not settle: ${hash}; pending ${[...page.a11yTraffic.pending].map(r => r.url()).join(', ')}`);
+      await page.waitForTimeout(50);
+    }
+    if (hash === '#first-run') await page.locator('.first-run__progress').waitFor();
     if (hash.startsWith('#dash/d_') && !hash.includes('d_a11y0002')) {
       for (const widget of await page.locator('[data-widget-id]').all()) {
         await widget.scrollIntoViewIfNeeded();

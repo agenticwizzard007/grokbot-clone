@@ -18,7 +18,7 @@ const out = path.resolve(process.env.A11Y_OUTPUT || '.context/ui-custom/accessib
 fs.mkdirSync(out, { recursive: true });
 const results = [];
 const routes = [...navigationRoutes.map(hash => ({ name: hash || 'home', hash })),
-  { name: 'about-you', hash: '#settings/appearance/use', action: async page => { await page.getByRole('button', { name: 'Add workflow', exact: true }).click(); await page.getByLabel('Role', { exact: true }).fill('Project coordinator'); } },
+  { name: 'about-you', hash: '#settings/appearance/use' },
   { name: 'shortcut-recording', hash: '#settings/appearance', action: async page => page.getByRole('button', { name: 'Change Focus composer shortcut', exact: true }).click() },
   { name: 'layout-reset', hash: '#settings/appearance', action: async page => { await page.getByRole('button', { name: 'Manage layout', exact: true }).click(); await page.getByRole('menuitem', { name: 'Reset', exact: true }).click(); } },
   { name: 'chat-preview', hash: '#bot/coordinator', action: page => server.previewCard(page) },
@@ -27,6 +27,7 @@ const routes = [...navigationRoutes.map(hash => ({ name: hash || 'home', hash })
   { name: 'dashboard-empty', hash: '#dash/d_a11y0002' },
   { name: 'dashboard-edit', hash: '#dash/d_a11y0001', action: async page => page.getByRole('button', { name: 'Edit', exact: true }).click() },
   { name: 'add-widget', hash: '#dash/d_a11y0001', action: async page => { await page.getByRole('button', { name: 'Edit', exact: true }).click(); await page.getByRole('button', { name: 'Add widget', exact: true }).click(); } },
+  { name: 'ask-agent', hash: '#dash/d_a11y0001', parentDialog: true, action: async page => { await page.getByRole('button', { name: 'Edit', exact: true }).click(); await page.getByRole('button', { name: 'Add widget', exact: true }).click(); await page.getByRole('button', { name: /^Ask your agent/ }).click(); } },
   { name: 'widget-settings', hash: '#dash/d_a11y0001', action: async page => { await page.getByRole('button', { name: 'Edit', exact: true }).click(); await page.getByRole('button', { name: 'Settings: Task table', exact: true }).click(); } },
   { name: 'dashboard-switcher', hash: '#dash/d_a11y0001', action: async page => page.getByRole('button', { name: 'Switch dashboard: My week', exact: true }).click() },
   { name: 'create-dashboard', hash: '#dashboards', action: async page => page.getByRole('button', { name: 'Create', exact: true }).click() },
@@ -35,12 +36,14 @@ const routes = [...navigationRoutes.map(hash => ({ name: hash || 'home', hash })
 const server = await accessibilityFixture();
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 try {
-  for (const width of (process.env.A11Y_WIDTHS || '390,1280').split(',').map(Number)) for (const theme of (process.env.A11Y_THEMES || 'light,dark').split(',')) {
+  for (const preset of (process.env.A11Y_PRESETS || 'swarm,midnight,paper,contrast').split(',')) for (const width of (process.env.A11Y_WIDTHS || '390,1280').split(',').map(Number)) for (const theme of (process.env.A11Y_THEMES || 'light,dark').split(',')) {
+    await server.preset(preset);
     const context = await server.context(browser, width, theme);
     const page = await context.newPage(); page.setDefaultTimeout(10000);
-    for (const route of routes.filter(route => !process.env.A11Y_ROUTES || new RegExp(process.env.A11Y_ROUTES).test(route.name))) {
-      const name = `${width}-${theme}-${route.name}`, file = name.replace(/[^a-z0-9-]/gi, '_');
-      const item = { name, width, theme, route: route.name, violations: [], reflow: [] };
+    const selectedRoutes = preset === 'swarm' ? routes : routes.filter(route => ['#settings/appearance', 'dashboard', '#bot/coordinator', '#bots'].includes(route.name));
+    for (const route of selectedRoutes.filter(route => !process.env.A11Y_ROUTES || new RegExp(process.env.A11Y_ROUTES).test(route.name))) {
+      const name = `${preset === 'swarm' ? '' : `${preset}-`}${width}-${theme}-${route.name}`, file = name.replace(/[^a-z0-9-]/gi, '_');
+      const item = { name, preset, width, theme, route: route.name, violations: [], reflow: [] };
       try {
         await page.setViewportSize({ width, height: width < 760 ? 844 : 900 });
         await server.open(page, route.hash);
@@ -62,6 +65,8 @@ try {
           await page.setViewportSize({ width: cssWidth, height: 844 });
           const cdp = await context.newCDPSession(page);
           if (scale === 4) await cdp.send('Emulation.setDeviceMetricsOverride', { width: 320, height: 844, deviceScaleFactor: 4, mobile: false, screenWidth: 1280, screenHeight: 3376 });
+          await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('is-mobile') === matchMedia('(max-width: 760px)').matches);
+          await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
           const issues = await page.evaluate(() => {
             const issues = [];
             for (const root of [document.documentElement, document.body]) if (root.scrollWidth > innerWidth + 1) issues.push({ issue: 'page-overflow', tag: root.tagName, width: root.scrollWidth, viewport: innerWidth });
@@ -91,13 +96,19 @@ try {
           assert.equal(await dialog.evaluate(node => node.contains(document.activeElement)), true, 'Tab stays in the dialog');
           await focusable.first().focus(); await page.keyboard.press('Shift+Tab');
           assert.equal(await dialog.evaluate(node => node.contains(document.activeElement)), true, 'Shift+Tab stays in the dialog');
-          await page.keyboard.press('Escape'); await dialog.waitFor({ state: 'hidden' });
+          const dialogName = await dialog.getAttribute('aria-label');
+          await page.keyboard.press('Escape'); await page.getByRole('dialog', { name: dialogName, exact: true }).waitFor({ state: 'hidden' });
+          if (route.parentDialog) {
+            const parent = page.getByRole('dialog', { name: 'Add widget', exact: true }); await parent.waitFor();
+            assert.equal(await parent.getByRole('button', { name: /^Ask your agent/ }).evaluate(node => node === document.activeElement), true, 'Nested sheet returns focus to its trigger');
+            await page.keyboard.press('Escape'); await parent.waitFor({ state: 'hidden' });
+          }
           assert.equal(await page.evaluate(() => !!window.__a11yOpener?.isConnected && document.activeElement === window.__a11yOpener), true, 'Escape returns focus to the opener');
           item.keyboard = 'focus trap, Escape, focus return passed';
         }
       } catch (error) { item.error = error.stack; }
       if (route.name === 'chat-preview') {
-        await page.getByRole('region', { name: 'Review dashboard layout', exact: true }).getByRole('button', { name: 'Discard', exact: true }).click();
+        try { await page.getByRole('region', { name: 'Review dashboard layout', exact: true }).getByRole('button', { name: 'Discard', exact: true }).click(); } catch (error) { item.error ??= error.stack; }
         server.db.prepare("DELETE FROM rows WHERE bot_id=? AND json_extract(body,'$.card')='ui_preview'").run(server.fixture.bot.id);
       }
       item.pass = !item.error && !item.violations.length && item.reflow.every(r => !r.issues.length);
@@ -108,9 +119,20 @@ try {
     await context.close();
   }
 } finally { await browser.close(); await server.close(); }
-const byRule = {}, byScreen = {};
-for (const item of results) for (const v of item.violations) { byRule[v.id] = (byRule[v.id] || 0) + v.nodes.length; (byScreen[item.route] ??= {})[v.id] = ((byScreen[item.route] ?? {})[v.id] || 0) + v.nodes.length; }
-const report = { commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), counts: { pass: results.filter(r => r.pass).length, fail: results.filter(r => !r.pass).length, total: results.length }, byRule, byScreen, results };
+const byRule = {}, byScreen = {}, byImpact = { critical: 0, serious: 0, moderate: 0, minor: 0 }, reflowByRule = {};
+for (const item of results) {
+  byScreen[item.route] ??= {};
+  for (const v of item.violations) {
+    byRule[v.id] = (byRule[v.id] || 0) + v.nodes.length;
+    byScreen[item.route][v.id] = (byScreen[item.route][v.id] || 0) + v.nodes.length;
+    byImpact[v.impact] = (byImpact[v.impact] || 0) + v.nodes.length;
+  }
+  for (const reflow of item.reflow) for (const issue of reflow.issues) {
+    reflowByRule[issue.issue] = (reflowByRule[issue.issue] || 0) + 1;
+    byScreen[item.route][`reflow-${issue.issue}`] = (byScreen[item.route][`reflow-${issue.issue}`] || 0) + 1;
+  }
+}
+const report = { commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), counts: { pass: results.filter(r => r.pass).length, fail: results.filter(r => !r.pass).length, total: results.length }, byRule, byImpact, reflowByRule, byScreen, results };
 fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
 console.log(`Accessibility: ${report.counts.pass}/${results.length} passed, ${report.counts.fail} failed. Report: ${out}/report.json`);
 process.exitCode = report.counts.fail ? 1 : 0;
