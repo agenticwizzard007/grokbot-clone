@@ -12,9 +12,10 @@ export type UiStatus = 'loading' | 'ready' | 'offline' | 'disabled';
 interface UiState {
   userId: string | null; saved: UiConfig; effective: UiConfig; revision: number; status: UiStatus;
   preview: StoredPreview | null; showBefore: boolean; safe: boolean; phone: boolean; invalidStored: boolean;
-  errors: Violation[]; undoUntil: number;
+  errors: Violation[]; undoUntil: number; undoMessage: string; undoLocation: string;
+  visiblePreviewCards: Record<string, string>;
 }
-const initial: UiState = { userId: null, saved: DEFAULT_CONFIG, effective: DEFAULT_CONFIG, revision: 0, status: 'loading', preview: null, showBefore: false, safe: false, phone: false, invalidStored: false, errors: [], undoUntil: 0 };
+const initial: UiState = { userId: null, saved: DEFAULT_CONFIG, effective: DEFAULT_CONFIG, revision: 0, status: 'loading', preview: null, showBefore: false, safe: false, phone: false, invalidStored: false, errors: [], undoUntil: 0, undoMessage: '', undoLocation: '', visiblePreviewCards: {} };
 export const useCustomization = create<UiState>(() => initial);
 let generation = 0;
 let previewRequest = 0;
@@ -22,7 +23,20 @@ let expiry: ReturnType<typeof setTimeout> | undefined;
 let refresh: Promise<void> | null = null;
 let refreshAgain = false;
 let undoTimer: ReturnType<typeof setTimeout> | undefined;
-function offerUndo() { clearTimeout(undoTimer); update({ undoUntil: Date.now() + 30_000 }); undoTimer = setTimeout(() => update({ undoUntil: 0 }), 30_000); }
+function offerUndo(before: UiConfig, after: UiConfig) {
+  clearTimeout(undoTimer);
+  const dashboardChanged = JSON.stringify(before.dashboards) !== JSON.stringify(after.dashboards);
+  update({ undoUntil: Date.now() + 8_000, undoMessage: dashboardChanged ? 'Dashboard updated.' : 'Appearance updated.', undoLocation: window.location.hash });
+  undoTimer = setTimeout(dismissUndo, 8_000);
+}
+export function dismissUndo() { clearTimeout(undoTimer); update({ undoUntil: 0 }); }
+export function setPreviewCardVisible(key: string, previewId: string | null) {
+  const cards = useCustomization.getState().visiblePreviewCards;
+  if ((cards[key] ?? null) === previewId) return;
+  const next = { ...cards };
+  if (previewId) next[key] = previewId; else delete next[key];
+  update({ visiblePreviewCards: next });
+}
 
 function update(partial: Partial<UiState>) {
   const next = { ...useCustomization.getState(), ...partial };
@@ -95,13 +109,13 @@ export async function refreshUiConfig(): Promise<void> {
 }
 export type UiPatchResult = { ok: true; revision: number } | { ok: false; errors: Violation[] };
 export async function patchUiConfig(ops: PatchOp[], _intent?: string): Promise<UiPatchResult> {
-  const { userId, revision } = useCustomization.getState(), epoch = generation;
+  const { userId, revision, saved } = useCustomization.getState(), epoch = generation;
   if (!userId) return { ok: false, errors: [{ path: '/', code: 'not_found', message: 'Sign in to continue.' }] };
   try {
     const result = await uiRequest<ApplyResult>('/config', { method: 'PATCH', body: { patch: ops }, revision });
     if (epoch !== generation) return { ok: false, errors: [{ path: '/', code: 'not_found', message: 'Your session has changed.' }] };
     if (!result?.ok) return result ?? { ok: false, errors: [] };
-    clearPreview(); accept(result); offerUndo(); return { ok: true, revision: result.revision };
+    clearPreview(); accept(result); offerUndo(saved, result.doc); return { ok: true, revision: result.revision };
   } catch (error) {
     const errors = error instanceof UiApiError ? error.errors : [{ path: '/', code: 'invalid_value' as const, message: 'Could not save appearance. Try again when connected.' }];
     if (epoch === generation) { update({ errors }); if (error instanceof UiApiError && error.status === 409) await refreshUiConfig(); }
@@ -122,11 +136,11 @@ export async function loadPreview(id: string) {
   } catch { /* A stale or inaccessible preview never replaces the saved appearance. */ }
 }
 export async function applyPreview() {
-  const { preview, revision } = useCustomization.getState(), epoch = generation;
+  const { preview, revision, saved } = useCustomization.getState(), epoch = generation;
   if (!preview) return;
   const result = await uiRequest<ApplyResult>(`/previews/${encodeURIComponent(preview.id)}/apply`, { method: 'POST', body: {}, revision });
   if (epoch !== generation) return;
-  if (result?.ok) { clearPreview(); accept(result); offerUndo(); }
+  if (result?.ok) { clearPreview(); accept(result); offerUndo(saved, result.doc); }
 }
 export async function discardPreview() {
   const { preview, revision } = useCustomization.getState();
@@ -146,7 +160,7 @@ export async function handleUiEvent(event: ServerEvent, conversationBotId: strin
 }
 
 export async function recoverAppearance(action: 'reset' | 'undo') {
-  const { revision } = useCustomization.getState(), epoch = generation;
+  const { revision, saved } = useCustomization.getState(), epoch = generation;
   const result = await uiRequest<ApplyResult>(`/${action}`, { method: 'POST', body: action === 'reset' ? { scope: 'appearance' } : { steps: 1 }, revision });
-  if (epoch === generation && result?.ok) { clearPreview(); accept(result); offerUndo(); }
+  if (epoch === generation && result?.ok) { clearPreview(); accept(result); offerUndo(saved, result.doc); }
 }

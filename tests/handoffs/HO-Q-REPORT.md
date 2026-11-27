@@ -54,3 +54,22 @@ The quality gate adds height, gap, metadata, count-copy and icon-only action ass
 Quality runs in two width batches (`HO_WIDTHS=320,390` and `500,1280`) with separate output directories; both include light and dark and run every screen and guard. The combined report has 568 unique view keys and zero issues. Navigation runs one width at a time after the web build, covering all five requested sizes and both themes. Its initial ten-context process was killed with exit 137 while several browser suites were running; the bounded rerun uses the unchanged navigation checks.
 
 Final result: no new failures against main. All required matrices completed; screenshots and the final 40-view receipt/list audit use the reviewed row layout.
+
+## Main integration after owner review
+
+Merged main `bfe30f869b0e052d47dd28b97471164741901505` after UC-X2 #278 and FIX-4 #281. The only conflict was the default baseline JSON. Resolution starts with main and reapplies Q's pin and notes, pinning main `bfe30f86` so its reviewed UC-X2 geometry is included directly. The 26 former rectangle exceptions are already represented by that main commit; Q requests zero new geometry exceptions and all 208 views must match exactly. All 48 other incoming files are byte-identical to main. The original verification table above records the pre-merge owner-reviewed run.
+
+Merge rerun logs are in `.context/ho-q/merge-main/logs/`. Typecheck and web build pass. Handoff unit tests pass 230/230, including the new FIX-4 coverage and grouping tests; a separate grouping rerun passes 8/8. Demo I reproduces main's known stale `New dashboard` assertion at `tests/handoffs/demo-i.mjs:225` (expected 1, actual 0). Its file is unchanged; FIX-5 owns that correction. The failure log records 67 completed PASS lines and does not write a fresh success report.
+
+| Merge validation | Result |
+| --- | --- |
+| Typecheck and web build | Pass |
+| Handoff unit tests | 230/230 |
+| Separate group-receipts rerun | 8/8, also included in the 230 |
+| UI quality | 568/568 unique views, 23/23 distinct guards |
+| Default geometry | 208/208 exact, zero reviewed exceptions or token differences |
+| Layout alignment | 818/818 route views, plus 36/36 customization checks |
+| Navigation | 870/870, five widths and both themes |
+| Demo I | Known main failure at the stale New dashboard label, unchanged for FIX-5 |
+
+Layout includes the 42 new UC-X2 dashboard views alongside 208 standard and 568 handoff views. Navigation ran one width at a time; the first 390 run hit a menu-dismissal timeout, and its unchanged rerun passed all 174 cases. Both logs are retained. The original owner-reviewed captures remain valid because Q's application code is unchanged by this merge.
