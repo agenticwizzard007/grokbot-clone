@@ -95,14 +95,21 @@ const journeys = [
     await press('Done'); assert.equal(await page.getByRole('button', { name: 'Wider', exact: true }).count(), 0);
   }],
   ['corrupt database recovery', recoveryJourney],
-  ['two tabs converge', async ({ page, context, server }) => {
+  ['two tabs converge', async ({ page, context, server, browser }) => {
     requireModules('web/src/customization/store.ts', 'web/src/customization/layout/useHome.ts');
-    await open(page, server.base); const second = await context.newPage();
+    await open(page, server.base);
+    // Independent storage means only server events can update the second client.
+    const { context: secondContext } = await fixtureContext(browser, server, page.viewportSize().width);
     try {
+      const second = await secondContext.newPage();
       await open(second, server.base);
+      await second.waitForFunction(async () => (await import('/src/customization/store.ts')).useCustomization.getState().status === 'ready');
       await patch(context, server.base, LAYOUT_PATCH);
-      await until(() => second.evaluate(() => JSON.parse(localStorage.getItem('swarm.ui.v1') || '{}').doc?.layout.home.kind === 'tasks'), 'Second tab missed 2 second sync budget', 2000);
-    } finally { await second.close(); }
+      await until(() => second.evaluate(async () => (await import('/src/customization/store.ts')).useCustomization.getState().effective.layout.home.kind === 'tasks'), 'Second tab missed 2 second sync budget', 2000);
+      if (page.viewportSize().width === 390) {
+        await until(async () => await second.locator('.phone-tabs button').first().getAttribute('aria-label') === 'Tasks', 'Second tab did not render the saved navigation');
+      }
+    } finally { await secondContext.close(); }
   }],
   ['cross-user isolation', async ({ context, server, browser }) => {
     requireModules('server/src/ui/sources/executor.ts');
@@ -125,14 +132,16 @@ const journeys = [
       assert.deepEqual((await saved(other, server)).doc, theirs.doc);
     } finally { await other.close(); }
   }],
-  ['offline API start with cache', async ({ page, context, server }) => {
+  ['offline config start with cache', async ({ page, context, server }) => {
     requireModules('web/src/customization/store.ts', 'web/src/customization/layout/useHome.ts');
     await open(page, server.base); await patch(context, server.base, LAYOUT_PATCH);
     await until(() => page.evaluate(() => JSON.parse(localStorage.getItem('swarm.ui.v1') || '{}').doc?.layout.home.kind === 'tasks'), 'Saved config was not cached');
-    await context.route('**/api/**', route => route.abort('connectionrefused'));
+    // The customization contract covers a failed config fetch; authentication remains available.
+    await context.route('**/api/ui/config', route => route.abort('connectionrefused'));
     await page.goto(`${server.base}/`);
-    await until(() => page.evaluate(() => location.hash === '#tasks'), 'Cached navigation lost while API was unavailable');
+    await until(() => page.evaluate(() => location.hash === '#tasks'), 'Cached navigation lost while config API was unavailable');
     await page.locator('.shell-header').waitFor();
+    assert.equal(await page.evaluate(async () => (await import('/src/customization/store.ts')).useCustomization.getState().status), 'offline');
   }],
   ['requirements use cases differ', requirementsUseCases],
   ['requirements change and reset', requirementsChangeReset],
