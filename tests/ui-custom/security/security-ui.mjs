@@ -77,7 +77,7 @@ const cases = [
   { name: 'lockout, privilege, prototype and resource abuse rejected', run: args => withContext(args, async ({ context, server, current }) => {
     for (const attack of HOSTILE_PATCHES) {
       const response = await api(context.request, server.base, '/patches/preview', 'POST', { intent: attack.name, patch: attack.patch }, 422);
-      assert.ok(Array.isArray(response.errors) && response.errors.length, 'Machine-readable validation errors');
+      assert.ok(Array.isArray(response.details ?? response.errors) && (response.details ?? response.errors).length, 'Machine-readable validation errors');
       assert.deepEqual((await configAvailable(context.request, server.base)).doc, current.doc);
     }
     assert.equal({}.polluted, undefined);

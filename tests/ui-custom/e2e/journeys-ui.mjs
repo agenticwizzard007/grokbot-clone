@@ -29,8 +29,13 @@ export async function themeJourney({ page, context, server, capture = async () =
 }
 export async function dashboardJourney({ page, context, server, capture = async () => {} }) {
   requireModules('server/src/agent/ui-tools.ts', 'web/src/dashboards/DashboardGrid.tsx', 'web/src/components/cards/UiPreviewCard.tsx');
-  await agentPreview(page, server, dashboardPatch(), 'Build My week from fixture data');
+  const card = await agentPreview(page, server, dashboardPatch(), 'Build My week from fixture data');
   await capture('dashboard-request-preview');
+  const preview = await api(context.request, server.base, `/previews/${card.previewId}`);
+  const previewDashboard = preview.result.dashboards.at(-1);
+  await page.evaluate(id => { location.hash = `#dash/${id}`; }, previewDashboard.id);
+  await page.getByRole('heading', { name: 'My week', exact: true }).waitFor();
+  await capture('dashboard-live-preview');
   await button(page, 'Apply');
   await until(async () => (await saved(context, server)).doc.dashboards.length === 1, 'Dashboard was not applied');
   const dashboard = (await saved(context, server)).doc.dashboards[0];
@@ -126,6 +131,7 @@ const journeys = [
     } finally { await second.close(); }
   }],
   ['cross-user isolation', async ({ context, server, browser }) => {
+    requireModules('server/src/ui/sources/executor.ts');
     const other = await browser.newContext();
     try {
       const login = await other.request.post(`${server.base}/api/auth/dev`, { data: { email: 'qa-temp-b@example.test', name: 'QA-Temp-B' } });

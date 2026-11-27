@@ -176,13 +176,13 @@ async function main() {
     for (const fixture of fixtures) for (const width of (process.env.LAYOUT_WIDTHS ? process.env.LAYOUT_WIDTHS.split(',').map(Number) : WIDTHS)) for (const mode of MODES) {
       const { context } = await fixtureContext(browser, server, width);
       await context.addInitScript(value => { if (location.origin !== 'null') localStorage.setItem('swarm.theme', value); }, mode);
-      await context.setExtraHTTPHeaders({});
+
       let doc;
       if (customization) {
         doc = matrixDocument(defaults, fixture, mode, await presetDocument(fixture === 'hostile' ? 'swarm' : fixture));
         await put(context, server.base, doc);
       }
-      const page = await context.newPage(); page.setDefaultTimeout(15000);
+      const page = await context.newPage(); page.setDefaultTimeout(15000); await page.emulateMedia({ colorScheme: mode });
       const routes = [...ROUTES, ...(customization ? CUSTOM_ROUTES : [])].filter(route => (!process.env.LAYOUT_OWNER || route.owner === process.env.LAYOUT_OWNER) && (!process.env.LAYOUT_ROUTES || process.env.LAYOUT_ROUTES.split(',').includes(route.name)));
       for (const route of routes) {
         // Authentication must be restored after signed-out route cases.

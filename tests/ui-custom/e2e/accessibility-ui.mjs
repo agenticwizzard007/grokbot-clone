@@ -3,6 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 import { runSuite, fixtureContext, configAvailable, patch, open, requireModules, api, until } from '../fixtures/harness.mjs';
+import { contracts } from '../fixtures/presets.mjs';
 import { dashboardPatch } from '../fixtures/matrix.mjs';
 
 const cases = [];
@@ -13,7 +14,8 @@ for (const preset of ['swarm', 'midnight', 'paper', 'contrast']) for (const mode
       const current = await configAvailable(context.request, server.base);
       requireModules('web/src/components/config/AppearanceSettings.tsx', 'web/src/dashboards/DashboardGrid.tsx', 'web/src/customization/applier.ts');
       await api(context.request, server.base, '/reset', 'POST', { scope: 'all' }, 200, current.revision);
-      await patch(context, server.base, [{ op: 'replace', path: '/preset', value: preset }, { op: 'replace', path: '/theme/mode', value: mode }, ...dashboardPatch()]);
+      const { presetPatch } = await contracts();
+      await patch(context, server.base, [...presetPatch(preset), { op: 'replace', path: '/theme/mode', value: mode }, ...dashboardPatch()]);
       const { doc } = await configAvailable(context.request, server.base);
       const page = await context.newPage();
       const hash = { appearance: '#settings/appearance', dashboard: `#dash/${doc.dashboards[0].id}`, chat: `#bot/${server.fixture.bot.id}`, bots: '#bots' }[route];

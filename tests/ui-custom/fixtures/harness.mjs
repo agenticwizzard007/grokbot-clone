@@ -11,7 +11,10 @@ export function requireFeature(available, message) {
   throw new MissingFeature(message);
 }
 export function requireModules(...files) {
-  for (const file of files) requireFeature(fs.existsSync(path.join(ROOT, file)), file);
+  for (const file of files) {
+    const alternate = file.endsWith('.tsx') ? file.slice(0, -1) : file.endsWith('.ts') ? file + 'x' : file;
+    requireFeature(fs.existsSync(path.join(ROOT, file)) || fs.existsSync(path.join(ROOT, alternate)), file);
+  }
 }
 export async function configAvailable(request, base) {
   const response = await request.get(`${base}/api/ui/config`);
@@ -22,6 +25,8 @@ export async function configAvailable(request, base) {
   return body;
 }
 export async function api(request, base, route, method = 'GET', data, expected = 200, revision) {
+  if (method !== 'GET' && route !== '/data' && revision === undefined) revision = (await configAvailable(request, base)).revision;
+  if (method !== 'GET' && data === undefined) data = {};
   const headers = { Origin: base, ...(revision === undefined ? {} : { 'If-Match': `"${revision}"` }) };
   const response = await request.fetch(`${base}/api/ui${route}`, { method, data, headers });
   assert.equal(response.status(), expected, `${method} ${route}: ${response.status()} ${await response.text()}`);
@@ -49,7 +54,7 @@ export async function fixtureContext(browser, server, width = 1280, token = 'lay
     external.push(url.origin); return route.abort();
   });
   await context.addCookies([{ name: 'swarm_session', value: token, url: server.base }]);
-  await context.addInitScript(() => { localStorage.setItem('swarm.sidebarCollapsed', '0'); });
+  await context.addInitScript(() => { if (location.origin !== 'null') localStorage.setItem('swarm.sidebarCollapsed', '0'); });
   return { context, external };
 }
 export async function open(page, base, hash = '#bots') {

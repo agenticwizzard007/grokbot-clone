@@ -34,9 +34,9 @@ Stage 0 deployment and enabling Stage 1 or later are separate decisions. Do not 
 
 ## Enable and disable
 
-The service owns `UI_CUSTOMIZATION` (`off` or `on`, initially off) and the per-account `ui_custom_enabled` admin override. Use the deployment's existing environment and account administration mechanisms after the relevant stage is approved. Confirm the deployed service's flag implementation before changing an override; do not invent an SQL column or admin endpoint.
+The service owns `UI_CUSTOMIZATION` (`off` or `on`, initially off) and the per-account `ui_custom_enabled` admin override. Use the deployment's existing environment and account administration mechanisms after the relevant stage is approved. UC-B stores the override in `account_preferences.ui_custom_enabled`: NULL inherits the environment, 1 enables, and 0 disables. An explicit account value wins even when the environment is off. Use an authorized account administration path; there is no public user-facing flag endpoint.
 
-To disable one account, set its admin override false and confirm authenticated `/api/ui/config` returns `404 disabled`, UI tools disappear, cached config is ignored, and the existing app still renders. To disable globally, set `UI_CUSTOMIZATION=off`, clear any intentional enable overrides if the flag precedence requires it, restart through the standard deployment process, and run the same smoke. Preserve configuration and history tables. No schema rollback or machine resize is needed.
+To disable one account, set its admin override false and confirm authenticated `/api/ui/config` returns `404 disabled`, UI tools disappear, cached config is ignored, and the existing app still renders. To disable globally, set `UI_CUSTOMIZATION=off`, clear explicit enable overrides because account overrides win, restart through the standard deployment process, and run the same smoke. Preserve configuration and history tables. No schema rollback or machine resize is needed.
 
 UC-B owns the concrete admin override interface, reset script and metric sink. If their implementation is unavailable, stage changes and repair remain blocked; a guessed command is not a runbook substitute. Review this section against UC-B before rollout.
 
@@ -61,7 +61,7 @@ After deploy, `/api/version` must match `git rev-parse origin/main`. On a dedica
 
 First offer the user Undo or the safe-mode URL `/?ui=safe#settings/appearance`. Reset appearance keeps dashboards; Reset all removes them. Confirm the intended scope before any administrator repair.
 
-UC-B provides `node scripts/ui-config-reset.mjs <user-email>` for an explicitly authorized repair. Check its help and the target environment, take the normal authorized backup, and use only the identified account. Verify that the script appends history and a new revision rather than deleting history. Confirm the account can load Settings, and that unrelated accounts remain unchanged. Never inspect or copy widget content to a support ticket.
+UC-B provides `DB_PATH=/path/to/app.db node scripts/ui-config-reset.mjs <user-email>` for an explicitly authorized repair. The path must name an existing database. This command always resets scope `all`, including dashboards, and remains available when the feature is disabled. It does not implement an appearance-only flag. Confirm dashboard removal and the target environment, take the normal authorized backup, and use only the identified account. Verify that the script appends history and a new revision rather than deleting history. Confirm the account can load Settings, and that unrelated accounts remain unchanged. Never inspect or copy widget content to a support ticket.
 
 For an invalid or future-version document, preserve the stored JSON for the authorized recovery path. The app must fall back without overwriting it automatically. If the reset utility or account targeting cannot be verified, stop the repair and request UC-B support.
 
