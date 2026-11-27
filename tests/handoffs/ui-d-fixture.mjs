@@ -64,7 +64,7 @@ function App() {
  {receipt && <Card variant="list"><HandoffRow body={{...row, handoffId:receipt.id, status:receipt.status}} otherBotName="Checker"/></Card>}
  </Page>;
  const source = params.get('source') === 'task' ? {taskId:'task_fixture'} : params.get('source') === 'message' ? {messageRef:{botId:'bot_maker',generation:1,seq:5}} : undefined;
- return <>{body}<SendSheet open={open} onClose={() => setOpen(false)} senderId="bot_maker" output={source ? undefined : output} source={source} title="Release note draft" roomId={params.get('room') ? 'bot_room' : undefined} roomMemberIds={params.get('room') ? ['bot_editor'] : undefined} initialTargetId={target} onSent={value => setReceipt(value)}/></>;
+ return <>{body}<SendSheet open={open} onClose={() => setOpen(false)} senderId="bot_maker" output={source ? undefined : output} source={source} title="Release note draft" roomId={params.get('room') ? 'bot_room' : undefined} roomMemberIds={params.get('room') ? ['bot_editor'] : undefined} initialTargetId={target} onSent={value => setReceipt(value)} onLoopStarted={params.get('loops') ? id => { window.startedLoop = id; } : undefined}/></>;
 }
 createRoot(document.getElementById('root')).render(<App/>);
 `);
@@ -72,7 +72,7 @@ createRoot(document.getElementById('root')).render(<App/>);
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   return {
     server, browser,
-    async page({ view = 'card', state = 'ready', width = 390, theme = 'light', source = 'output', room = false, global = false } = {}) {
+    async page({ view = 'card', state = 'ready', width = 390, theme = 'light', source = 'output', room = false, global = false, loops = false } = {}) {
       const page = await browser.newPage({ viewport: { width, height: width === 390 ? 844 : 1000 }, reducedMotion: 'reduce' });
       const errors = []; page.on('pageerror', error => errors.push(error.message));
       await page.route('**/*', route => {
@@ -91,6 +91,7 @@ createRoot(document.getElementById('root')).render(<App/>);
           if (state === 'loading') return new Promise(() => {});
           if (state === 'error' && init.method !== 'POST') return reply({ error: 'Could not load this. Try again.', code: 'fixture_error' }, 503);
           if (url.pathname === '/api/bots') return reply({ bots: state === 'empty' ? [] : f.agents });
+          if (url.pathname === '/api/loops' && init.method === 'POST') return reply({ loop: { id: 'lp_fixture', spec: body.spec } }, 201);
           if (url.pathname === '/api/handoff-settings') { if (init.method === 'PUT') f.settings = body; return reply({ settings: f.settings }); }
           if (url.pathname === '/api/handoff-links') {
             if (init.method === 'PUT') {
@@ -118,7 +119,7 @@ createRoot(document.getElementById('root')).render(<App/>);
           throw new Error('Unstubbed API: ' + url.pathname);
         };
       }, { output, agents, handoff, link, events, state });
-      await page.goto(`${server.base}/@fs${out}/index.html?view=${view}&state=${state}&theme=${theme}&source=${source}${room ? '&room=1' : ''}${global ? '&global=1' : ''}`);
+      await page.goto(`${server.base}/@fs${out}/index.html?view=${view}&state=${state}&theme=${theme}&source=${source}${room ? '&room=1' : ''}${global ? '&global=1' : ''}${loops ? '&loops=1' : ''}`);
       await page.locator('[data-layout="page"]').first().waitFor();
       if (view === 'sheet') await page.getByRole('button', { name: 'Open Send sheet', exact: true }).click();
       if (state !== 'loading') await page.waitForTimeout(220);
