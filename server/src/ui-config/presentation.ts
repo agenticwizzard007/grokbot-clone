@@ -18,7 +18,8 @@ export function widgetTitle(widget: Widget): string {
   if (title && !genericTitles.has(title.toLowerCase())) return title;
   if (widget.type === 'agent') {
     const prompt = String(widget.options.prompt ?? '').trim().replace(/^(?:show|list|summarize)\s+(?:me\s+)?(?:my\s+)?/i, '').replace(/[.!?]+$/, '');
-    const short = prompt.length <= 60 ? prompt : prompt.slice(0, 61).replace(/\s+\S*$/, '');
+    const boundary = prompt.lastIndexOf(' ', 60);
+    const short = prompt.length <= 60 ? prompt : boundary > 0 ? prompt.slice(0, boundary) : '';
     return short && !genericTitles.has(short.toLowerCase()) ? short[0].toUpperCase() + short.slice(1) : 'Your work at a glance';
   }
   if (widget.type === 'stat') {

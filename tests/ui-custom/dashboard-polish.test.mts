@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { runAgentWidget } from '../../server/src/ui/widget-runner.js';
 import { tsImport } from 'tsx/esm/api';
 import { DEFAULT_CONFIG, previewPatch, type UiConfig, type PatchOp } from '../../server/src/ui-config/index.js';
 import { WIDGETS } from '../../server/src/ui-config/registry-widgets.js';
@@ -61,4 +62,27 @@ test('normalization never accepts invalid input or rewrites unrelated legacy dat
   doc.dashboards[0].widgets = [{ ...defaultWidget('table'), id: 'w_12345678', title: 'Table' }];
   assert.deepEqual(apply(doc, [{ op: 'replace', path: '/theme/mode', value: 'dark' }]).dashboards, doc.dashboards);
   assert.equal(previewPatch(doc, [{ op: 'add', path: '/dashboards/0/widgets/-', value: { ...defaultWidget('list'), id: '$new1', title: '<script>' } }], { ctx: {} }).ok, false);
+});
+
+test('long agent prompts produce valid short titles without cutting a word', () => {
+  for (const prompt of ['Show my ' + 'planning'.repeat(10), 'Show my tasks and upcoming routines with the latest progress across every project this week']) {
+    let doc = apply(DEFAULT_CONFIG, manager.createDashboard('My week'));
+    doc = apply(doc, build('add_agent_widget', { dashboardId: doc.dashboards[0].id, prompt, display: 'list', schedule: 'manual' }, doc));
+    const title = doc.dashboards[0].widgets[0].title!;
+    assert.ok(title.length > 0 && title.length <= 60);
+    if (prompt.includes('planningplanning')) assert.equal(title, 'Your work at a glance');
+  }
+});
+
+test('age queries receive the current UTC time alongside their live reads', async () => {
+  const before = Date.now(); let turn = 0, instructions = '';
+  await runAgentWidget({ userId: 'test-user', botId: 'test-bot', options: { prompt: 'Show tasks open for more than 2 days', display: 'list', schedule: 'manual' }, signal: new AbortController().signal,
+    checkBudget() {}, async record() {}, async read() { return { ok: true, rows: [], count: 0, fetchedAt: Date.now() }; },
+    async model(input) {
+      instructions = input.filter(row => row.role === 'system').map(row => row.content).join(' ');
+      return { output: turn++ === 0 ? [{ type: 'function_call', name: 'read_tasks_list', call_id: 'read-tasks', arguments: '{}' }] : [{ type: 'message', content: [{ type: 'output_text', text: '{"kind":"list","rows":[]}' }] }] };
+    },
+  });
+  const time = Date.parse(instructions.match(/Current UTC time: ([^ ]+)\./)?.[1] ?? '');
+  assert.ok(time >= before && time <= Date.now(), 'The agent can compare source creation times with now');
 });
