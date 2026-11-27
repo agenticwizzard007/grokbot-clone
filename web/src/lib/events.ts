@@ -1,6 +1,6 @@
 import type { ServerEvent } from '@shared/types';
 import { useStore } from '../store';
-import { handleUiEvent, refreshUiConfig } from '../customization/store';
+import { handleUiEvent, refreshUiConfig } from '../customization/store.js';
 import { parseScreen } from './navigation';
 import { routeBot } from './userRoutes';
 import { createSseWatchdog } from './sseWatchdog';

@@ -1,4 +1,4 @@
-import { setUiSafe } from './store';
+import { setUiSafe } from './store.js';
 export function openSafeMode(): void {
   try { sessionStorage.setItem('swarm.ui.safe', '1'); } catch { /* Tab memory still works. */ }
   setUiSafe(true);

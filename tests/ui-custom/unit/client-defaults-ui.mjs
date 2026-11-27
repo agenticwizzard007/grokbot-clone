@@ -31,6 +31,8 @@ try {
       await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(400);
       if (route.state) { await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().bots.some(bot => bot.id === id), server.fixture.bot.id); await preparePbeState(page, route.state, server.fixture.bot.id); }
       const result = await page.evaluate(() => {
+        // Ignore transient chat scroll restoration when comparing structure.
+        for (const element of document.querySelectorAll('*')) if (element.scrollTop) element.scrollTop = 0;
         const root = getComputedStyle(document.documentElement), tokens = {};
         // Resolve CSS lengths, so calc(24px * 1) and 24px compare as rendered values.
         const probe = document.createElement('div'); probe.style.position = 'fixed'; probe.style.visibility = 'hidden'; probe.style.setProperty('transition', 'none', 'important'); document.body.append(probe);

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ButtonGroup } from '../components/layout';
-import { useCustomization, recoverAppearance, refreshUiConfig } from './store';
+import { useCustomization, recoverAppearance, refreshUiConfig } from './store.js';
 import { closeSafeMode } from './safeMode';
 
 export function SafeModeBanner() {

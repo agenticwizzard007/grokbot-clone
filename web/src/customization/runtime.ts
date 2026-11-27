@@ -1,7 +1,7 @@
 import { useStore } from '../store';
 import { applyAppearance } from './applier';
 import { DEFAULT_CONFIG } from '../../../server/src/ui-config/schema';
-import { CACHE_KEY, USER_KEY, clearPreview, readCachedConfig, refreshUiConfig, setUiPhone, setUiUser, useCustomization, patchUiConfig } from './store';
+import { CACHE_KEY, USER_KEY, clearPreview, readCachedConfig, refreshUiConfig, setUiPhone, setUiUser, useCustomization, patchUiConfig } from './store.js';
 import { installSafeMode } from './safeMode';
 
 export function legacyTheme(): 'system' | 'light' | 'dark' {

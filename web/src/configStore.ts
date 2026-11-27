@@ -1,6 +1,6 @@
 import './lib/legacy-storage'; // before reading saved preferences
 import { applyLegacyTheme, setTheme as setAppearanceTheme } from './customization/runtime';
-import { useCustomization } from './customization/store';
+import { useCustomization } from './customization/store.js';
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import type { ServerEvent } from '@shared/types';

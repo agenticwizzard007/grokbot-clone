@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ButtonGroup } from '../components/layout';
 import { usePreview } from './hooks';
-import { useCustomization, recoverAppearance, refreshUiConfig } from './store';
+import { useCustomization, recoverAppearance, refreshUiConfig } from './store.js';
 
 export function PreviewBanner() {
   const { preview, apply, discard, showBefore, setShowBefore } = usePreview();
