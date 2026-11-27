@@ -130,7 +130,8 @@ export class SqliteUiConfigService implements UiConfigService {
       clearTimeout(this.expiryTimers.get(userId));
       const timer = setTimeout(() => {
         this.expiryTimers.delete(userId);
-        if (this.store.db.open) this.atomic(() => this.expire(userId));
+        try { if (this.store.db.open) this.atomic(() => this.expire(userId)); }
+        catch { /* A later preview read retries expiry if storage is unavailable. */ }
       }, Math.max(0, preview.expiresAt - this.clock()));
       timer.unref(); this.expiryTimers.set(userId, timer);
     });

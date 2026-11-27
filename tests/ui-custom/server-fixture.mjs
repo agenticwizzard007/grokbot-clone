@@ -35,14 +35,18 @@ export async function serverFixture() {
   try {
     const seed = start(['--import', preload, '--import', 'tsx', 'tests/fixtures/layout.seed.mts']);
     assert.equal((await once(seed, 'exit'))[0], 0, logs.join(''));
-    const server = start(['--import', preload, '--import', 'tsx', 'server/src/index.ts']);
-    let ready = false;
-    for (let i = 0; i < 300; i++) {
-      assert.equal(server.exitCode, null, logs.join(''));
-      if (await fetch(`${base}/api/health`).then(response => response.ok).catch(() => false)) { ready = true; break; }
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    assert.ok(ready, logs.join(''));
+    const serverArgs = ['--import', preload, '--import', 'tsx', 'server/src/index.ts'];
+    let server = start(serverArgs);
+    const waitReady = async () => {
+      let ready = false;
+      for (let i = 0; i < 300; i++) {
+        assert.equal(server.exitCode, null, logs.join(''));
+        if (await fetch(`${base}/api/health`).then(response => response.ok).catch(() => false)) { ready = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      assert.ok(ready, logs.join(''));
+    };
+    await waitReady();
     const fixture = JSON.parse(fs.readFileSync(fixtureFile, 'utf8'));
     const signIn = async label => {
       const response = await fetch(`${base}/api/auth/dev`, { method: 'POST', headers: { 'content-type': 'application/json', origin: base },
@@ -54,6 +58,11 @@ export async function serverFixture() {
     const a = await signIn('QA-Temp-Alpha'), b = await signIn('QA-Temp-Beta');
     const db = new Database(env.DB_PATH);
     return { base, a, b, fixture, db, env, logs,
+      setGlobalFlag: async flag => {
+        assert.ok(['on', 'off'].includes(flag));
+        server.kill(); await once(server, 'exit');
+        env.UI_CUSTOMIZATION = flag; server = start(serverArgs); await waitReady();
+      },
       close: async () => { db.close(); await close(); },
       request: async (account, method, route, input, revision, extra = {}) => {
         const headers = { cookie: account.cookie, origin: base, ...(input === undefined ? {} : { 'content-type': 'application/json' }),

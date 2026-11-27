@@ -30,6 +30,9 @@ try {
   server.db.prepare('INSERT INTO account_preferences(user_id,ui_custom_enabled,updated_at) VALUES(?,0,?) ON CONFLICT(user_id) DO UPDATE SET ui_custom_enabled=0').run(server.a.userId, Date.now());
   const disabled = await step('flag off', 'GET', '/config', undefined, undefined, 404); assert.equal(disabled.code, 'disabled');
   await step('other account remains enabled', 'GET', '/config', undefined, undefined, 200, server.b);
+  await server.setGlobalFlag('off');
+  const globallyDisabled = await step('deployment flag off', 'GET', '/config', undefined, undefined, 404, server.b);
+  assert.equal(globallyDisabled.code, 'disabled');
   fs.writeFileSync(output, JSON.stringify({ passed: transcript.length, failed: 0, transcript }, null, 2));
   console.log(`PASS ${transcript.length} demo steps. Transcript: ${output}`);
 } finally { await server.close(); }
