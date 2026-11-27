@@ -98,3 +98,9 @@ CREATE TRIGGER IF NOT EXISTS coordination_synopsis_page_immutable BEFORE UPDATE 
 `);
 const synopsisColumns = new Set((db.prepare('PRAGMA table_info(coordination_synopses)').all() as {name:string}[]).map(c=>c.name));
 for (const name of ['next_attempt_at','failure_count']) if(!synopsisColumns.has(name))db.exec(`ALTER TABLE coordination_synopses ADD COLUMN ${name} INTEGER NOT NULL DEFAULT 0`);
+
+// Existing send_to_bot requests keep their automatic return behavior.
+try { db.exec('ALTER TABLE coordination_requests ADD COLUMN reply INTEGER NOT NULL DEFAULT 1'); }
+catch (error) {
+ if (!(db.prepare('PRAGMA table_info(coordination_requests)').all() as {name:string}[]).some(c=>c.name==='reply')) throw error;
+}

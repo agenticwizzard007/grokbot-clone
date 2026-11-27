@@ -149,6 +149,21 @@ export function enqueueInternalMessage(fromBotId:string,toBotId:string,text:stri
  })();
  drainInternalRequests();return id;
 }
+/** Durable server dispatch. Each loop step starts fresh at depth zero. */
+export function enqueueSystemRequest(toBotId:string,text:string,options:{idempotencyKey:string;reply:false;correlationId:string}) {
+ const target=db.prepare('SELECT user_id FROM bots WHERE id=?').get(toBotId) as {user_id:string}|undefined;
+ if(!target)throw new Error('Agent not found.');
+ ownAgent(target.user_id,toBotId);assertLegacyWorkOpen(target.user_id);
+ if(!text.trim()||text.length>32000)throw new Error('Internal message must contain 1 to 32000 characters.');
+ const id=db.transaction(()=>{
+  const id=createRequest(target.user_id,toBotId,toBotId,text,0,options.idempotencyKey,{correlation_id:options.correlationId});
+  db.prepare('UPDATE coordination_requests SET reply=0 WHERE id=? AND user_id=?').run(id,target.user_id);
+  return id;
+ })();
+ // Never run a Bot before an enclosing handoff transaction commits.
+ queueMicrotask(()=>{if(db.open)drainInternalRequests();});
+ return id;
+}
 /** Admission, job binding and receipt commit together. No transcript rows are written. */
 export function drainInternalRequests() {
  if(!runtime||!db.open)return;
@@ -222,8 +237,8 @@ function settle(r:any,status:string,text:string) {
  db.prepare('UPDATE coordination_requests SET status=?,result=?,reason=?,revision=revision+1,updated_at=? WHERE id=?').run(succeeded?'completed':'failed',text.slice(0,32000),succeeded?'':status,now(),r.id);
  event({...r,status:succeeded?'completed':'failed',revision:r.revision+1},'coordination.result');
  // Result receipts never elicit another automatic result (bounded fan-in).
- if(r.kind==='request')createRequest(r.user_id,r.to_bot_id,r.from_bot_id,`[Internal result for request ${r.id}; ${succeeded?'execution finished; acceptance still requires evidence':status}]\n${text.slice(0,30000)}`,selectedCli(r.user_id)?r.depth+1:Math.min(4,r.depth+1),`result:${r.id}`,r,'result');
- else if(selectedCli(r.user_id)) {
+ if(r.kind==='request'&&r.reply!==0)createRequest(r.user_id,r.to_bot_id,r.from_bot_id,`[Internal result for request ${r.id}; ${succeeded?'execution finished; acceptance still requires evidence':status}]\n${text.slice(0,30000)}`,selectedCli(r.user_id)?r.depth+1:Math.min(4,r.depth+1),`result:${r.id}`,r,'result');
+ else if(r.kind==='result'&&selectedCli(r.user_id)) {
   // A helper may have ended its original turn while its descendants worked.
   // Its later consolidation belongs to its bound parent, not back to the child
   // that sent this result. Persist that upward intent in the same transaction
