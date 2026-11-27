@@ -5,7 +5,7 @@ import { requireActiveSession, revalidateSession } from '../lib/session';
 import { navigation, useConfigUI } from '../configStore';
 import { useStore } from '../store';
 import { parseScreen } from '../lib/navigation';
-import { botSlug, routeBot } from '../lib/userRoutes';
+import { botSlug } from '../lib/userRoutes';
 
 async function request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   requireActiveSession();
@@ -25,13 +25,20 @@ export const flowApi = {
     if (response.status === 503) { const error = await response.json().catch(() => ({})); if (error.code === 'disabled') throw new ApiError(503, error.error, error.code); }
     return !response.ok || response.headers.get('X-Flow-Has-Runs') !== '0';
   },
-  get: (id: string, signal?: AbortSignal) => request<FlowModel>(`/bots/${encodeURIComponent(id)}/flow`, 'GET', undefined, signal),
+  get: async (id: string, signal?: AbortSignal) => {
+    const model = await request<FlowModel>(`/bots/${encodeURIComponent(id)}/flow`, 'GET', undefined, signal);
+    if (!model || !Array.isArray(model.lanes) || !Array.isArray(model.warnings) || !model.loopBack
+      || model.lanes.some(lane => !lane || !Array.isArray(lane.nodes))) {
+      throw new Error('Flow is unavailable. Try again.');
+    }
+    return model;
+  },
   refresh: (id: string) => request<{ accepted: boolean; retryAfter: number }>(`/bots/${encodeURIComponent(id)}/flow/refresh`, 'POST', {}),
   links: (id: string) => request<{ links: HandoffLink[] }>(`/handoff-links?botId=${encodeURIComponent(id)}`),
   saveLinks: (id: string, links: LinkInput[]) => request<{ links: HandoffLink[] }>(`/handoff-links?botId=${encodeURIComponent(id)}`, 'PUT', { links }),
 };
 
-// Temporary local bridge until HO-I teaches the shared router the Flow tab.
+// Flow links use the shared route history, including cold entry and Back.
 const FLOW = /^#bot\/([^/]+)\/details\/flow(?:\?link=([^&]+))?$/;
 export const flowLocation = () => { const match = location.hash.match(FLOW); try { return match ? { bot: decodeURIComponent(match[1]), link: match[2] ? decodeURIComponent(match[2]) : null } : null; } catch { return null; } };
 const announce = () => window.dispatchEvent(new Event('swarm:flow-location'));
@@ -40,22 +47,12 @@ export function openFlow(botId: string, link?: string, replace = false) {
   const st = useStore.getState(), bot = st.bots.find(b => b.id === botId && b.kind !== 'room');
   if (!bot) return;
   const current = flowLocation();
-  const hash = `#bot/${encodeURIComponent(botSlug(bot))}/details/flow${link ? `?link=${encodeURIComponent(link)}` : ''}`;
-  if (current && routeBot(current.bot, st.bots)?.id === botId) {
-    if (replace && current.link && !link && history.state?.flowSheetEntry) { history.back(); return; }
-    const mode = !replace && location.hash !== hash ? 'pushState' : 'replaceState';
-    history[mode]({ ...history.state, flowTab: { account: st.user?.id, botId }, flowSheetEntry: mode === 'pushState' && !!link }, '', hash);
-    announce(); return;
-  }
-  navigation.navigate({ kind: 'details', bot: botSlug(bot), tab: 'activity' }, replace ? 'replace' : 'push');
-  history.replaceState({ ...history.state, flowTab: { account: st.user?.id, botId }, flowSheetEntry: false }, '', hash);
+  const target = { kind: 'details', bot: botSlug(bot), tab: 'activity', flow: true, ...(link ? { link } : {}) } as const;
+  const previous = parseScreen(navigation.trail.at(-1) ?? '');
+  if (replace && current?.link && !link && previous?.kind === 'details' && previous.flow && previous.bot === target.bot) {
+    navigation.backTo(target);
+  } else navigation.navigate(target, replace ? 'replace' : 'push');
   announce();
-}
-export function leaveFlow() {
-  if (flowLocation()) {
-    const bot = useStore.getState().bots.find(b => b.id === useStore.getState().selectedBotId);
-    if (bot) history.replaceState({ ...history.state, flowTab: undefined }, '', `#bot/${encodeURIComponent(botSlug(bot))}/details/activity`);
-  } else history.replaceState({ ...history.state, flowTab: undefined }, '');
 }
 export function openFlowNode(botId: string, node: FlowNode) {
   returnNode = { account: useStore.getState().user?.id, botId, nodeId: node.id };
@@ -63,11 +60,8 @@ export function openFlowNode(botId: string, node: FlowNode) {
   if (link) { openFlow(botId, link[2] ? decodeURIComponent(link[2]) : undefined); return; }
   const screen = parseScreen(node.target.hash);
   if (!screen) { location.hash = node.target.hash; return; } // Loop routing lands in HO-I.
-  const marker = history.state?.flowTab;
-  leaveFlow();
-  history.replaceState({ ...history.state, flowTab: marker }, '');
   navigation.navigate(screen);
-  history.replaceState({ ...history.state, flowTab: undefined, flowFocus: node.target.focus }, '');
+  history.replaceState({ ...history.state, flowFocus: node.target.focus }, '');
   if (node.target.focus) window.dispatchEvent(new CustomEvent('swarm:flow-focus', { detail: node.target.focus }));
 }
 export function restoreFlowFocus(botId: string, root: HTMLElement | null) {
@@ -75,18 +69,7 @@ export function restoreFlowFocus(botId: string, root: HTMLElement | null) {
   const target = [...(root?.querySelectorAll<HTMLElement>('[data-flow-node]') ?? [])].find(el => el.dataset.flowNode === returnNode?.nodeId);
   if (target?.getClientRects().length && !target.closest('[hidden], [inert]')) { target.focus({ preventScroll: true }); if (document.activeElement === target) returnNode = undefined; }
 }
-const initial = flowLocation();
-function restore(event?: Event) {
-  const loc = flowLocation(), marker = history.state?.flowTab, st = useStore.getState();
-  const bot = loc ? routeBot(loc.bot, st.bots) : marker?.account === st.user?.id && /\/details\/activity$/.test(location.hash) ? st.bots.find(b => b.id === marker.botId) : undefined;
-  if (!bot || bot.kind === 'room') { announce(); return; }
-  event?.stopImmediatePropagation();
-  openFlow(bot.id, loc?.link ?? undefined, true);
-}
-window.addEventListener('hashchange', restore, true);
-window.addEventListener('popstate', restore, true);
-if (initial) {
-  const stop = useStore.subscribe(st => { if (!st.botsLoaded) return; stop(); const bot = routeBot(initial.bot, st.bots); if (bot) openFlow(bot.id, initial.link ?? undefined, true); });
-}
+window.addEventListener('hashchange', announce);
+window.addEventListener('popstate', announce);
 // A shared event handler can call this after HO-I adds flow events to the main SSE stream.
 export function notifyFlow(botId: string) { useConfigUI.getState().bump(`flow:${botId}`); }

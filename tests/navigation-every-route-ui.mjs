@@ -65,7 +65,7 @@ try {
    await page.locator('.shell-header').waitFor();
    if (parseScreen(hash)) await hashIs(canonical(hash));
    else await page.waitForFunction(() => location.hash.startsWith('#') && location.hash !== '#unknown');
-   if (parseScreen(hash)?.flow) await page.locator('.flow-header').waitFor();
+   if (parseScreen(hash)?.flow) await page.locator('.flow-tab').waitFor();
    assert.deepEqual(await page.evaluate(() => history.state?.swarmNavigation?.trail), [], `${hash}: cold entry has no app history`);
   };
   const snapshot = name => page.screenshot({ path: `.context/pb-b/navigation-${name}-${width}-${theme}.png` });
@@ -195,10 +195,10 @@ try {
    const phoneRoot = width <= 760 && (['bots', 'search'].includes(current.kind)
     || current.kind === 'settings' && !current.section || current.kind === 'work' && !current.route.botSlug);
    if (current.kind === 'details' || current.kind === 'bot-settings') {
-    const avatar = page.locator('.shell-header > .bot-avatar:visible, .flow-header > .bot-avatar:visible');
+    const avatar = page.locator('.shell-header > .bot-avatar:visible');
     assert.equal(await avatar.count(), 1, `${hash}: Bot avatar in top bar`);
     assert.equal(await avatar.evaluate(el => el.getBoundingClientRect().width), 32);
-    assert.equal(await page.locator('.shell-header__subtitle:visible, .flow-header > div > span:visible').innerText() !== '', true);
+    assert.equal(await page.locator('.shell-header__subtitle:visible').innerText() !== '', true);
    }
    assert.equal(await page.locator('.shell-header').evaluate(el => el.scrollWidth <= el.clientWidth), true, `${hash}: header fits`);
    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1 && document.body.scrollWidth <= innerWidth + 1), true, `${hash}: no horizontal page overflow`);

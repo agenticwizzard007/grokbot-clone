@@ -1,8 +1,19 @@
 {
-  "commit": "fc3eab7463772aa49ebcad2caab704ad3d7d76ed",
-  "description": "Main after UC-A, with the merged PB-F layout baseline",
+  "commit": "e0d2cf9404b6392112dbeccc4085e82a3b6e2fcf",
+  "description": "Main after the reviewed HO-G flow layout changes",
+  "_comment": "Move this pin only with a reviewed layout change.",
   "historyTimestamp": "2026-11-27T01:11:11.000Z",
   "widths": [390, 1280],
   "themes": ["light", "dark"],
-  "routeViews": 208
+  "routeViews": 208,
+  "reviewedDifferences": {
+    "390-light-bot-activity": {
+      "reason": "FIX-1 replaces the temporary Flow header with shared navigation and removes phone tabs exposed by the invalid-route fallback.",
+      "navigation": [{ "class": "shell-header", "rect": [0, 0, 390, 56] }]
+    },
+    "390-dark-bot-activity": {
+      "reason": "FIX-1 replaces the temporary Flow header with shared navigation and removes phone tabs exposed by the invalid-route fallback.",
+      "navigation": [{ "class": "shell-header", "rect": [0, 0, 390, 56] }]
+    }
+  }
 }
