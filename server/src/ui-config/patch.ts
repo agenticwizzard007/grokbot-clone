@@ -38,7 +38,7 @@ function knownPath(keys: string[], doc: UiConfig): boolean {
   function walk(schema: z.ZodType, rest: string[], prefix: string[]): boolean {
     const s = schema as z.ZodType & { unwrap?: () => z.ZodType; shape?: Record<string, z.ZodType>; element?: z.ZodType; keyType?: z.ZodType; valueType?: z.ZodType; options?: z.ZodType[] };
     if (!rest.length) return true;
-    if (s.unwrap) return walk(s.unwrap(), rest, prefix);
+    if (s.unwrap && !s.element) return walk(s.unwrap(), rest, prefix);
     if (s.shape) {
       const [key, ...tail] = rest;
       let child = s.shape[key];

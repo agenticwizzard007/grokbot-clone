@@ -1,0 +1,104 @@
+{
+  "dashboardPatch": [
+    {
+      "op": "add",
+      "path": "/dashboards/-",
+      "value": {
+        "id": "$new1",
+        "name": "My week",
+        "icon": "layout-dashboard",
+        "widgets": [
+          {
+            "id": "$new2",
+            "type": "stat",
+            "title": "Needs you",
+            "span": 4,
+            "rows": 1,
+            "source": {
+              "id": "needsYou.list",
+              "params": {}
+            },
+            "options": {
+              "field": "count",
+              "format": "number"
+            }
+          },
+          {
+            "id": "$new3",
+            "type": "stat",
+            "title": "Spent this week",
+            "span": 4,
+            "rows": 1,
+            "source": {
+              "id": "usage.summary",
+              "params": {
+                "range": "7d"
+              }
+            },
+            "options": {
+              "field": "costUsd",
+              "format": "usd"
+            }
+          },
+          {
+            "id": "$new4",
+            "type": "stat",
+            "title": "Working now",
+            "span": 4,
+            "rows": 1,
+            "source": {
+              "id": "tasks.counts",
+              "params": {}
+            },
+            "options": {
+              "field": "working",
+              "format": "number"
+            }
+          },
+          {
+            "id": "$new5",
+            "type": "list",
+            "title": "Open tasks",
+            "span": 6,
+            "rows": 3,
+            "source": {
+              "id": "tasks.list",
+              "params": {
+                "state": "needs_input",
+                "limit": 10
+              }
+            },
+            "options": {
+              "limit": 5
+            }
+          },
+          {
+            "id": "$new6",
+            "type": "chart",
+            "title": "Cost by day",
+            "span": 6,
+            "rows": 3,
+            "source": {
+              "id": "usage.series",
+              "params": {
+                "range": "7d",
+                "metric": "cost"
+              }
+            },
+            "options": {
+              "kind": "bar"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "op": "add",
+      "path": "/layout/pinned/-",
+      "value": {
+        "type": "dashboard",
+        "id": "$new1"
+      }
+    }
+  ]
+}
