@@ -113,10 +113,10 @@ function Section({ title, apps, onViewAll, onChanged }: { title: string; apps: T
   );
 }
 
-export function ConnectAppsModal() {
+export function ConnectAppsModal({ inline = false }: { inline?: boolean }) {
   const setModal = useStore((s) => s.setModal);
   const close = useCallback(() => setModal(null), [setModal]);
-  return <Modal onClose={close} className="apps-modal access-apps-dialog" label="Connect Apps" passThrough=".sidebar">
+  return <Modal embedded={inline} onClose={close} className="apps-modal access-apps-dialog" label="Connect Apps" passThrough=".sidebar">
     <button type="button" className="modal__close apps-modal__close" onClick={close} aria-label="Close"><Icon name="close" size={16} opacity={0.68} /></button>
     <ConnectAppsCatalog onClose={close} />
   </Modal>;

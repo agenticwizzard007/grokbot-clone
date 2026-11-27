@@ -1,3 +1,4 @@
+import { ShellHeaderSlot } from './ShellHeaderSlot';
 import { userFacingLive } from '../lib/audience';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Bot } from '@shared/types';
@@ -50,8 +51,8 @@ function BotChat({ bot }: { accountId: string; bot: Bot }) {
         {mobile && otherUnread > 0 && <span className="chat__back-badge">{otherUnread > 99 ? '99+' : otherUnread}</span>}
       </button><span>Bots</span>
     </div>
-    <header className="chat__header">
-      <button type="button" className="chat__bot-details" aria-label={`Open ${bot.name} details`} aria-expanded={detailsOpen} aria-controls={detailsOpen ? 'bot-details' : undefined} onClick={() => set({ detailsOpen: !detailsOpen })}>
+    <ShellHeaderSlot><header className="chat__header">
+      <button type="button" className="chat__bot-details" aria-label={mobile ? detailsOpen ? 'Hide details' : 'Show details' : `Open ${bot.name} details`} aria-expanded={detailsOpen} aria-controls={detailsOpen ? 'bot-details' : undefined} onClick={() => set({ detailsOpen: !detailsOpen })}>
         <BotAvatarFor bot={bot} size={32} working={!!live?.isRunning && !live.awaiting} />
       </button>
       <span className="chat__pill-anchor">
@@ -70,11 +71,11 @@ function BotChat({ bot }: { accountId: string; bot: Bot }) {
           { label: 'Bot settings', onSelect: () => useConfigUI.getState().openBotSettings(bot.id) },
         ]} />}
       </span>
-      <div className="chat__header-right">
+      {!mobile && <div className="chat__header-right">
         <button type="button" className="chat__details" onClick={() => set({ detailsOpen: !detailsOpen })} aria-label={detailsOpen ? 'Hide details' : 'Show details'} aria-expanded={detailsOpen} aria-controls={detailsOpen ? 'bot-details' : undefined}>Details</button>
         {FEATURE_SHARE && <button type="button" className="share-btn">Share</button>}
-      </div>
-    </header>
+      </div>}
+    </header></ShellHeaderSlot>
     <RosterFeedback />
     <Transcript key={generation} bot={bot} generation={generation} rows={rows} live={live} loaded={!!currentTranscript?.loaded} />
     <VoiceCallBar />

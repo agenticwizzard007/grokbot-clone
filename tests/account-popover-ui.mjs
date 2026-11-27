@@ -72,24 +72,22 @@ async function fixturePage(viewport, email) {
     return route.fulfill({ json: fixtures[url.pathname] ?? {} });
   });
   await page.goto(origin);
+  if (viewport.width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
   await page.getByRole('button', { name: 'Account & settings', exact: true }).waitFor();
   await page.evaluate(() => document.fonts.ready);
   return { page, errors };
 }
 
 async function assertHeader(page, email) {
-  const menu = page.getByRole('menu'), header = menu.locator('.menu__header');
+  const menu = page.getByRole('menu');
   await wait(() => menu.evaluate(inViewport), 'account menu inside viewport').catch(async error => {
     console.error(await menu.evaluate(element => ({ menu: element.getBoundingClientRect().toJSON(), anchor: element.parentElement.getBoundingClientRect().toJSON(), cap: getComputedStyle(element).maxHeight, innerHeight })));
     await page.screenshot({ path: new URL('failure.png', evidence).pathname });
     throw error;
   });
   assert.equal(await menu.evaluate(element => element.getBoundingClientRect().width <= Math.min(320, innerWidth - 16)), true, 'account text does not widen the popover');
-  assert.equal(await header.textContent(), email);
+  assert.equal(await menu.locator('.menu__header').count(), 0, 'The compact menu keeps account details on the Account page');
   assert.equal(await menu.evaluate(element => element.scrollWidth <= element.clientWidth), true, 'menu has no horizontal scroller');
-  assert.equal(await header.evaluate(element => element.scrollWidth <= element.clientWidth), true, 'account text fits the header width');
-  assert.equal(await header.evaluate(inViewport), true, 'header is inside the viewport');
-  assert.equal(await header.evaluate(insideMenu), true, 'header is not clipped by the menu');
   const first = menu.getByRole('menuitem', { name: /^Settings/ });
   assert.equal(await first.evaluate(inViewport), true, 'first action is inside the viewport');
   assert.equal(await first.evaluate(insideMenu), true, 'first action is not clipped by the menu');
@@ -123,7 +121,7 @@ try {
     await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
     await assertHeader(page, email);
     const menu = page.getByRole('menu');
-    assert.equal(await menu.evaluate(element => element.scrollHeight > element.clientHeight && getComputedStyle(element).overflowY === 'auto'), true, 'short window scrolls inside the menu');
+    assert.equal(await menu.evaluate(element => element.scrollHeight <= element.clientHeight || getComputedStyle(element).overflowY === 'auto'), true, 'short window fits the compact menu or scrolls internally');
     await page.screenshot({ path: new URL(`${label}-1024x280.png`, evidence).pathname });
     await menu.press('End');
     const last = menu.getByRole('menuitem', { name: 'Log out', exact: true });
@@ -146,8 +144,11 @@ try {
     await page.getByRole('button', { name: 'Expand sidebar', exact: true }).waitFor();
     await assertHeader(page, email);
     await page.setViewportSize({ width: 390, height: 900 });
+    await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
     await assertHeader(page, email);
     await page.setViewportSize({ width: 1024, height: 280 });
+    await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
     await assertHeader(page, email);
     assert.deepEqual(errors, []);
     await page.close();

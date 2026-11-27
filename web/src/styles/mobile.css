@@ -220,3 +220,42 @@
   .cfg-item--routine .cfg-item__text { flex: 1 1 calc(100% - 40px); }
   .cfg-item--routine .cfg-item__actions { width: 100%; justify-content: flex-end; gap: 4px; }
 }
+
+/* Paper phone shell uses a shared top bar and top-level tabs. */
+@media (max-width: 760px) {
+  .paper-shell .shell-header { min-height: calc(56px + var(--safe-top)); padding: var(--safe-top) 8px 0; gap: 6px; }
+  .paper-shell .shell-header__title { font-size: 16px; line-height: 22px; }
+  .paper-shell .shell-menu { width: 44px; min-width: 44px; height: 44px; }
+  .paper-shell .shell-back { min-width: 44px; min-height: 44px; padding: 0 8px 0 4px; gap: 2px; color: var(--color-primary); font-size: 15px; line-height: 20px; font-weight: 500; }
+  .paper-shell #shell-chat-header .chat__header { min-height: 54px; gap: 8px; }
+  .paper-shell #shell-chat-header .chat__header > .bot-avatar { width: 32px !important; height: 32px !important; }
+  .paper-shell #shell-chat-header .chat__pill-name { font-size: 16px; line-height: 22px; }
+  .paper-shell #shell-chat-header .chat__subtitle { font-size: 12px; line-height: 16px; }
+  .paper-shell #shell-chat-header .chat__details span { display: none; }
+  .paper-shell #shell-chat-header .chat__details { padding: 0; width: 36px; }
+  .paper-shell .main-pane { flex: 1; }
+  .paper-shell .phone-tabs { display: flex; flex-shrink: 0; padding: 0 8px var(--safe-bottom); border-top: 1px solid var(--color-border-tertiary); background: var(--color-bg-sidebar); }
+  .paper-shell .phone-tabs button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; flex: 1; min-width: 0; height: 56px; border-radius: 8px; color: var(--color-text-tertiary); font-size: 11px; line-height: 14px; }
+  .paper-shell .phone-tabs button[aria-current='page'] { color: var(--color-primary); font-weight: 600; }
+  .paper-shell .route-surface .modal { width: 100% !important; height: auto !important; min-height: 0; max-height: 100%; padding: 0; }
+  .paper-shell .route-surface .search-modal { margin: 0; border: 0; border-radius: 0; align-self: stretch; flex: 1; }
+  .paper-shell .route-surface .search-modal__field { padding: 12px 16px; }
+  .paper-shell .route-surface .search-modal__field input { min-width: 0; font-size: 16px; }
+  .paper-shell .bot-details-pane .details { position: static; height: 100%; padding: 0; }
+  .paper-shell .tasks-view__header .chat__back { display: none; }
+  .paper-shell .tasks-view__header { padding-top: 8px; }
+  :root .modal-root:has(.phone-drawer) { justify-content: flex-start; }
+  :root .modal.phone-drawer { width: min(312px, calc(100vw - 8px)) !important; max-width: 312px !important; height: 100dvh !important; padding: 0; border-radius: 0; background: var(--color-bg-sidebar); }
+  .phone-drawer .sidebar { width: 100%; height: 100%; padding: max(12px, var(--safe-top)) 12px max(12px, var(--safe-bottom)); gap: 12px; display: flex; }
+  .phone-drawer .sidebar__titlebar { height: 40px; min-height: 40px; padding: 0 4px 0 8px; margin: 0; }
+  .phone-drawer .sidebar__titlebar::before { content: none; }
+  .phone-drawer .sidebar__controls .icon-btn { display: flex; }
+  .phone-drawer .sidebar__scroll { flex: 1; overflow: auto; padding: 0; }
+  .phone-drawer .sidebar__search { margin: 0; height: 40px; min-height: 40px; }
+  .phone-drawer .sidebar__footer { padding: 0; }
+}
+.modal-page-back { display: none; }
+@media (max-width: 760px) {
+  .modal-page-back { display: flex; flex-shrink: 0; padding: 6px 8px; border-bottom: 1px solid var(--color-border-tertiary); }
+  .modal-page-back button { display: flex; align-items: center; gap: 4px; min-height: 44px; min-width: 44px; padding: 0 8px; border-radius: 10px; font-size: 13px; color: var(--color-primary); }
+}

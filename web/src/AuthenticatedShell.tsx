@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { TasksLoader, preloadTasks } from './components/TasksLoader';
 import { startEvents } from './lib/events';
 import { PHONE_QUERY, useStore } from './store';
@@ -6,13 +6,16 @@ import { RosterFeedback } from './components/LoadFeedback';
 import { ChatSkeleton } from './components/ChatSkeleton';
 import { Sidebar } from './components/Sidebar';
 import { SignedInAuthFeedback } from './components/SignedInAuthFeedback';
-import { useConfigUI } from './configStore';
+import { navigation, useConfigUI } from './configStore';
 import { AppSettings } from './components/config/SettingsFrame';
 import { installVoiceShortcut } from './voice/shortcut';
 import { hasOpenModal } from './components/modals/Modal';
 import { ToastPortal } from './lib/toast';
 import { ConfirmPortal } from './lib/confirmDialog';
 import { isNewBotShortcut } from './lib/shortcuts';
+import { ChevronLeft, House, ListTodo, Menu, Search, Settings } from 'lucide-react';
+import { backLabel, parentScreen, parseScreen, screenTitle, type Screen } from './lib/navigation';
+import { Modal } from './components/modals/Modal';
 
 import './styles/shell.css';
 import './styles/chat.css';
@@ -24,6 +27,7 @@ import './styles/voice.css';
 import './styles/composer-models.css';
 import './styles/mobile.css';
 import './styles/paper-core.css'; // accepted shared shell and core responsive geometry
+import './components/sidebar-labels.css';
 
 const ChatView = lazy(() => import('./components/ChatView').then(m => ({ default: m.ChatView })));
 const BotsView = lazy(() => import('./components/BotsView').then(m => ({ default: m.BotsView })));
@@ -45,11 +49,23 @@ function Shell() {
   const selectedBotId = useStore(s => s.selectedBotId);
   const hasBot = !!selectedBotId;
   const rosterUnavailable = useStore(s => !s.botsLoaded && !s.bots.length);
-  const view = useConfigUI((s) => s.view);
+  const config = useConfigUI();
+  const view = config.view;
   const mobile = useStore((s) => s.mobile);
-  const pane = useStore((s) => s.mobilePane);
-  // Settings dialogs load lazily; only mount them while one is open.
   const settingsOpen = useConfigUI((s) => !!s.appSettings);
+  const bots = useStore(s => s.bots);
+  const screen = navigation.screen ?? { kind: 'bots' };
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const routeModal = modal === 'search' || modal === 'apps';
+  const chatHeader = screen.kind === 'chat';
+  const topLevel = screen.kind === 'bots' || screen.kind === 'search' || (screen.kind === 'settings' && !screen.section) || (screen.kind === 'work' && !screen.route.botSlug);
+  const hasBack = screen.kind !== 'bots' || navigation.trail.length > 0;
+  const backTarget = parseScreen(navigation.trail.at(-1) ?? '') ?? parentScreen(screen) ?? { kind: 'bots' };
+  const backText = mobile ? 'Back' : backTarget.kind === 'chat' ? 'Back to chat' : backLabel(backTarget, bots);
+  const back = () => navigation.back(parentScreen(screen) ?? { kind: 'bots' });
+  const headerTitle = !mobile && screen.kind === 'settings' ? 'Settings' : screenTitle(screen, bots).replace(/ · Swarm$/, '').replace(/^Settings · /, '');
+  useEffect(() => { setDrawerOpen(false); }, [headerTitle, mobile]);
+  // Settings pages load lazily; navigation stays mounted.
   const botSettings = useConfigUI(s => s.botSettings);
 
   // Phone layout: follow the breakpoint, and let the system back gesture leave a chat for the list.
@@ -106,30 +122,44 @@ function Shell() {
     return () => window.removeEventListener('keydown', k);
   }, []);
 
-  // Work routes keep their heading and neutral title while their roster resolves.
-  if (rosterUnavailable && view !== 'tasks') return <main className="boot boot--data"><RosterFeedback /></main>;
-
   return (
-    <div className={`app${settingsOpen ? ' is-app-settings' : ''}${collapsed && !mobile ? ' is-sidebar-collapsed' : ''}${mobile ? ` is-mobile pane-${view === 'tasks' || (modal === 'create' || modal === 'group') || botSettings || detailsOpen ? 'chat' : pane}` : ''}`}>
-      <Sidebar />
-      <div className={`main-pane${detailsOpen && hasBot && view === 'chat' && !botSettings && modal !== 'create' && modal !== 'group' ? ' has-bot-details' : ''}`} hidden={settingsOpen}>
+    <div className={`app paper-shell${settingsOpen ? ' is-app-settings' : ''}${collapsed && !mobile ? ' is-sidebar-collapsed' : ''}${mobile ? ' is-mobile' : ''}${topLevel ? ' has-phone-tabs' : ''}${chatHeader ? ' is-chat-route' : ''}`}>
+      {!mobile && <Sidebar />}
+      <div className="shell-content">
+        <header className="shell-header" tabIndex={-1}>
+          {hasBack && <button type="button" className="shell-back" aria-label={mobile ? 'Back' : backText} onClick={back}><ChevronLeft size={mobile ? 20 : 16} aria-hidden /><span>{backText}</span></button>}
+          <div id="shell-chat-header" hidden={!chatHeader} />{!chatHeader && <strong className="shell-header__title">{headerTitle}</strong>}
+          {mobile && <button type="button" className="shell-menu" aria-label="Open navigation" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}><Menu size={22} aria-hidden /></button>}
+        </header>
+      <div className={`main-pane${detailsOpen && hasBot && view === 'chat' && !botSettings && modal !== 'create' && modal !== 'group' ? ' has-bot-details' : ''}`} hidden={settingsOpen || routeModal}>
       <div className="chat-pane">
       <Suspense fallback={view === 'chat' && !botSettings && !modal ? <ChatSkeleton /> : <main className="chat chat--empty" role="status">Loading...</main>}>
-        {modal === 'create' ? <CreateBotModal inline />
+        {rosterUnavailable && view !== 'tasks' ? <main className="boot boot--data"><RosterFeedback /></main>
+          : modal === 'create' ? <CreateBotModal inline />
           : modal === 'group' ? <CreateGroupModal inline />
           : botSettings ? <BotSettingsModal inline />
           : view === 'tasks' ? <TasksLoader />
-          : view === 'bots' && !mobile ? <BotsView /> : <ChatView />}
+          : view === 'bots' ? <BotsView /> : <ChatView />}
       </Suspense>
       </div>
       {detailsOpen && hasBot && view === 'chat' && <div className="bot-details-pane" hidden={!!botSettings || modal === 'create' || modal === 'group'}><Suspense fallback={<div role="status">Loading...</div>}><DetailsPanel key={selectedBotId} /></Suspense></div>}
       </div>
-      <Suspense fallback={<div className="toast" role="status">Loading…</div>}>
-      {modal === 'search' && <SearchModal />}
-      {modal === 'apps' && <ConnectAppsModal />}
+      <Suspense fallback={<div className="toast" role="status">Loading</div>}>
+      {modal === 'search' && <SearchModal inline />}
+      {modal === 'apps' && <ConnectAppsModal inline />}
       {viewerOpen && <ComputerViewer />}
       </Suspense>
       {settingsOpen && <AppSettings />}
+      {mobile && topLevel && <nav className="phone-tabs" aria-label="App navigation">
+        {([
+          ['Bots', House, { kind: 'bots' }, screen.kind === 'bots'],
+          ['Tasks', ListTodo, { kind: 'work', route: { tab: 'Tasks' } }, screen.kind === 'work'],
+          ['Search', Search, { kind: 'search' }, screen.kind === 'search'],
+          ['Settings', Settings, { kind: 'settings' }, screen.kind === 'settings'],
+        ] as const).map(([label, Icon, target, active]) => <button type="button" key={label} aria-current={active ? 'page' : undefined} onClick={() => navigation.navigate(target as Screen)}><Icon size={22} aria-hidden /><span>{label}</span></button>)}
+      </nav>}
+      </div>
+      {mobile && drawerOpen && <Modal label="App navigation" className="phone-drawer paper-shell" onClose={() => setDrawerOpen(false)}><Sidebar onClose={() => setDrawerOpen(false)} /></Modal>}
     </div>
   );
 }

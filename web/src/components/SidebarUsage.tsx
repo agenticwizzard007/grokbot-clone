@@ -24,18 +24,18 @@ export function SidebarUsage({ collapsed }: { collapsed: boolean }) {
     const timer = setTimeout(() => setSlowRefresh(true), 2000);
     return () => clearTimeout(timer);
   }, [refreshing]);
-  const label = pending ? 'Loading usage...' : !known ? 'Unavailable'
+  const label = pending ? 'Loading' : !known ? 'Unavailable'
     : plan ? planLabel(summary?.provider, summary?.plan) : 'API credits';
-  const detail = pending ? 'Loading provider details...' : !known ? 'Retry provider details' : !plan ? 'Pay per use · View recorded spending'
-    : window ? `${window.label} · ${Number(window.usedPercent.toFixed(1))}% used` : reported.state === 'stale' ? 'Usage needs a refresh' : 'Usage limits not reported';
+  const detail = pending ? 'Provider details' : !known ? 'Retry' : !plan ? 'Recorded spending'
+    : window ? `${window.label} · ${Number(window.usedPercent.toFixed(1))}% used` : reported.state === 'stale' ? 'Refresh usage' : 'Limits unavailable';
   return <button type="button" className="sidebar-usage" aria-label={`Usage: ${label}. ${detail}`}
     title={collapsed ? `${label} · ${detail}` : undefined}
     onClick={() => { if (failed) void catalog.load(true); else useConfigUI.getState().openAppSettings(known && !plan ? 'usage' : 'subscriptions'); }}>
     {collapsed ? providerBrand(summary?.provider) ? <ProviderMark provider={summary?.provider} /> : <Gauge size={20} aria-hidden /> : <>
-      <span className="sidebar-usage__row"><span><small>Usage</small><strong><ProviderLabel provider={summary?.provider} reserve>{label}</ProviderLabel></strong></span><ChevronRight size={16} aria-hidden /></span>
+      <span className="sidebar-usage__row"><span><small className="sr-only">Usage</small><strong><ProviderLabel provider={summary?.provider} reserve>{label}</ProviderLabel></strong></span><ChevronRight size={16} aria-hidden /></span>
       {window && <progress max={100} value={window.usedPercent} aria-label={`${window.label} usage`} />}
       <span className="sidebar-usage__detail">{detail}</span>
-      {stale && (failed || (refreshing && slowRefresh)) && <span className="sidebar-usage__detail">Previously loaded{failed ? ' · Retry' : ' · Refreshing…'}</span>}
+      {stale && (failed || (refreshing && slowRefresh)) && <span className="sidebar-usage__detail">Previously loaded{failed ? ' · Retry' : ' · Refreshing'}</span>}
       {window?.resetsAt != null && Number.isFinite(window.resetsAt) && <span className="sidebar-usage__detail">Resets {new Date(window.resetsAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>}
     </>}
   </button>;

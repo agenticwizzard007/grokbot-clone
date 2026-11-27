@@ -115,25 +115,30 @@ try {
     const details = page.getByRole('complementary', { name: 'Conversation details', exact: true });
     await details.waitFor(); await walkSurface(page, details);
     await page.keyboard.press('Escape'); await details.waitFor({ state: 'detached' });
-    await page.waitForFunction(() => document.activeElement?.matches('.chat__details'));
+    await page.waitForFunction(() => document.activeElement?.matches('.chat__details, .chat__bot-details'));
     await focused(page);
     for (const name of ["Don't allow", 'Always allow', 'Allow']) await tabTo(page, page.locator('.approval-card').getByRole('button', { name, exact: true }));
     await page.keyboard.press('Tab'); await focused(page);
     assert.equal(await page.locator('.approval-card').evaluate(el => el.contains(document.activeElement)), false, 'Tab can leave approval without deciding');
-    if (width === 390) { await tabTo(page, page.getByRole('button', { name: 'All Bots', exact: true })); await page.keyboard.press('Enter'); }
-    const search = page.locator('.sidebar').getByRole('button', { name: 'Search', exact: true });
+    if (width === 390) { await tabTo(page, page.getByRole('button', { name: 'Back', exact: true })); await page.keyboard.press('Enter'); }
+    const search = page.locator(width === 390 ? '.phone-tabs' : '.sidebar').getByRole('button', { name: 'Search', exact: true });
     await tabTo(page, search); await page.keyboard.press('Enter');
     const searchDialog = page.getByRole('dialog', { name: 'Search', exact: true });
-    await searchDialog.waitFor(); await walkDialog(page, searchDialog);
+    await searchDialog.waitFor(); await walkSurface(page, searchDialog);
     await page.keyboard.press('Escape');
     assert.equal(await search.evaluate(el => el === document.activeElement), true); await focused(page);
     await page.keyboard.press('Enter'); await searchDialog.waitFor();
     await tabTo(page, searchDialog.getByRole('button', { name: 'Close search', exact: true })); await page.keyboard.press('Enter');
     await searchDialog.waitFor({ state: 'detached' });
-    await tabTo(page, page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }));
-    await tabTo(page, page.locator('.sidebar-usage'));
-    await tabTo(page, page.getByRole('button', { name: 'Account & settings', exact: true })); await page.keyboard.press('Enter');
-    await tabTo(page, page.getByRole('menuitem', { name: /^Settings/ })); await page.keyboard.press('Enter');
+    if (width === 390) {
+      await tabTo(page, page.locator('.phone-tabs').getByRole('button', { name: 'Tasks', exact: true }));
+      await tabTo(page, page.locator('.phone-tabs').getByRole('button', { name: 'Settings', exact: true })); await page.keyboard.press('Enter');
+    } else {
+      await tabTo(page, page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }));
+      await tabTo(page, page.locator('.sidebar-usage'));
+      await tabTo(page, page.getByRole('button', { name: 'Account & settings', exact: true })); await page.keyboard.press('Enter');
+      await tabTo(page, page.getByRole('menuitem', { name: /^Settings/ })); await page.keyboard.press('Enter');
+    }
     await page.locator('.app-settings').waitFor();
     await walkSurface(page, page.locator('.app-settings, .settings-nav'));
     if (width === 390) {
@@ -143,7 +148,7 @@ try {
       await page.keyboard.press('Escape');
     }
     await page.keyboard.press('Escape'); await page.locator('.app-settings').waitFor({ state: 'detached' });
-    if (width === 390 && !await search.isVisible()) { await tabTo(page, page.getByRole('button', { name: 'All Bots', exact: true })); await page.keyboard.press('Enter'); }
+    if (width === 390) { await tabTo(page, page.getByRole('button', { name: 'Open navigation', exact: true })); await page.keyboard.press('Enter'); }
     await tabTo(page, page.getByRole('button', { name: 'New Bot', exact: true })); await page.keyboard.press('Enter');
     await page.getByRole('heading', { name: 'Create a Bot', exact: true }).waitFor();
     await tabTo(page, page.getByRole('textbox', { name: 'Bot name', exact: false })); await page.keyboard.type('Local keyboard Bot');

@@ -45,7 +45,6 @@ import '../../styles/settings.css';
 import '../../styles/access-settings.css';
 
 const THEME_LABEL: Record<Theme, string> = { system: 'System', light: 'Light', dark: 'Dark' };
-const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 // Keep the public entry for existing embedded Settings surfaces.
 export { AppSettings } from './SettingsFrame';
@@ -85,41 +84,39 @@ function Keys({ keys }: { keys: string[] }) {
 // ---------------------------------------------------------------------------
 
 function GeneralSection() {
-  const theme = useConfigUI((s) => s.theme);
-  const setTheme = useConfigUI((s) => s.setTheme);
-  const accountId = useStore((s) => s.user?.id);
+  const theme = useConfigUI(s => s.theme);
+  const setTheme = useConfigUI(s => s.setTheme);
+  const user = useStore(s => s.user);
+  const accountId = user?.id;
   const [detailsDefault, setDetailsDefault] = useState(() => readDetailsDefault(accountId));
   useEffect(() => { setDetailsDefault(readDetailsDefault(accountId)); }, [accountId]);
-  const collapsed = useStore((s) => s.sidebarCollapsed);
-  // Every shortcut the app handles (lib/shortcuts.ts), with platform glyphs (MF-028, MF-029).
-  const shortcuts: [string, string[]][] = SHORTCUTS.filter(s => !(s.web && isNativeApp)).map(s => [s.label, shortcutKeys(s)]);
-  return (
-    <>
-      <PageHead title="General" sub="Appearance, layout, and keyboard shortcuts" />
-      <section className="cfg-section settings-appearance">
-        <h2 className="cfg-section__label">Appearance & layout</h2>
-        <div className="cfg-card">
-          <SettingRow icon={Settings2} title="Theme" sub="Choose how Swarm looks on this device.">
-            <Segmented label="Theme" value={theme} onChange={setTheme} options={(['system', 'light', 'dark'] as const).map((t) => ({ value: t, label: THEME_LABEL[t] }))} />
-          </SettingRow>
-          <SettingRow icon={PanelLeftOpen} title="Open Bot details with each chat" sub="Show activity, tasks, files, and setup beside the chat.">
-            <Switch label="Open Bot details with each chat" on={detailsDefault} onChange={(v) => { writeDetailsDefault(accountId, v); setDetailsDefault(v); }} />
-          </SettingRow>
-          <SettingRow icon={PanelLeftOpen} title="Compact sidebar" sub="Give chats more room on desktop.">
-            <Switch label="Compact sidebar" on={collapsed} onChange={(v) => useStore.getState().set({ sidebarCollapsed: v })} />
-          </SettingRow>
-        </div>
-      </section>
-      <InputLatencyDiagnostics />
-      <section className="cfg-section">
-        <h2 className="cfg-section__label">Keyboard shortcuts</h2>
-        {IS_MAC && !isNativeApp && <div className="cfg-field__hint">On Windows and Linux, use Ctrl instead of ⌘ and Alt instead of ⌥.</div>}
-        <div className="cfg-card settings-shortcuts">
-          {shortcuts.map(([label, keys]) => <SettingRow icon={TextCursorInput} key={label} title={label}><Keys keys={keys} /></SettingRow>)}
-        </div>
-      </section>
-    </>
-  );
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const shortcuts = SHORTCUTS.filter(s => !(s.web && isNativeApp));
+  return <div className="settings-general">
+    <PageHead title="General" />
+    <section className="cfg-section settings-appearance" aria-label="Appearance">
+      <div className="cfg-card">
+        <SettingRow icon={Settings2} title="Theme">
+          <Segmented label="Theme" value={theme} onChange={setTheme} options={(['light', 'dark', 'system'] as const).map(t => ({ value: t, label: t === 'system' ? 'Auto' : THEME_LABEL[t] }))} />
+        </SettingRow>
+        <SettingRow icon={PanelLeftOpen} title="Show details panel">
+          <Switch label="Show details panel" on={detailsDefault} onChange={v => { writeDetailsDefault(accountId, v); setDetailsDefault(v); }} />
+        </SettingRow>
+        <SettingRow icon={Clock3} title="Time zone" sub={(user as (User & { timezone?: string }) | null)?.timezone || browserTimeZone()}>
+          <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('account')}>Change</button>
+        </SettingRow>
+        <SettingRow icon={TextCursorInput} title="Keyboard shortcuts">
+          <button type="button" className="cfg-btn cfg-btn--secondary" aria-expanded={shortcutsOpen} aria-controls="general-shortcuts" onClick={() => setShortcutsOpen(!shortcutsOpen)}>{shortcutsOpen ? 'Hide' : 'View'}</button>
+        </SettingRow>
+      </div>
+    </section>
+    {shortcutsOpen && <section id="general-shortcuts" className="cfg-card settings-shortcuts" aria-label="Keyboard shortcuts">
+      {shortcuts.map(shortcut => <SettingRow icon={TextCursorInput} key={shortcut.label} title={shortcut.label}><Keys keys={shortcutKeys(shortcut)} /></SettingRow>)}
+    </section>}
+    <button type="button" className="link-btn settings-diagnostics" aria-expanded={diagnosticsOpen} onClick={() => setDiagnosticsOpen(!diagnosticsOpen)}>Diagnostics</button>
+    {diagnosticsOpen && <InputLatencyDiagnostics />}
+  </div>;
 }
 
 // ---------------------------------------------------------------------------
