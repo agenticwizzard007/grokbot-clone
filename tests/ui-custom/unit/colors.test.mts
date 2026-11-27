@@ -25,11 +25,21 @@ test('default users get zero CSS variables and default seeds round trip exactly'
 test('derived default colors stay within delta E 8 of actual shipped CSS tokens', () => {
   const css = fs.readFileSync('web/src/styles/tokens.css', 'utf8');
   const [light, dark] = css.split(":root[data-theme='dark']");
-  const parse = (text: string) => Object.fromEntries([...text.matchAll(/(--[a-z0-9-]+):\s*(#[a-f0-9]{6}|rgb\(\d+ \d+ \d+\));/gi)].map(([, key, raw]) => [key, raw.startsWith('#') ? raw.toUpperCase() : '#' + raw.match(/\d+/g)!.map(n => Number(n).toString(16).padStart(2, '0')).join('').toUpperCase()]));
+  const parse = (text: string) => {
+    const raw = Object.fromEntries([...text.matchAll(/(--[a-z0-9-]+):\s*([^;]+);/gi)].map(([, key, value]) => [key, value]));
+    const pane = raw['--color-bg-pane'] ?? '#FFFFFF';
+    return Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => {
+      if (/^#[a-f0-9]{6}$/i.test(value)) return [[key, value.toUpperCase()]];
+      if (!/^rgb\(/.test(value)) return [];
+      const channels = value.match(/[\d.]+/g)!.map(Number), alpha = channels.length === 4 ? channels[3] / (value.includes('%') ? 100 : 1) : 1;
+      const hex = '#' + channels.slice(0, 3).map((n, i) => Math.round(n * alpha + parseInt(pane.slice(1 + 2 * i, 3 + 2 * i), 16) * (1 - alpha)).toString(16).padStart(2, '0')).join('').toUpperCase();
+      return [[key, hex]];
+    }));
+  };
   let checks = 0;
   for (const mode of ['light', 'dark'] as const) {
     const shipped = { ...parse(light), ...(mode === 'dark' ? parse(dark) : {}) }, palette = derive(DEFAULT_SEEDS[mode], mode);
-    for (const token of TOKENS) for (const variable of token.cssVars) if (shipped[variable]) { assert.ok(deltaE(palette[token.id], shipped[variable]) <= 8, `${mode} ${variable}`); checks++; }
+    for (const token of TOKENS) for (const variable of token.cssVars) { assert.ok(shipped[variable], `Missing baseline for ${variable}`); assert.ok(deltaE(palette[token.id], shipped[variable]) <= 8, `${mode} ${variable}`); checks++; }
   }
   assert.ok(checks >= 50); console.log(`CSS palette: ${checks} actual token comparisons, all delta E <= 8`);
 });
@@ -88,4 +98,14 @@ test('100-operation validation stays inside the 20 ms p95 budget', () => {
   const timings = [];
   for (let i = 0; i < 60; i++) { const start = performance.now(); assert.ok(previewPatch(DEFAULT_CONFIG, ops, { ctx: {} }).ok); if (i >= 10) timings.push(performance.now() - start); }
   timings.sort((a, b) => a - b); const p95 = timings[Math.floor(timings.length * .95)]; console.log(`Patch performance: 100 operations p95 ${p95.toFixed(2)} ms`); assert.ok(p95 < 20);
+});
+test('autofix can repair ink after backgrounds cross from light to dark', () => {
+  const result = previewPatch(DEFAULT_CONFIG, [
+    { op: 'add', path: '/theme/colors/light/pane', value: '#000000' },
+    { op: 'add', path: '/theme/colors/light/sidebar', value: '#000000' },
+  ], { ctx: {}, autofix: true });
+  assert.equal(result.ok, true, JSON.stringify(result)); if (!result.ok) return;
+  assert.deepEqual(checkAccessibility(result.result), []);
+  assert.equal(result.result.theme.colors.light.pane, '#000000');
+  assert.equal(result.result.theme.colors.light.sidebar, '#000000');
 });

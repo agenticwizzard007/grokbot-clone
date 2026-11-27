@@ -201,3 +201,16 @@ test('registries are complete and new code uses neither identity colors nor forb
     const text = fs.readFileSync(`server/src/ui-config/${file}`, 'utf8'); assert.ok(!/[\u2013\u2014]/.test(text)); assert.ok(!/from ['"](?:node:|fs|path|react)/.test(text));
   }
 });
+test('5000 hostile strings cycle through every color and enum field', () => {
+  const fields = [
+    ...(['light', 'dark'] as const).flatMap(mode => [...SEED_IDS.map(id => `/theme/colors/${mode}/${id}`), ...DERIVED_IDS.map(id => `/theme/overrides/${mode}/${id}`)]),
+    '/theme/mode', '/theme/font/ui', '/theme/font/heading', '/theme/font/scale', '/theme/density', '/theme/radius', '/theme/motion', '/theme/contrast', '/layout/sidebar/width', '/layout/chat/width', '/device/phone/density', '/device/phone/scale', '/preset',
+  ];
+  let seed = 90817; const start = performance.now();
+  for (let i = 0; i < 5000; i++) {
+    seed = (Math.imul(1664525, seed) + 1013904223) >>> 0;
+    const value = ['url(', 'var(', '<script>', 'rgb(', '#GG', 'font;', '\u0000'][i % 7] + seed.toString(36);
+    bad(patch([set(fields[i % fields.length], value)]));
+  }
+  console.log(`String fuzz: 5000 inputs across ${fields.length} fields, 0 accepted, ${Math.round(performance.now() - start)} ms`);
+});

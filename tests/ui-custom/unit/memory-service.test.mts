@@ -14,3 +14,11 @@ test('feature and apply mode callbacks are evaluated for each user', () => {
   const s = new MemoryUiConfigService({ enabled: id => id === 'QA-Temp-a', agentApplyMode: id => id === 'QA-Temp-a' ? 'auto' : 'ask' });
   assert.equal(s.enabled('QA-Temp-a'), true); assert.equal(s.enabled('QA-Temp-b'), false); assert.equal(s.agentApplyMode('QA-Temp-a'), 'auto'); assert.equal(s.agentApplyMode('QA-Temp-b'), 'ask');
 });
+test('component reset overrides inherited preset visibility without changing the theme', async () => {
+  const { effectiveConfig, presetPatch } = await import('../../../server/src/ui-config/index.ts');
+  const s = new MemoryUiConfigService(); assert.ok(s.patch('QA-Temp-a', presetPatch('focus'), 0, 'user').ok);
+  const preview = s.reset('QA-Temp-a', 'components'); assert.ok(preview.ok); if (!preview.ok) return;
+  const result = s.applyPreview('QA-Temp-a', preview.previewId, 'user'); assert.ok(result.ok); if (!result.ok) return;
+  assert.equal(effectiveConfig(result.doc).components['sidebar.usage'], 'show');
+  assert.equal(result.doc.theme.density, 'compact');
+});

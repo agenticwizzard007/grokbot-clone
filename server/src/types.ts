@@ -1,3 +1,4 @@
+export type { UiPreviewCardBody } from './ui-config/service.js';
 import type { ConnectionDetails } from './connection-details.js';
 // Shared API contract between server and web (web imports these as types only).
 import type { BirdAvatarShape } from './avatar-shapes.js';

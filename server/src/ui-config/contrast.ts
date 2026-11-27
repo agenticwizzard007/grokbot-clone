@@ -66,7 +66,9 @@ export function checkAccessibility(doc: UiConfig): Violation[] {
       const ratio = contrastRatio(palette[rule.token], palette[rule.against]);
       if (ratio + 1e-9 >= rule.min) continue;
       const def = TOKENS.find(t => t.id === rule.token)!;
-      const related = rules.filter(r => r.token === rule.token);
+      // Unoverridden surfaces are derived again when ink changes, so they must not
+      // pin an ink repair to their old contrast-adjusted lightness.
+      const related = rules.filter(r => r.token === rule.token && !(rule.token === 'ink' && ['elevated', 'bubbleAgent'].includes(r.against) && !Object.hasOwn(doc.theme.overrides[mode], r.against)));
       const suggested = nearestPassingColor(palette[rule.token], color => related.every(r => contrastRatio(color, palette[r.against]) >= r.min));
       errors.push({ path: `/theme/${def.kind === 'seed' ? 'colors' : 'overrides'}/${mode}/${rule.token}`, code: 'accessibility', message: `${def.label} against ${TOKENS.find(t => t.id === rule.against)!.label.toLowerCase()}: ${ratio.toFixed(2)}:1; needs ${rule.min}:1.`, ratio, minimum: rule.min, ...(suggested ? { suggested, hint: `Try ${suggested}.` } : { hint: 'Choose backgrounds with compatible contrast.' }) });
     }

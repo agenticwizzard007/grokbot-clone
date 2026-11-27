@@ -1,4 +1,6 @@
 import { DEFAULT_CONFIG, LIMITS, type UiConfig } from './schema.js';
+import { COMPONENTS } from './registry-components.js';
+import { PRESETS } from './presets.js';
 import { plainText } from './registry-widgets.js';
 import { previewPatch } from './patch.js';
 import { summarize } from './summarize.js';
@@ -88,7 +90,10 @@ export class MemoryUiConfigService implements UiConfigService {
     else if (scope === 'appearance') result = { ...structuredClone(DEFAULT_CONFIG), dashboards: doc.dashboards };
     else if (scope === 'theme') { result.theme = structuredClone(DEFAULT_CONFIG.theme); result.preset = 'swarm'; result.device = structuredClone(DEFAULT_CONFIG.device); }
     else if (scope === 'layout') result.layout = structuredClone(DEFAULT_CONFIG.layout);
-    else if (scope === 'components') result.components = {};
+    else if (scope === 'components') {
+      const preset = PRESETS.find(p => p.id === result.preset);
+      result.components = Object.fromEntries(COMPONENTS.filter(c => Object.hasOwn(preset?.config.components ?? {}, c.id)).map(c => [c.id, c.default]));
+    }
     else {
       result.dashboards = scope === 'dashboards' ? [] : result.dashboards.filter(d => d.id !== dashboardId);
       const ids = new Set(result.dashboards.map(d => d.id));
