@@ -5,13 +5,19 @@ import { inspectAlignment } from '../../layout-alignment-ui.mjs';
 import { inspectQuality, runQuality as checkUiQuality } from '../ui-quality.mjs';
 
 export async function runUiQuality(evidence, runQuality = checkUiQuality) {
+  const startedAt = Date.now();
   let error;
   try { await runQuality(); }
   catch (reason) { error = reason.stack || String(reason); }
-  const source = path.resolve('.context/ho-p/quality/report.json');
-  const checks = fs.existsSync(source) ? JSON.parse(fs.readFileSync(source, 'utf8')) : [];
+  const checkerReport = path.resolve('.context/ho-p/quality/report.json');
+  const fresh = fs.existsSync(checkerReport) && fs.statSync(checkerReport).mtimeMs >= startedAt - 1;
+  const checks = fresh ? JSON.parse(fs.readFileSync(checkerReport, 'utf8')) : [];
+  if (!checks.length) error ||= 'The UI quality checker did not produce any view results.';
+  // Keep this run's evidence even when another invocation reuses HO-P's directory.
+  const source = path.join(evidence, 'ui-quality-views.json');
+  fs.writeFileSync(source, JSON.stringify(checks, null, 2));
   const result = { status: error ? 'fail' : 'pass', passed: checks.filter(check => !check.issues.length).length,
-    failed: checks.filter(check => check.issues.length).length, ...(error ? { error } : {}), source };
+    failed: checks.filter(check => check.issues.length).length, ...(error ? { error } : {}), source, checkerReport };
   fs.writeFileSync(path.join(evidence, 'ui-quality.json'), JSON.stringify(result, null, 2));
   console.log(`${error ? 'FAIL' : 'PASS'} HO-P UI quality: ${result.passed} pass, ${result.failed} fail`);
   return result;
