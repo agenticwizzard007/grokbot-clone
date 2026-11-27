@@ -1,6 +1,6 @@
 # Dashboards and requirements
 
-Swarm can tailor your home and navigation to the work you describe in chat. Accounts with no saved configuration or requirements keep the existing defaults. Availability depends on the account's feature flags.
+Swarm can build dashboards and change your home and navigation through chat. Accounts with no saved configuration keep the existing defaults. Availability depends on the account's feature flags. Requirements adaptation, About your use and All sections are pending UC-I integration; the section below describes that planned workflow.
 
 ## Ask your agent
 
@@ -21,7 +21,7 @@ Dashboard Edit provides Add widget, Move earlier, Move later, Narrower, Wider, S
 
 ## About your use
 
-Requirements adaptation is described in [spec section 26](customization/SPEC.md). The agent saves only requirements you state, including role, goals, workflows and focus. Saving the profile alone does not rearrange the app. A deterministic engine proposes the home dashboard, emphasized navigation, suggested Bots, templates and default views; Apply confirms the proposal.
+Requirements adaptation is owned by UC-I. Once integrated, the agent saves only requirements you state, including role, goals, workflows and focus. Saving the profile alone does not rearrange the app. A deterministic engine proposes the home dashboard, emphasized navigation, suggested Bots, templates and default views; Apply confirms the proposal.
 
 Settings, Appearance and layout, About your use (`#settings/appearance/use`) is the central place to view and edit the profile, re-adapt, or reset. A requirement change produces a new proposal. Values you changed by hand are kept and identified in the preview. Suggested Bots and templates require their own explicit create action.
 
@@ -69,6 +69,7 @@ Keep recipes deterministic and validate generated patches. Profile updates alone
 
 ```sh
 npm run typecheck
+npm run build -w web
 node --import tsx --test tests/ui-custom/security/*.test.mts tests/ui-custom/perf/*.test.mts
 node tests/ui-custom/e2e/service-ui.mjs
 node tests/ui-custom/e2e/journeys-ui.mjs

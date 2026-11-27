@@ -9,6 +9,7 @@ Rebase on main and record both main and candidate SHAs. Run typecheck, the works
 ```sh
 npm ci
 npm run typecheck
+npm run build -w web
 UC_REQUIRE_FULL=1 node tests/ui-custom/run-all.mjs
 UC_REQUIRE_FULL=1 node tests/layout-alignment-ui.mjs
 UC_REQUIRE_FULL=1 node tests/ui-custom/demo-h.mjs
