@@ -8,7 +8,7 @@ export async function shellFixture() {
   const api = await serverFixture();
   let vite, browser;
   try {
-    vite = await createServer({ root: path.resolve('web'), server: { host: '127.0.0.1', port: 0, proxy: { '/api': api.base } } });
+    vite = await createServer({ root: path.resolve('web'), cacheDir: path.join(api.env.FILES_DIR, 'vite-cache'), server: { host: '127.0.0.1', port: 0, proxy: { '/api': api.base } } });
     await vite.listen();
     const base = `http://127.0.0.1:${vite.httpServer.address().port}`;
     browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });

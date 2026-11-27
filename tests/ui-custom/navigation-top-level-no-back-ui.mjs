@@ -15,7 +15,7 @@ try {
     for (const width of [320, 390, 500]) for (const theme of ['light', 'dark']) {
       const page = await server.page(width, theme);
       await server.patch([{ op: 'replace', path: '/theme/mode', value: theme }]);
-      for (const hash of ['#bots', '#tasks', '#search', '#settings', ...(index === 2 ? [`#dash/${id}`] : [])]) {
+      for (const hash of ['#bots', '#tasks', '#search', '#settings', ...(index === 2 ? [`#dash/${id}`, `#dash/weekly-overview-${id}`] : [])]) {
         await server.open(page, hash);
         if (hash.startsWith('#dash/')) await page.waitForURL(`**/${hash}`);
         assert.equal(await visibleBacks(page), 0, `${hash}: no Back at ${width} ${theme}`);

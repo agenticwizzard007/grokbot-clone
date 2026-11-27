@@ -2,7 +2,7 @@ import { usePhoneTabs, isPhoneRoot, isPhoneTab } from './customization/layout/us
 import { useSidebarDefault } from './customization/layout/useSidebarItems';
 import { useHome } from './customization/layout/useHome';
 import { useKeybindings } from './customization/layout/useKeybindings';
-import { useComponentVisible } from './customization';
+import { useComponentVisible, useEffectiveConfig } from './customization';
 import { openConversation } from './configStore';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { TasksLoader, preloadTasks } from './components/TasksLoader';
@@ -18,7 +18,7 @@ import { installVoiceShortcut } from './voice/shortcut';
 import { ToastPortal } from './lib/toast';
 import { ConfirmPortal } from './lib/confirmDialog';
 import { ChevronLeft, Menu } from 'lucide-react';
-import { backLabel, parentScreen, parseScreen, screenTitle } from './lib/navigation';
+import { backLabel, parentScreen, parseScreen, routeDashboard, screenTitle } from './lib/navigation';
 import { Modal } from './components/modals/Modal';
 import { BotAvatarFor } from './avatar/BotAvatar';
 import { routeBot } from './lib/userRoutes';
@@ -54,6 +54,7 @@ function Shell() {
   useSidebarDefault();
   useKeybindings();
   const phoneTabs = usePhoneTabs();
+  const dashboards = useEffectiveConfig().dashboards;
   const tabLabels = useComponentVisible('phone.tabLabels');
   const taskFilters = useComponentVisible('tasks.filters');
   const detailsOpen = useStore((s) => s.detailsOpen);
@@ -85,7 +86,8 @@ function Shell() {
     }
     navigation.back(parentScreen(screen) ?? { kind: 'bots' });
   };
-  const headerTitle = !mobile && screen.kind === 'settings' ? 'Settings' : screenTitle(screen, bots).replace(/ · Swarm$/, '').replace(/^Settings · /, '');
+  const dashboard = screen.kind === 'dash' ? routeDashboard(screen.dashboard, dashboards) : undefined;
+  const headerTitle = dashboard?.name ?? (!mobile && screen.kind === 'settings' ? 'Settings' : screenTitle(screen, bots).replace(/ · Swarm$/, '').replace(/^Settings · /, ''));
   const headerBot = 'bot' in screen ? routeBot(screen.bot, bots) : undefined;
   const botSubtitle = headerBot ? headerTitle.replace(`${headerBot.name} · `, '') : '';
   useEffect(() => { setDrawerOpen(false); }, [headerTitle, mobile]);
@@ -137,7 +139,7 @@ function Shell() {
       <div className="chat-pane" data-ui-id="tasks.filters" data-ui-visibility={taskFilters}>
       <Suspense fallback={view === 'chat' && !botSettings && !modal ? <ChatSkeleton /> : <main className="chat chat--empty" role="status">Loading...</main>}>
         {rosterUnavailable && view !== 'tasks' ? <main className="boot boot--data"><RosterFeedback /></main>
-          : screen.kind === 'dash' ? <DashboardView dashboardId={screen.dashboard} />
+          : screen.kind === 'dash' ? <DashboardView dashboardId={dashboard?.id ?? screen.dashboard} />
           : screen.kind === 'first-run' ? <FirstRun />
           : modal === 'create' ? <CreateBotModal inline />
           : modal === 'group' ? <CreateGroupModal inline />

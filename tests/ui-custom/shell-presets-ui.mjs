@@ -9,6 +9,21 @@ const { presetPatch } = await tsImport('../../server/src/ui-config/presets.ts', 
 const server = await shellFixture();
 const output = path.resolve('.context/ui-custom/e-presets'); fs.mkdirSync(output, { recursive: true });
 const results = [];
+// UC-H owns the shared audit, whose current floor is fixed at 44px.
+// Keep every geometry check, replace only that floor with section 15's
+// registered density value, and record the legacy mismatches in the report.
+async function densityAlignment(page) {
+  const raw = await page.evaluate(inspectAlignment);
+  const sizing = await page.evaluate(() => {
+    const floor = Math.max(innerWidth <= 760 || matchMedia('(pointer: coarse)').matches ? 44 : 40,
+      parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-h')) || 44);
+    const controls = [...document.querySelectorAll('.shell-content > :not(.shell-header):not(.phone-tabs) :is(button, [role="button"], [data-layout="row"]), .signin button, .access-signin button, .join button')]
+      .filter(el => el.checkVisibility() && el.getBoundingClientRect().width > 0 && !el.closest('.composer'));
+    return { floor, issues: controls.filter(el => el.getBoundingClientRect().height < floor - 1).map(el => `Below density floor ${floor}px: ${el.textContent.trim().slice(0, 60)} (${el.getBoundingClientRect().height})`) };
+  });
+  const legacyFloorMismatches = raw.filter(issue => { const match = issue.match(/^Below 44px \(([\d.]+)\):/); return match && Number(match[1]) >= sizing.floor - 1; });
+  return { issues: [...raw.filter(issue => !legacyFloorMismatches.includes(issue)), ...sizing.issues], legacyFloorMismatches };
+}
 try {
   for (const preset of ['focus', 'calm']) {
     await server.patch(presetPatch(preset));
@@ -17,7 +32,7 @@ try {
       const page = await server.page(width, theme);
       for (const route of ROUTES.filter(route => route.enforce)) {
         const hash = route.hash.replace('{bot}', server.fixture.bot.id).replace('{room}', server.fixture.room);
-        let issues;
+        let issues, legacyFloorMismatches = [];
         try {
           if (route.signedOut) {
             await page.context().clearCookies();
@@ -29,9 +44,9 @@ try {
           if (route.state) await preparePbeState(page, route.state, server.fixture.bot.id);
           await page.locator(route.hash.includes('/details/') ? '.pb-details [data-layout="page"]:visible' : '[data-layout="page"]:visible').first().waitFor();
           await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(100);
-          issues = await page.evaluate(inspectAlignment);
+          ({ issues, legacyFloorMismatches } = await densityAlignment(page));
         } catch (error) { issues = [error.message.split('\n')[0]]; }
-        results.push({ preset, route: route.name, width, theme, issues });
+        results.push({ preset, route: route.name, width, theme, issues, legacyFloorMismatches });
         console.log(`${issues.length ? 'FAIL' : 'PASS'} ${preset} ${route.name} ${width} ${theme}: ${issues.length} issues`);
         if (issues.length) { console.log(issues.join('\n')); await page.screenshot({ path: path.join(output, `${preset}-${route.name.replaceAll('/', '-')}-${width}-${theme}.png`) }); }
       }

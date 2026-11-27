@@ -4,7 +4,7 @@ import type { Screen } from '../../lib/navigation';
 import { useEffectiveConfig } from '../index';
 
 export function dashboardScreen(id: string): Screen {
-  return { kind: 'dash', dashboard: id } as Screen;
+  return { kind: 'dash', dashboard: id };
 }
 
 export function phoneTabsFor(doc: UiConfig) {
@@ -35,7 +35,7 @@ export function isPhoneTab(screen: Screen, tabs: ReturnType<typeof phoneTabsFor>
     if (target.kind !== screen.kind) return false;
     if (screen.kind === 'settings') return !screen.section;
     if (screen.kind === 'work') return !screen.route.botSlug && screen.route.tab === 'Tasks';
-    if (screen.kind === 'dash' && target.kind === 'dash') return screen.dashboard === target.dashboard;
+    if (screen.kind === 'dash' && target.kind === 'dash') return screen.dashboard === target.dashboard || screen.dashboard.endsWith(`-${target.dashboard}`);
     return true;
   });
 }

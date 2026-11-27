@@ -17,7 +17,8 @@ export function useKeybindings() {
       const action = Object.keys(bindings).find(id => bindingMatches(bindings[id], event));
       // Composer owns legacy bubble listeners. Capture prevents a rebound key
       // from also triggering its previous action without editing that component.
-      const legacy = ['Mod+I', 'Mod+Shift+/', 'Mod+Shift+F'].some(binding => bindingMatches(binding, event));
+      const legacy = (event.metaKey || event.ctrlKey) && (event.key.toLowerCase() === 'i'
+        || event.shiftKey && ['Slash', 'KeyF'].includes(event.code));
       if (!action && !legacy) return;
       if (legacy || action) event.stopImmediatePropagation();
       if (!action) return;
