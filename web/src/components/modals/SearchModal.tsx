@@ -10,7 +10,7 @@ import { Modal } from './Modal';
 type Item = { kind: 'bot'; id: string } | { kind: 'message'; hit: ConversationSearchHit };
 
 /** Search Bots by name and every Bot's visible conversation by message text (MF-028, PD-08 option B). */
-export function SearchModal() {
+export function SearchModal({ inline = false }: { inline?: boolean }) {
   const bots = useStore((s) => s.bots);
   const accountId = useStore((s) => s.user?.id);
   const setModal = useStore((s) => s.setModal);
@@ -88,7 +88,7 @@ export function SearchModal() {
   const needle = q.trim();
 
   return (
-    <Modal onClose={close} className="search-modal" label="Search" passThrough=".sidebar">
+    <Modal embedded={inline} onClose={close} className="search-modal" label="Search" passThrough=".sidebar">
       <div className="search-modal__field">
         <span className="search-modal__icon"><Icon name="search" size={18} opacity={0.56} /></span>
         <input

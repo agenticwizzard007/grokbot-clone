@@ -9,7 +9,7 @@ const artifacts = 'tests/artifacts/settings-simplify';
 await mkdir(artifacts, { recursive: true });
 await mkdir('.context/settings-simplify', { recursive: true });
 const sections = ['general', 'account', 'messaging', 'usage', 'learning', 'computer', 'permissions', 'apps', 'mcp', 'subscriptions', 'keys'];
-const labels = ['General', 'Account', 'Messaging', 'Usage', 'Learning', 'Computer', 'Permissions', 'Connected apps', 'MCP servers', 'Models & access', 'API keys'];
+const labels = ['General', 'Account', 'Messaging', 'Usage', 'Learning', 'Computer', 'Permissions', 'Models and access', 'API keys', 'Connected apps', 'MCP servers'];
 const user = { id: 'fixture-owner', name: 'Alex Morgan', email: 'alex@example.test', timezone: 'UTC' };
 const computer = { status: 'running', provider: 'cloudvm', screens: [], orgoId: null, error: null };
 const key = { set: true, source: 'env', hint: '…test' };
@@ -59,8 +59,8 @@ try {
       await last.waitFor({ timeout: 3000 });
       await last.scrollIntoViewIfNeeded();
       if (section === 'general') {
-        await content.getByRole('switch', { name: 'Open Bot details with each chat', exact: true }).waitFor();
-        await content.getByRole('switch', { name: 'Compact sidebar', exact: true }).waitFor();
+        await content.getByRole('switch', { name: 'Show details panel', exact: true }).waitFor();
+        await content.getByRole('button', { name: 'View', exact: true }).click();
         assert.ok(await content.locator('.settings-shortcuts .cfg-row').count() >= 5);
       }
       return content.locator('.cfg-row__title').allTextContents();
@@ -72,20 +72,21 @@ try {
       const nav = page.locator('.settings-nav__item:visible, .settings-strip__item:visible');
       for (const item of await nav.all()) assert.equal(await item.locator('svg.settings-nav__icon[aria-hidden="true"][stroke-width="1.75"]').count(), 1, await item.innerText());
       const rows = page.locator('.app-settings :is(.cfg-row, .settings-field, .cfg-key__form:has(> .cfg-row__text), .learning-grid > label, .learning-fields .native-check, .learning-disclosure > summary, .learning-disclosure--row, .usage-filters > label):visible');
-      for (const row of await rows.all()) assert.equal(await row.locator(':scope > svg.settings-row__icon[aria-hidden="true"][stroke-width="1.75"]').count(), 1, `${width}/${section}: ${await row.innerText()}`);
+      for (const row of await rows.all()) assert.equal(await row.locator(':scope > svg.settings-row__icon[aria-hidden="true"][stroke-width="1.75"], :scope > .cfg-key__icon-space[aria-hidden="true"]').count(), 1, `${width}/${section}: ${await row.innerText()}`);
       report.push({ width, section, nav: await nav.count(), rows: await rows.count() });
     };
     await page.goto(origin);
+    if (width === 390) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
     await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
     await page.getByRole('menuitem', { name: /Settings/ }).click();
     await page.locator('.app-settings').waitFor();
-    await page.getByRole('heading', { name: width === 390 ? 'Settings' : 'General', exact: true }).waitFor();
+    await page.locator(width === 390 ? '.shell-header__title' : '.app-settings__page h1').waitFor();
     await shot('home');
     await check('home');
     for (const section of phase === 'before' ? ['general', 'account', 'apps'] : sections) {
       await page.goto(`${origin}/?section=${section}#settings/${section}`);
       await page.locator('.app-settings__page').waitFor();
-      await page.locator('.app-settings__page h1').waitFor();
+      await page.locator('.app-settings__page h1').first().waitFor({ state: 'attached' });
       // Let the section's fixture requests and React updates settle.
       await page.waitForTimeout(180);
       if (phase === 'after') {
@@ -123,12 +124,12 @@ try {
     if (phase === 'after') {
       await page.goto(`${origin}/#settings/general`);
       if (width > 760) {
-        await page.getByRole('switch', { name: 'Compact sidebar', exact: true }).click();
-        await page.locator('.settings-strip').waitFor();
-        assert.equal(await page.locator('.settings-strip__item').count(), 11);
+        await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
+        await page.locator('.sidebar.is-collapsed').waitFor();
+        assert.equal(await page.locator('.settings-nav__item').count(), 11);
         await check('collapsed-sidebar');
-        await page.getByRole('button', { name: 'Expand sidebar to browse settings' }).click();
-      } else await page.getByRole('button', { name: 'Back to Settings', exact: true }).click();
+        await page.getByRole('button', { name: 'Expand sidebar' }).click();
+      } else await page.getByRole('button', { name: 'Back', exact: true }).click();
       const nav = page.getByRole('navigation', { name: 'Settings sections', exact: true });
       assert.deepEqual(await nav.locator('.settings-nav__item').allTextContents(), labels);
       assert.deepEqual(await nav.locator('.settings-nav__label').allTextContents(), ['Workspace', 'Connections']);
@@ -139,10 +140,10 @@ try {
       await page.keyboard.press('Escape');
       await page.locator('.app-settings').waitFor({ state: 'detached' });
       await page.keyboard.press('Control+,');
-      await page.getByRole('heading', { name: width === 390 ? 'Settings' : 'General', exact: true }).waitFor();
+      await page.locator(width === 390 ? '.shell-header__title' : '.app-settings__page h1').waitFor();
       await check('keyboard-open');
       if (width === 1280) {
-        await page.getByRole('button', { name: 'Back to chat', exact: true }).click();
+        await page.locator('.shell-back').click();
         // The trigger must toggle the menu closed without the outside handler reopening it.
         const trigger = page.getByRole('button', { name: 'Account & settings', exact: true });
         await trigger.click();
@@ -154,7 +155,7 @@ try {
           await page.getByRole('menu').waitFor({ state: 'detached', timeout: 2000 });
           await fullSection('general');
           assert.equal(await page.locator('.settings-nav__item').count(), 11);
-          await page.getByRole('button', { name: 'Back to chat', exact: true }).click({ timeout: 2000 });
+          await page.locator('.shell-back').click({ timeout: 2000 });
           await page.locator('.app-settings').waitFor({ state: 'detached', timeout: 2000 });
         }
       }

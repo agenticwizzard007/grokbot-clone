@@ -1,0 +1,347 @@
+{
+  "baseRevision": "b73ab708b65416964759c982ddd02aba839e3394",
+  "before": [
+    {
+      "screen": "Chat",
+      "width": 1280,
+      "words": 31
+    },
+    {
+      "screen": "Sidebar",
+      "width": 1280,
+      "words": 28
+    },
+    {
+      "screen": "Account menu",
+      "width": 1280,
+      "words": 11
+    },
+    {
+      "screen": "Bots",
+      "width": 1280,
+      "words": 29
+    },
+    {
+      "screen": "Tasks",
+      "width": 1280,
+      "words": 55
+    },
+    {
+      "screen": "Search",
+      "width": 1280,
+      "words": 61
+    },
+    {
+      "screen": "Settings home",
+      "width": 1280,
+      "words": 127
+    },
+    {
+      "screen": "Settings general",
+      "width": 1280,
+      "words": 133
+    },
+    {
+      "screen": "Settings account",
+      "width": 1280,
+      "words": 123
+    },
+    {
+      "screen": "Settings messaging",
+      "width": 1280,
+      "words": 95
+    },
+    {
+      "screen": "Settings usage",
+      "width": 1280,
+      "words": 175
+    },
+    {
+      "screen": "Settings learning",
+      "width": 1280,
+      "words": 42
+    },
+    {
+      "screen": "Settings computer",
+      "width": 1280,
+      "words": 217
+    },
+    {
+      "screen": "Settings permissions",
+      "width": 1280,
+      "words": 139
+    },
+    {
+      "screen": "Settings subscriptions",
+      "width": 1280,
+      "words": 493
+    },
+    {
+      "screen": "Settings keys",
+      "width": 1280,
+      "words": 444
+    },
+    {
+      "screen": "Settings apps",
+      "width": 1280,
+      "words": 99
+    },
+    {
+      "screen": "Settings mcp",
+      "width": 1280,
+      "words": 50
+    },
+    {
+      "screen": "Chat",
+      "width": 390,
+      "words": 28
+    },
+    {
+      "screen": "Bots",
+      "width": 390,
+      "words": 0
+    },
+    {
+      "screen": "Tasks",
+      "width": 390,
+      "words": 56
+    },
+    {
+      "screen": "Search",
+      "width": 390,
+      "words": 62
+    },
+    {
+      "screen": "Settings home",
+      "width": 390,
+      "words": 24
+    },
+    {
+      "screen": "Settings general",
+      "width": 390,
+      "words": 108
+    },
+    {
+      "screen": "Settings account",
+      "width": 390,
+      "words": 98
+    },
+    {
+      "screen": "Settings messaging",
+      "width": 390,
+      "words": 70
+    },
+    {
+      "screen": "Settings usage",
+      "width": 390,
+      "words": 153
+    },
+    {
+      "screen": "Settings learning",
+      "width": 390,
+      "words": 17
+    },
+    {
+      "screen": "Settings computer",
+      "width": 390,
+      "words": 192
+    },
+    {
+      "screen": "Settings permissions",
+      "width": 390,
+      "words": 114
+    },
+    {
+      "screen": "Settings subscriptions",
+      "width": 390,
+      "words": 468
+    },
+    {
+      "screen": "Settings keys",
+      "width": 390,
+      "words": 419
+    },
+    {
+      "screen": "Settings apps",
+      "width": 390,
+      "words": 74
+    },
+    {
+      "screen": "Settings mcp",
+      "width": 390,
+      "words": 25
+    }
+  ],
+  "after": [
+    {
+      "screen": "Chat",
+      "width": 1280,
+      "words": 30
+    },
+    {
+      "screen": "Sidebar",
+      "width": 1280,
+      "words": 30
+    },
+    {
+      "screen": "Account menu",
+      "width": 1280,
+      "words": 10
+    },
+    {
+      "screen": "Bots",
+      "width": 1280,
+      "words": 33
+    },
+    {
+      "screen": "Tasks",
+      "width": 1280,
+      "words": 59
+    },
+    {
+      "screen": "Search",
+      "width": 1280,
+      "words": 10
+    },
+    {
+      "screen": "Settings home",
+      "width": 1280,
+      "words": 38
+    },
+    {
+      "screen": "Settings general",
+      "width": 1280,
+      "words": 38
+    },
+    {
+      "screen": "Settings account",
+      "width": 1280,
+      "words": 119
+    },
+    {
+      "screen": "Settings messaging",
+      "width": 1280,
+      "words": 91
+    },
+    {
+      "screen": "Settings usage",
+      "width": 1280,
+      "words": 171
+    },
+    {
+      "screen": "Settings learning",
+      "width": 1280,
+      "words": 38
+    },
+    {
+      "screen": "Settings computer",
+      "width": 1280,
+      "words": 213
+    },
+    {
+      "screen": "Settings permissions",
+      "width": 1280,
+      "words": 135
+    },
+    {
+      "screen": "Settings subscriptions",
+      "width": 1280,
+      "words": 487
+    },
+    {
+      "screen": "Settings keys",
+      "width": 1280,
+      "words": 439
+    },
+    {
+      "screen": "Settings apps",
+      "width": 1280,
+      "words": 94
+    },
+    {
+      "screen": "Settings mcp",
+      "width": 1280,
+      "words": 45
+    },
+    {
+      "screen": "Chat",
+      "width": 390,
+      "words": 25
+    },
+    {
+      "screen": "Bots",
+      "width": 390,
+      "words": 31
+    },
+    {
+      "screen": "Tasks",
+      "width": 390,
+      "words": 57
+    },
+    {
+      "screen": "Search",
+      "width": 390,
+      "words": 8
+    },
+    {
+      "screen": "Settings home",
+      "width": 390,
+      "words": 22
+    },
+    {
+      "screen": "Settings general",
+      "width": 390,
+      "words": 17
+    },
+    {
+      "screen": "Settings account",
+      "width": 390,
+      "words": 99
+    },
+    {
+      "screen": "Settings messaging",
+      "width": 390,
+      "words": 71
+    },
+    {
+      "screen": "Settings usage",
+      "width": 390,
+      "words": 154
+    },
+    {
+      "screen": "Settings learning",
+      "width": 390,
+      "words": 18
+    },
+    {
+      "screen": "Settings computer",
+      "width": 390,
+      "words": 193
+    },
+    {
+      "screen": "Settings permissions",
+      "width": 390,
+      "words": 115
+    },
+    {
+      "screen": "Settings subscriptions",
+      "width": 390,
+      "words": 469
+    },
+    {
+      "screen": "Settings keys",
+      "width": 390,
+      "words": 420
+    },
+    {
+      "screen": "Settings apps",
+      "width": 390,
+      "words": 75
+    },
+    {
+      "screen": "Settings mcp",
+      "width": 390,
+      "words": 26
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 import { RosterFeedback } from './LoadFeedback';
 import { userFacingLive } from '../lib/audience';
 import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { Blocks, ChevronDown, Gauge, KeyRound, LogOut, Monitor, Settings } from 'lucide-react';
-import { openConversation, useConfigUI } from '../configStore';
+import { Blocks, Folder, Gauge, House, LogOut, Settings, Terminal, X } from 'lucide-react';
+import { navigation, openConversation, useConfigUI } from '../configStore';
 import { TasksIsland } from './config/TasksIsland';
 import type { Bot } from '@shared/types';
 import { BotAvatarFor } from '../avatar/BotAvatar';
@@ -17,7 +17,7 @@ import './sidebar-labels.css';
 
 /** MF-027: a Bot is highlighted only while its chat is the visible page. */
 export function sidebarHighlightsBot(ui: { view: string; appSettings: unknown; botSettings: unknown }, modal: string | null): boolean {
-  return ui.view === 'chat' && !ui.appSettings && !ui.botSettings && modal !== 'create' && modal !== 'group';
+  return ui.view === 'chat' && !ui.appSettings && !ui.botSettings && modal === null;
 }
 
 function initials(name: string) {
@@ -37,9 +37,9 @@ export function TrafficLights() {
 }
 
 function previewFor(bot: Bot, running: boolean, awaiting: string | null) {
-  if (awaiting) return `Waiting for you: ${awaiting}`;
-  if (running && !bot.lastPreview) return 'Working…';
-  return bot.lastPreview ?? 'No messages yet';
+  if (awaiting) return 'Needs you';
+  if (running) return 'Working';
+  return bot.kind === 'room' ? 'Room' : 'Ready';
 }
 
 const BotRow = memo(function BotRow({ bot, selected, running, awaiting, onSelect }: { bot: Bot; selected: boolean; running: boolean; awaiting: string | null; onSelect: (id: string) => void }) {
@@ -53,14 +53,17 @@ const BotRow = memo(function BotRow({ bot, selected, running, awaiting, onSelect
       </span>
       <span className="bot-row__text">
         <span className="bot-row__name">{bot.name}</span>
-        <span className="bot-row__preview">{previewFor(bot, running, awaiting)}</span>
+        <span className="bot-row__preview sidebar-status">{previewFor(bot, running, awaiting)}</span>
       </span>
     </button>
   );
 });
 
-export function Sidebar() {
+export function Sidebar({ onClose }: { onClose?: () => void }) {
   const mobile = useStore(s => s.mobile);
+  const view = useConfigUI(s => s.view);
+  const settingsOpen = useConfigUI(s => !!s.appSettings);
+  const workTab = useConfigUI(s => s.workRoute.tab);
   const bots = useStore((s) => s.bots);
   const live = useStore((s) => s.live);
   const storeSelectedBotId = useStore((s) => s.selectedBotId);
@@ -68,12 +71,13 @@ export function Sidebar() {
   const chatVisible = useConfigUI((s) => sidebarHighlightsBot(s, modal));
   const selectedBotId = chatVisible ? storeSelectedBotId : null; // nothing highlighted on Tasks, Settings, Bot settings or create pages
   const user = useStore((s) => s.user);
-  // Phones show the full list as the home screen, never the collapsed rail.
+  // The phone drawer always shows the full sidebar.
   const collapsed = useStore((s) => s.sidebarCollapsed && !s.mobile);
   const set = useStore((s) => s.set);
   // Picking a bot (even the one already selected) leaves the Tasks view.
-  const selectBot = useCallback(openConversation, []);
-  const setModal = useStore((s) => s.setModal);
+  const selectBot = useCallback((id: string) => { openConversation(id); onClose?.(); }, [onClose]);
+  const storeModal = useStore((s) => s.setModal);
+  const setModal = (value: Parameters<typeof storeModal>[0]) => { storeModal(value); onClose?.(); };
   const [accountMenu, setAccountMenu] = useState(false);
   const accountTrigger = useRef<HTMLButtonElement>(null);
   const accountRef = useRef<HTMLDivElement>(null);
@@ -110,7 +114,7 @@ export function Sidebar() {
   }, [accountMenu, collapsed]);
   // R2F-004: leaving Bot settings with unsaved edits asks first.
   const createBot = () => setModal('create');
-  const showBots = () => useConfigUI.getState().setView('bots');
+  const showBots = () => { useConfigUI.getState().setView('bots'); onClose?.(); };
   const logout = async () => {
     try { await api.logout(); }
     catch { toast('Couldn\'t sign out. Check your connection and try again.', { tone: 'error' }); return; }
@@ -125,7 +129,7 @@ export function Sidebar() {
 
   return (
     <aside className={`sidebar${collapsed ? ' is-collapsed' : ''}`} aria-label="Your Bots">
-      <div id="sidebar-back-slot" />
+
       <div className="sidebar__titlebar">
         <button type="button" className="sidebar__brand" aria-label="Your Bots" onClick={showBots}>
           {collapsed ? <>
@@ -137,9 +141,9 @@ export function Sidebar() {
           </>}
         </button>
         <div className="sidebar__controls">
-          <button type="button" className="icon-btn icon-btn--plain" onClick={() => set({ sidebarCollapsed: !collapsed })} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={`${collapsed ? 'Expand sidebar' : 'Collapse sidebar'} (${shortcutLabel('sidebar')})`}>
+          {mobile ? <button type="button" className="icon-btn" aria-label="Close navigation" onClick={onClose}><X size={20} aria-hidden /></button> : <button type="button" className="icon-btn icon-btn--plain" onClick={() => set({ sidebarCollapsed: !collapsed })} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={`${collapsed ? 'Expand sidebar' : 'Collapse sidebar'} (${shortcutLabel('sidebar')})`}>
             <Icon name="sidebar" opacity={0.66} />
-          </button>
+          </button>}
         </div>
       </div>
       <button type="button" className="sidebar__search" onClick={() => setModal('search')} aria-label="Search" title={`Search (${shortcutLabel('search')})`}>
@@ -147,18 +151,22 @@ export function Sidebar() {
         {!collapsed && <><span>Search</span><kbd>{shortcutLabel('search')}</kbd></>}
       </button>
 
+      <nav className="sidebar__nav" aria-label="Main navigation" onClick={onClose}>
+        {!collapsed && <button type="button" className={`sidebar-island${view === 'bots' && !settingsOpen && !modal ? ' is-active' : ''}`} onClick={showBots} aria-label="All Bots"><House size={18} aria-hidden /><span>All Bots</span></button>}
+        <TasksIsland />
+        {!collapsed && <button type="button" className={`sidebar-island${view === 'tasks' && workTab === 'Reports' && !settingsOpen && !modal ? ' is-active' : ''}`} onClick={() => navigation.navigate({ kind: 'work', route: { tab: 'Reports' } })}><Folder size={18} aria-hidden /><span>Files</span></button>}
+      </nav>
       <div className="sidebar__scroll">
         {mobile && <RosterFeedback />}
-        <TasksIsland />
         {!collapsed && bots.length > 0 && <button type="button" className="sidebar__section-label" onClick={showBots}>Your Bots</button>}
         {primary && (
           <div className="pinned">
             <button type="button" className={`pinned__tile${selectedBotId === primary.id ? ' is-selected' : ''}`} onClick={() => selectBot(primary.id)} aria-label={displayName(primary)} title={displayName(primary)}>
               <span className="pinned__avatar">
-                <BotAvatarFor bot={primary} size={40} star working={primaryWorking} />
+                <BotAvatarFor bot={primary} size={36} star working={primaryWorking} />
                 {primaryWorking && <span className="status-dot is-working pinned__dot" />}
               </span>
-              {!collapsed && <span className="pinned__text"><span className="pinned__label"><span className="pinned__name">{primary.name}</span><span className="pinned__tag">Primary</span></span><span className="bot-row__preview">{primaryLive?.awaiting?.reason ?? (primaryWorking ? 'Working…' : primary.label || primary.lastPreview || 'No messages yet')}</span></span>}
+              {!collapsed && <span className="pinned__text"><span className="pinned__label"><span className="pinned__name">{primary.name}</span><span className="pinned__tag">Primary</span></span><span className="bot-row__preview sidebar-status">{previewFor(primary, primaryWorking, primaryLive?.awaiting?.reason ?? null)}</span></span>}
             </button>
           </div>
         )}
@@ -179,15 +187,15 @@ export function Sidebar() {
           <Icon name="plus" size={20} opacity={0.66} />{!collapsed && <span>Create a Bot</span>}
         </button>
       </div>
-      <div id="app-settings-sidebar-slot" />
+
       <SidebarUsage collapsed={collapsed} />
 
-      <div className="sidebar__footer">
+      <div className={`sidebar__footer${settingsOpen ? ' is-active' : ''}`}>
         <div className="account" ref={accountRef}>
             <button ref={accountTrigger} type="button" className="account__btn" aria-label="Account & settings" onClick={() => setAccountMenu(open => !open)} aria-haspopup="menu" aria-expanded={accountMenu} title={user?.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user?.email}>
               <span className="account__initials">{initials(user?.name ?? user?.email ?? '')}</span>
-              <span className="account__name">Account &amp; settings</span>
-              {!collapsed && <ChevronDown size={14} aria-hidden />}
+              <span className="account__name">Settings</span>
+              {!collapsed && <Settings size={18} aria-hidden />}
             </button>
             {accountMenu && (
               <Menu
@@ -195,21 +203,16 @@ export function Sidebar() {
                 placement="above"
                 onClose={() => setAccountMenu(false)}
                 items={[
-                  { label: 'Settings', icon: Settings, hint: shortcutLabel('settings'), onSelect: () => useConfigUI.getState().openAppSettings() },
-                  { label: 'Usage', icon: Gauge, onSelect: () => useConfigUI.getState().openAppSettings('usage') },
-                  { label: 'API keys', icon: KeyRound, onSelect: () => useConfigUI.getState().openAppSettings('keys') },
-                  { label: 'Computer', icon: Monitor, onSelect: () => useConfigUI.getState().openAppSettings('computer') },
+                  { label: 'Settings', icon: Settings, hint: shortcutLabel('settings'), onSelect: () => { useConfigUI.getState().openAppSettings(); onClose?.(); } },
+                  { label: 'Usage', icon: Gauge, onSelect: () => { useConfigUI.getState().openAppSettings('usage'); onClose?.(); } },
+                  { label: 'Models and access', icon: Terminal, onSelect: () => { useConfigUI.getState().openAppSettings('subscriptions'); onClose?.(); } },
                   { label: 'Connect apps', icon: Blocks, separatorBefore: true, onSelect: () => setModal('apps') },
                   { label: 'Log out', icon: LogOut, danger: true, separatorBefore: true, onSelect: logout },
                 ]}
-              >
-                <div className="menu__header">{user?.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user?.email}</div>
-              </Menu>
+              />
             )}
           </div>
-        <button type="button" className="icon-btn icon-btn--bordered" onClick={() => setModal('apps')} aria-label="Connect apps" title="Connect apps">
-          <Icon name="apps" />
-        </button>
+
       </div>
     </aside>
   );

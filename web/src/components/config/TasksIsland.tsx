@@ -1,3 +1,4 @@
+import { useStore } from '../../store';
 import { navigation, useConfigUI } from '../../configStore';
 import { Glyph } from './glyphs';
 import { useNeedsYou, useTasks } from './taskData';
@@ -8,7 +9,9 @@ import { TaskCount } from './TaskCount';
 export function TasksIsland() {
   const view = useConfigUI((s) => s.view);
   const settingsOpen = useConfigUI((s) => s.appSettings !== null);
-  const active = view === 'tasks' && !settingsOpen;
+  const tab = useConfigUI(s => s.workRoute.tab);
+  const modal = useStore(s => s.modal);
+  const active = view === 'tasks' && tab !== 'Reports' && !settingsOpen && !modal;
   const { tasks, error } = useTasks();
   const attention = useNeedsYou();
   const waiting = (tasks?.filter((t) => t.state === 'needs_input').length ?? 0) + (attention.items?.length ?? 0);

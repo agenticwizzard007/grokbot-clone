@@ -1,0 +1,758 @@
+[
+  {
+    "route": "#bots",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 1
+  },
+  {
+    "route": "#bot/coordinator",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/project-room",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/details",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/details/activity",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/details/tasks",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/details/files",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/details/files/reports",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/details/setup",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/details/setup/responsibilities",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/details/setup/harness",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/details/setup/files",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/details/setup/history",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/settings",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/settings/general",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/settings/skills",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/settings/memories",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/settings/routines",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/settings/learning",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#bot/coordinator/settings/analytics",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#settings",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/general",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/keys",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/usage",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/computer",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/messaging",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/permissions",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/apps",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/mcp",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/account",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/subscriptions",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/learning",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#general",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#keys",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#usage",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#computer",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#messaging",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#permissions",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#apps",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#mcp",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#account",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#subscriptions",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#learning",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#api-keys",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#whatsapp",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/api-keys",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/whatsapp",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/unknown",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#tasks",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/tasks",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#team",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/team",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#goals",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/goals",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#reports",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/reports",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#search",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#new-bot",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#new-bot/group",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 3
+  },
+  {
+    "route": "#apps/connect",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#unknown",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 1
+  },
+  {
+    "route": "#bot/missing",
+    "width": 390,
+    "back": "pass",
+    "homeTaps": 1
+  },
+  {
+    "route": "#bots",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 1
+  },
+  {
+    "route": "#bot/coordinator",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/project-room",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/details",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/details/activity",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/details/tasks",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/details/files",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/details/files/reports",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/details/setup",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/details/setup/responsibilities",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/details/setup/harness",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/details/setup/files",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/details/setup/history",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/settings",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/settings/general",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/settings/skills",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/settings/memories",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/settings/routines",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/settings/learning",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/settings/analytics",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/general",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/keys",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/usage",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/computer",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/messaging",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/permissions",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/apps",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/mcp",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/account",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/subscriptions",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/learning",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#general",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#keys",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#usage",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#computer",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#messaging",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#permissions",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#apps",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#mcp",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#account",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#subscriptions",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#learning",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#api-keys",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#whatsapp",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/api-keys",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/whatsapp",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#settings/unknown",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#tasks",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/tasks",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#team",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/team",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#goals",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/goals",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#reports",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/coordinator/reports",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#search",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#new-bot",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#new-bot/group",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#apps/connect",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#unknown",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 2
+  },
+  {
+    "route": "#bot/missing",
+    "width": 1280,
+    "back": "pass",
+    "homeTaps": 1
+  }
+]

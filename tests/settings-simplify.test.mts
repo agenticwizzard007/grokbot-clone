@@ -4,21 +4,21 @@ import React, { createElement } from 'react';
 // Node's tsx runner uses classic JSX without the web project's tsconfig.
 Object.assign(globalThis, { React });
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Blocks, CircleUserRound, Gauge, KeyRound, MessageCircle, Monitor, Server, Settings, ShieldCheck, Terminal } from 'lucide-react';
+import { Brain, Blocks, CircleUserRound, Gauge, KeyRound, MessageCircle, Monitor, Server, Settings, ShieldCheck, Terminal } from 'lucide-react';
 import { NAV, matches, SettingsNavButton } from '../web/src/components/config/settingsNavigation.tsx';
 import { SettingRow } from '../web/src/components/config/SettingRow.tsx';
 import { AccessRow } from '../web/src/components/config/AccessRow.tsx';
 
 const items = NAV.flatMap(group => group.items);
-const expected = { general: Settings, account: CircleUserRound, messaging: MessageCircle, usage: Gauge, learning: Blocks, computer: Monitor, permissions: ShieldCheck, apps: Blocks, mcp: Server, subscriptions: Terminal, keys: KeyRound };
-test('all eleven stable section IDs retain the historical Lucide icon map', () => {
+const expected = { general: Settings, account: CircleUserRound, messaging: MessageCircle, usage: Gauge, learning: Brain, computer: Monitor, permissions: ShieldCheck, subscriptions: Terminal, keys: KeyRound, apps: Blocks, mcp: Server };
+test('all eleven section IDs follow Paper navigation with distinct Learning and apps icons', () => {
   assert.deepEqual(items.map(item => item.id), Object.keys(expected));
   for (const item of items) assert.equal(item.icon, expected[item.id], item.id);
 });
 test('two plain groups keep each existing section reachable exactly once', () => {
   assert.deepEqual(NAV.map(group => [group.group, group.items.map(item => item.id)]), [
     ['Workspace', ['general', 'account', 'messaging', 'usage', 'learning', 'computer', 'permissions']],
-    ['Connections', ['apps', 'mcp', 'subscriptions', 'keys']],
+    ['Connections', ['subscriptions', 'keys', 'apps', 'mcp']],
   ]);
   assert.equal(new Set(items.map(item => item.id)).size, 11);
   for (const [query, id] of [['sessions', 'account'], ['memory', 'learning'], ['model provider', 'keys'], ['mcp token', 'mcp']]) {
