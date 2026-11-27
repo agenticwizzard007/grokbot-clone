@@ -1,11 +1,10 @@
-import { register } from 'node:module';
+import { tsImport } from 'tsx/esm/api';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-register('tsx/esm', import.meta.url);
-const { buildPacket, PACKET_LIMIT, createLoopState, nextAction, layoutFlow, layoutRunGraph } = await import('../../server/src/handoffs/index.ts');
-const { packetCases } = await import('./unit/packet-cases.mts');
-const { loopSpec, flow, verdict } = await import('./unit/fixtures.mts');
+const { buildPacket, PACKET_LIMIT, createLoopState, nextAction, layoutFlow, layoutRunGraph } = await tsImport('../../server/src/handoffs/index.ts', import.meta.url);
+const { packetCases } = await tsImport('./unit/packet-cases.mts', import.meta.url);
+const { loopSpec, flow, verdict } = await tsImport('./unit/fixtures.mts', import.meta.url);
 const destination = path.resolve('.context/handoffs/demo-a');
 mkdirSync(destination, { recursive: true });
 const lines = [];
