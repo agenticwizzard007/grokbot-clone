@@ -43,6 +43,20 @@ import { onSessionRevoked } from './security/session-lifecycle.js';
 import { isTenant } from './deployment.js';
 import { appSuggestionsApi } from './routes-app-suggestions.js';
 import { uiApi } from './ui/index.js';
+import { handoffsApi } from './routes-handoffs.js';
+import { flowApi } from './flow/routes.js';
+import { configureFlowRefresh } from './flow/summary.js';
+import { recordFlowConnections } from './flow/cache.js';
+import { enqueueSystemRequest } from './coordination/requests.js';
+
+configureFlowRefresh(enqueueSystemRequest);
+
+// Only public app facts enter the display cache. Account identities and credentials never do.
+function snapshotFlowConnections(userId: string, accounts: Awaited<ReturnType<typeof connectionsDetail>>, names: { slug: string; name: string }[] = []) {
+  const snapshot = connectionSummary(accounts);
+  const ids = [...new Set(snapshot.connections.map(account => account.toolkit))];
+  recordFlowConnections(userId, ids.map(id => ({ id, name: names.find(app => app.slug === id)?.name ?? id, attention: !snapshot.connected.includes(id) })));
+}
 
 export const api = new Hono<AuthVars>();
 api.route('/ui', uiApi);
@@ -115,6 +129,39 @@ api.use('/bots', apiBodyLimit);
 api.use('/bots/*', apiBodyLimit);
 api.use('/approvals/*', apiBodyLimit);
 api.route('/', appSuggestionsApi);
+
+// The standalone service routers return records. Add the UI envelopes here while
+// retaining the record fields for existing API clients and the service tests.
+for (const path of ['/outputs/*', '/handoffs', '/handoffs/*', '/handoff-settings', '/loops', '/loops/*']) {
+  api.use(path, async (c, next) => {
+    await next();
+    if (!c.res.ok || !c.res.headers.get('Content-Type')?.includes('application/json')) return;
+    const value = await c.res.clone().json();
+    const route = c.req.path.replace(/^\/api/, '');
+    let extra: Record<string, unknown> | undefined;
+    if (/^\/outputs\/(?:by-job\/[^/]+|[^/]+)$/.test(route)) extra = { output: value };
+    else if (route === '/handoff-settings') extra = { settings: value };
+    else if (route.startsWith('/handoffs') && value.id) {
+      const { events, sourceOutput, resultOutput, ...handoff } = value;
+      extra = { handoff };
+    } else if (route.startsWith('/loops') && value.id) {
+      const { steps, verdicts, iterations, bestOutput, events, resultText, usage, gate, ...loop } = value;
+      extra = { loop };
+      if (steps) {
+        extra.gate = gate?.kind ? { ...gate, kind: gate.kind === 'each' ? 'iteration' : gate.kind, iteration: value.iteration, expiresAt: gate.requestedAt + 86400_000 } : undefined;
+        extra.canExtend = !gate?.extended && value.spec.limits.maxIterations <= 8 && (value.stopReason === 'max_iterations' || gate?.kind === 'cap');
+      }
+    } else if (/^\/loops\/[^/]+\/events$/.test(route)) {
+      extra = { next: value.events.length < Number(c.req.query('limit') ?? 200) ? null : value.next };
+    }
+    if (extra) {
+      const headers = new Headers(c.res.headers); headers.delete('Content-Length');
+      c.res = new Response(JSON.stringify({ ...value, ...extra }), { status: c.res.status, headers });
+    }
+  });
+}
+api.route('/', handoffsApi);
+api.route('/', flowApi);
 
 // ---------- events (SSE) ----------
 
@@ -691,6 +738,7 @@ api.get('/apps', async (c) => {
   const search = (c.req.query('search') ?? '').toLowerCase();
   const category = c.req.query('category') ?? '';
   const [all, rawAccounts] = await Promise.all([catalog(), connectionsDetail(user.id, { details: true })]);
+  snapshotFlowConnections(user.id, rawAccounts, all);
   const snapshot = connectionSummary(rawAccounts);
   const accounts = snapshot.connections;
   const connected = new Set(snapshot.connected);
@@ -713,6 +761,7 @@ api.get('/apps/connections', async c => {
   const userId = c.get('user').id;
   const pending = pendingConnectionCards(userId);
   const connections = await connectionsDetail(userId, { details: true });
+  snapshotFlowConnections(userId, connections);
   reconcileConnectionCards(userId, pending, connections);
   return c.json(connectionSummary(connections));
 });
@@ -778,7 +827,7 @@ api.get('/apps/callback', async (c) => {
     const connected = await connectedToolkits(userId).catch(() => new Set<string>());
     if (connected.has(slug)) {
       ok = !botId && !seq;
-      if (ok) await connectionsDetail(userId, { details: true }).catch(() => []);
+      if (ok) await connectionsDetail(userId, { details: true }).then(accounts => snapshotFlowConnections(userId, accounts)).catch(() => {});
       hub.emit(userId, { type: 'connections' });
       if (botId && ownBot(userId, botId)) {
         const bot = ownBot(userId, botId);
@@ -789,6 +838,7 @@ api.get('/apps/callback', async (c) => {
               ['pending', 'connected'].includes(row.body.status)) {
             const connectedAccountId = row.body.connectedAccountId;
             const accounts = await connectionsDetail(userId, { details: true }).catch(() => []);
+            snapshotFlowConnections(userId, accounts);
             // The user's other ACTIVE account must not confirm this sign-in attempt.
             const verified = accounts.find(a => a.id === connectedAccountId && a.toolkit === slug && a.status === 'ACTIVE' && !a.isDisabled);
             const currentBot = ownBot(userId, botId);

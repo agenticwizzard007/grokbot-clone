@@ -45,6 +45,15 @@ import { safeToolName } from '../cli/diagnostics.js';
 import { visibleConnections } from '../connection-details.js';
 import { UI_TOOLS, UI_TOOL_NAMES } from './ui-tools.js';
 import { appearanceSkillResult, uiToolsOffered } from './ui-runtime.js';
+import { HANDOFF_TOOLS, configureHandoffTools } from './handoff-tools.js';
+import { FLOW_TOOLS, configureFlowTools } from './flow-tools.js';
+import { handoffService } from '../handoffs/handoff-service.js';
+import { enabled as handoffsEnabled } from '../handoffs/db.js';
+import { flowStore } from '../flow/summary.js';
+
+configureHandoffTools(handoffService);
+configureFlowTools(flowStore, handoffService);
+const handoffToolNames = new Set([...HANDOFF_TOOLS, ...FLOW_TOOLS].map(tool => tool.name));
 
 export interface ToolCtx {
   userId: string;
@@ -127,6 +136,8 @@ export const TOOLS: ToolDef[] = [
   ...WORKFLOW_TOOLS,
   ...DELIVERABLE_TOOLS,
   ...UI_TOOLS,
+  ...HANDOFF_TOOLS,
+  ...FLOW_TOOLS,
   {
     name: 'get_platform_state',
     description: 'Read authoritative Swarm configuration: this agent’s text model and provider, separate voice model, subscription CLI connection, recorded usage and optionally the model catalog or fresh connected-service status (include_connections). Use this for questions about this app; never browse Swarm or ask for a browser login to inspect its own configuration. Unknown subscription tiers or remaining provider allowance must not be guessed.',
@@ -713,7 +724,8 @@ export function functionSchemas(botId?: string, ctx?: Pick<ToolCtx, 'userId' | '
   const bot = botId ? getBotRow(botId) : null;
   const canCreate = !!bot?.is_primary && !bot.hidden && bot.kind !== 'room';
   const uiAvailable = !!botId && uiToolsOffered({ botId, ...ctx });
-  return TOOLS.filter((t) => (!UI_TOOL_NAMES.has(t.name) || uiAvailable) && (!botId || allowedDuringSetup(botId, t.name)) && (t.name !== 'save_agent_setup' || !!botId && isConfiguring(botId)))
+  const handoffsAvailable = !!bot && bot.kind !== 'room' && (!ctx?.userId || ctx.userId === bot.user_id) && handoffsEnabled(bot.user_id);
+  return TOOLS.filter(t => !handoffToolNames.has(t.name) || handoffsAvailable).filter((t) => (!UI_TOOL_NAMES.has(t.name) || uiAvailable) && (!botId || allowedDuringSetup(botId, t.name)) && (t.name !== 'save_agent_setup' || !!botId && isConfiguring(botId)))
     .filter((t) => (!['create_bot', 'replicate_bot', 'retry_bot_setup', 'update_profile', 'inspect_teammate_setup', 'prepare_teammate_setup', 'get_team_state', 'get_team_records', 'read_team_source', 'read_team_job'].includes(t.name) || canCreate)).filter((t) => t.name !== 'shell' || computers.capabilities.shell).filter((t) => !t.name.startsWith('browser_') || computers.capabilities.browser).map((t) => ({
     type: 'function',
     name: t.name,
