@@ -24,4 +24,59 @@ Artifacts: `/workspace/swarm-qa/handoffs/shots/polish/{before,after}.json` and `
 
 The pin in `tests/ui-custom/unit/client-defaults-baseline.json` records the reviewed final geometry, including FIX-1. The inventory covers each combination of 390/1280 and light/dark for Activity (the default Flow view), Setup, and Setup Responsibilities, Harness, Files and History. These changes follow from the Flow node typography/padding and compact Flow row typography/trailing alignment. The pin still compares every token and measured node exactly; it does not suppress differences.
 
-The full measured inventory, validation counts, copy counts and any baseline failures are recorded below after local verification.
+The pin inventory and local verification results follow below.
+
+## Measured copy
+
+Main region words, excluding sidebar and phone tabs. Sheets count the dialog; the sidebar entry counts its menu. Counts include synthetic work content. The receipt and output-card views share a chat. Their new fixture contains a real content preview; work content is retained.
+
+| Screen | 390 before / after | 1280 before / after |
+| --- | --- | --- |
+| receipt | 119 / 124 | 127 / 132 |
+| output-card | 119 / 124 | 127 / 132 |
+| send-sheet | 23 / 20 | 23 / 20 |
+| handoff-detail | 69 / 64 | 71 / 66 |
+| output-viewer | 40 / 38 | 42 / 40 |
+| handoff-list | 177 / 177 | 177 / 177 |
+| loops-list | 42 / 42 | 44 / 44 |
+| loop-timeline | 173 / 173 | 175 / 175 |
+| loop-graph | 112 / 112 | 114 / 114 |
+| loop-sheet | 83 / 83 | 83 / 83 |
+| gate-card | 97 / 97 | 99 / 99 |
+| flow-tab | 123 / 120 | 121 / 120 |
+| flow-compact | 47 / 47 | 50 / 50 |
+| link-sheet | 31 / 31 | 30 / 30 |
+| sidebar-loops | 11 / 11 | 11 / 11 |
+
+## Local verification
+
+All commands use placeholder data, temporary databases and the seeded offline provider. The browser fixtures block external requests. No provider calls, machine resizing, dependencies or Settings edits were introduced.
+
+| Command or suite | Pass count | Evidence |
+| --- | --- | --- |
+| `npm run typecheck` | 2 / 2 workspaces | `.context/ho-p/typecheck-verified.log` |
+| All handoff/Flow unit tests, Composio, readiness KK, coordination and agent suites | 640 / 640; main 637 / 637 | `.context/ho-p/unit-final.log`, `baseline/unit.log` |
+| Handoff behavior and Keep improving | 41 / 41 and 2 / 2 | `ui-d-behavior-stable.log`, `branch/tests-handoffs-ui-d-loop-compat.mjs.log` |
+| Handoff layout | 104 / 104 | `ui-d-layout.log` |
+| Loop behavior and layout | 37 / 37 and 112 / 112 | `branch/tests-handoffs-ui-e-behavior.mjs.log`, `ui-e-layout.log` |
+| D / E / G / I demos | 54 / 24 / 36 / 42; zero failures | `branch/tests-handoffs-demo-d.mjs.log`, `branch/tests-handoffs-demo-e.mjs.log`, `branch/tests-flow-demo-g.mjs.log`, `demo-i-final.log` |
+| F demo | 25 server + 10 UI | `demo-f.log` |
+| Web build | Pass | `build-verified.log` |
+| Navigation after build | 850 / 850, 170 at each of five widths | `navigation-{320,390,500,768,1280}.log` |
+| Polish demo | 36 captures + 424 views + 13 negative guard cases | `polish-demo-final.log` |
+| `node tests/layout-alignment-ui.mjs` | 208 existing + 424 HO views; zero issues | `layout-final.log`, `alignment.json` |
+| A / B / C demos | 1 packet + 2 traces + 2 flow/run plans; 2 / 2; 11 / 11 with 7 tools | `demo-a.log`, `demo-b.log`, `demo-c.log` |
+
+The original main navigation audit reproduces two missing-avatar failures (320 and 500 light); both pass with the inherited FIX-1 correction. Local browser checks were rerun after isolating Vite caches shared by worktree dependency symlinks. The defaults collector now waits for feature API reads to settle before comparing exact geometry. Existing accessibility suites use their documented lightweight fallback because axe is not installed.
+
+## Acceptance evidence
+
+- [x] Defects 1 to 3: shared Row typography, neutral loop pills, trailing alignment and full chat-column width are guarded by rules a, b, e, f and j.
+- [x] Defect 4: one title, retained preview and two equal actions, guarded by c, d, g and `polish.test.mts`.
+- [x] Defect 5: the apparent typing dots were the message-actions menu; labeled Actions and receipt-only completion are covered by i and `polish.test.mts`.
+- [x] Defect 6: realistic fixture instructions, provider-prefix normalization and visible forbidden-string scan h.
+- [x] Defect 7: all named routes/components, four widths and both themes; Flow keeps five lanes on desktop and stacks on phone; existing G and navigation checks pass.
+- [x] Before/after images: 72 PNGs, including all requested names and extra 320/500 receipt, timeline and Flow views.
+- [x] Ownership: no Settings edits; FIX-1 was merged as requested.
+
+Requests: merge FIX-1 #271 first. No source changes are requested from other workstreams.
