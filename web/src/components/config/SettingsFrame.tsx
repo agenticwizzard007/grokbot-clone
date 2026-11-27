@@ -79,7 +79,7 @@ export function AppSettings() {
     };
   }, []);
 
-  const sectionLabel = aboutUse ? 'About your use' : NAV.flatMap(group => group.items).find(item => item.id === section)?.label ?? (section ? SETTINGS_LABELS[section] : 'Settings');
+  const sectionLabel = aboutUse ? 'About you' : NAV.flatMap(group => group.items).find(item => item.id === section)?.label ?? (section ? SETTINGS_LABELS[section] : 'Settings');
   if (!section) return null;
   const pick = (id: AppSection) => { open(id); setQuery(''); };
   const q = query.trim();

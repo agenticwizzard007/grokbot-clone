@@ -1,22 +1,19 @@
-import { House, LayoutDashboard, ListTodo, Search, Settings, Repeat, Gauge, Folder, Menu } from 'lucide-react';
+import { House, LayoutDashboard, ListTodo, Search, Settings, Gauge, Folder } from 'lucide-react';
 import type { UiConfig } from '@shared/ui-config/schema';
 import type { Screen } from '../../lib/navigation';
 import { useEffectiveConfig } from '../index';
-import { useAdaptedNavigation } from '../../components/AllSections';
 
 export function dashboardScreen(id: string): Screen {
   return { kind: 'dash', dashboard: id };
 }
 
-export function phoneTabsFor(doc: UiConfig, adapted = false) {
+export function phoneTabsFor(doc: UiConfig) {
   const builtins = {
     bots: { label: 'Bots', Icon: House, target: { kind: 'bots' } as Screen },
     tasks: { label: 'Tasks', Icon: ListTodo, target: { kind: 'work', route: { tab: 'Tasks' } } as Screen },
     search: { label: 'Search', Icon: Search, target: { kind: 'search' } as Screen },
-    routines: { label: 'Routines', Icon: Repeat, target: { kind: 'all', routines: true } as Screen },
     usage: { label: 'Usage', Icon: Gauge, target: { kind: 'settings', section: 'usage' } as Screen },
     files: { label: 'Files', Icon: Folder, target: { kind: 'work', route: { tab: 'Reports' } } as Screen },
-    more: { label: 'More', Icon: Menu, target: { kind: 'all' } as Screen },
     settings: { label: 'Settings', Icon: Settings, target: { kind: 'settings' } as Screen },
   };
   let dashboardAdded = false;
@@ -27,7 +24,6 @@ export function phoneTabsFor(doc: UiConfig, adapted = false) {
     return true;
   }).slice(0, 5);
   if (!ids.includes('settings')) { if (ids.length === 5) ids.pop(); ids.push('settings'); }
-  if (adapted && !ids.includes('more')) { if (ids.length === 5) ids.splice(ids.findLastIndex(id => id !== 'settings'), 1); ids.splice(Math.max(0, ids.indexOf('settings')), 0, 'more'); }
   for (const id of ['bots', 'tasks', 'search'] as const) if (ids.length < 3 && !ids.includes(id)) ids.push(id);
   return ids.map(id => {
     if (Object.hasOwn(builtins, id)) return { id, ...builtins[id as keyof typeof builtins] };
@@ -40,7 +36,6 @@ export function isPhoneTab(screen: Screen, tabs: ReturnType<typeof phoneTabsFor>
   return tabs.some(({ target }) => {
     if (target.kind !== screen.kind) return false;
     if (screen.kind === 'settings' && target.kind === 'settings') return screen.section === target.section;
-    if (screen.kind === 'all' && target.kind === 'all') return !!screen.routines === !!target.routines;
     if (screen.kind === 'work' && target.kind === 'work') return !screen.route.botSlug && screen.route.tab === target.route.tab;
     if (screen.kind === 'dash' && target.kind === 'dash') return screen.dashboard === target.dashboard || screen.dashboard.endsWith(`-${target.dashboard}`);
     return true;
@@ -49,7 +44,7 @@ export function isPhoneTab(screen: Screen, tabs: ReturnType<typeof phoneTabsFor>
 
 // Built-in roots keep their tab bar even when a user removes that tab.
 export function isPhoneRoot(screen: Screen, tabs: ReturnType<typeof phoneTabsFor>): boolean {
-  return isPhoneTab(screen, tabs) || screen.kind === 'bots' || screen.kind === 'search' || screen.kind === 'all'
+  return isPhoneTab(screen, tabs) || screen.kind === 'bots' || screen.kind === 'search'
     || (screen.kind === 'settings' && !screen.section) || (screen.kind === 'work' && !screen.route.botSlug);
 }
-export function usePhoneTabs() { return phoneTabsFor(useEffectiveConfig(), useAdaptedNavigation()); }
+export function usePhoneTabs() { return phoneTabsFor(useEffectiveConfig()); }
