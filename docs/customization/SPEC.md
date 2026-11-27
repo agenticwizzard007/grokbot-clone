@@ -1186,3 +1186,11 @@ Acceptance criteria:
 5. Settings "About your use": view, edit, re-adapt (preview), reset with Undo, at 390 and 1280, light and dark, alignment test green.
 6. Demo `demo-i.mjs` on a seeded server produces, at 390 and 1280, screenshots of two different use cases (a sales user and an operations user) with visibly different home, nav and suggestions, plus one requirement change (operations to support) with before and after, and the reset. Screenshots saved under `.context/ui-custom/demo-i/`.
 7. Defaults unchanged for users with no profile (client-defaults snapshots 208 of 208).
+
+### 26.9 Scope correction (Nov 27, 2026, 15:00 Europe/Bratislava)
+
+UC-I owns the chat-first dashboard proposal: from the stated role, goals and workflows, `preview_adaptation` proposes a tailored home dashboard through the existing preview and confirm flow. Users then add, remove, reorder and resize widgets by chat with the existing `add_widget`, `remove_widget`, `move_widget` and `update_widget` tools. Applied edits persist and use registered data sources with clean empty states.
+
+Lenses change home widgets, navigation order, landing route and suggestions only. No new cosmetic theme, font, accent, density-preset, color or visual preset features, tests or screenshots are in scope. Existing merged code stays. Users with no config retain the main defaults.
+
+In addition to the two use cases, operations-to-support requirement change and Reset, `tests/ui-custom/demo-i.mjs` captures one chat-driven widget edit before and after at 390 and 1280. The edit must run through `tests/mock-provider.mjs` and the real agent tools, then Apply and reload to demonstrate persistence. The demo does not change cosmetic settings.

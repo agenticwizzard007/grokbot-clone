@@ -46,7 +46,8 @@ test('2,000 seeded profiles produce deterministic valid accessible patches witho
     assert.deepEqual(first.patch, ok(adaptFromRequirements(input, DEFAULT_CONFIG)).patch);
     const applied = ok(previewPatch(DEFAULT_CONFIG, first.patch, { ctx: {} }));
     assert.ok(uiConfigSchema.safeParse(applied.result).success); assert.deepEqual(checkAccessibility(applied.result), []);
-    assert.equal(applied.result.theme.font.scale, 'default'); assert.equal(applied.result.theme.density, 'default');
+    assert.ok(first.patch.every(op => /^\/(?:dashboards\/|layout\/(?:home|sidebar\/order|phoneTabs)$)/.test(op.path)), 'Adaptation only manages dashboard and navigation paths');
+    for (const key of Object.keys(DEFAULT_CONFIG).filter(key => !['layout', 'dashboards'].includes(key))) assert.deepEqual(applied.result[key], DEFAULT_CONFIG[key]);
     assert.equal(JSON.stringify(input), raw);
   }
   assert.equal(JSON.stringify(DEFAULT_CONFIG), before);

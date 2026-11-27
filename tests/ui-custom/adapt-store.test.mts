@@ -56,8 +56,8 @@ test('requirements history cannot enter appearance history or undo', t => {
   const { ui, store } = fixture(t);
   for (let n = 0; n < 3; n++) ok(store.update('a', patch(`Sales ${n}`), n));
   assert.deepEqual(ui.history('a'), []);
-  ok(ui.patch('a', [{ op: 'replace', path: '/theme/mode', value: 'dark' }], 0, 'user'));
-  ok(ui.undo('a', 1, 'user')); assert.equal(ui.get('a').doc.theme.mode, 'system'); assert.equal(store.get('a').profile?.role, 'Sales 2');
+  ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: { kind: 'tasks' } }], 0, 'user'));
+  ok(ui.undo('a', 1, 'user')); assert.deepEqual(ui.get('a').doc.layout.home, { kind: 'default' }); assert.equal(store.get('a').profile?.role, 'Sales 2');
 });
 
 test('reset clears only requirements, previews defaults, and Undo restores both', t => {
@@ -71,10 +71,10 @@ test('reset clears only requirements, previews defaults, and Undo restores both'
   assert.equal(store.undoReset('a', 3, reset.undoToken).ok, false);
 });
 
-test('new requirements and subsequent appearance edits invalidate a reset Undo', t => {
+test('new requirements and subsequent layout edits invalidate a reset Undo', t => {
   const { ui, store } = fixture(t); ok(store.update('a', patch(), 0));
   const reset = ok(store.reset('a', 1)); ok(ui.applyPreview('a', reset.previewId, 'user'));
-  ok(ui.patch('a', [{ op: 'replace', path: '/theme/mode', value: 'dark' }], 1, 'user'));
+  ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: { kind: 'tasks' } }], 1, 'user'));
   assert.equal(store.undoReset('a', 2, reset.undoToken).ok, false);
   ok(store.update('a', patch('Support'), 2)); assert.equal(store.undoReset('a', 3, reset.undoToken).ok, false);
 });
