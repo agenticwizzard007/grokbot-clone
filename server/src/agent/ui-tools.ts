@@ -28,7 +28,7 @@ export const UI_SCHEMAS = {
   reset_ui: z.object({ scope: z.enum(['all', 'appearance', 'theme', 'layout', 'components', 'dashboards', 'dashboard']), dashboardId: dashboardId.optional() }).strict(),
   apply_preset: z.object({ presetId: id }).strict(),
   save_preset: z.object({ name: plain(40) }).strict(),
-  set_accent: z.object({ color: z.string().regex(/^#[0-9a-f]{6}$/i) }).strict(),
+  set_accent: z.object({ color: z.string().regex(/^#[0-9a-fA-F]{6}$/) }).strict(),
   create_dashboard: z.object({ name: plain(40), icon: plain(40).optional(), template: z.enum(['blank', 'overview', 'tasks', 'usage', 'bot']).optional(), botId: id.optional(), pin: z.boolean().optional(), setAsHome: z.boolean().optional() }).strict(),
   add_widget: z.object({ dashboardId, ...widgetFields, type: widgetType, after: z.union([widgetId, z.literal('start')]).optional() }).strict(),
   update_widget: z.object({ dashboardId, widgetId, set: z.object(widgetFields).strict() }).strict(),

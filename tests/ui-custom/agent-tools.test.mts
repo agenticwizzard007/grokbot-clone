@@ -202,8 +202,13 @@ test('delete removes a shortcut widget when its only destination disappears', ()
 });
 test('every advertised example passes its strict input schema', async () => {
   const { UI_EXAMPLES, UI_TOOLS } = await import('../../server/src/agent/ui-tools.js');
+  const { AjvJsonSchemaValidator } = await import('@modelcontextprotocol/sdk/validation/ajv');
+  const validator = new AjvJsonSchemaValidator();
   for (const [name, schema] of Object.entries(UI_SCHEMAS)) {
     assert.equal(schema.safeParse(UI_EXAMPLES[name as keyof typeof UI_EXAMPLES]).success, true, name);
-    assert.deepEqual(UI_TOOLS.find(t => t.name === name)!.parameters.examples, [UI_EXAMPLES[name as keyof typeof UI_EXAMPLES]]);
+    const parameters = UI_TOOLS.find(t => t.name === name)!.parameters;
+    assert.deepEqual(parameters.examples, [UI_EXAMPLES[name as keyof typeof UI_EXAMPLES]]);
+    const checked = validator.getValidator(parameters as any)(UI_EXAMPLES[name as keyof typeof UI_EXAMPLES]);
+    assert.equal(checked.valid, true, `${name}: ${checked.errorMessage}`);
   }
 });
