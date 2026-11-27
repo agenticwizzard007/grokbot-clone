@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fixture, browserSession, api, screenshot } from '../tests/handoffs/e2e/fixture.mjs';
+import { fixture, browserSession, api, poll, screenshot } from '../tests/handoffs/e2e/fixture.mjs';
 import { runUiQuality, assertVisibleCopy } from '../tests/handoffs/e2e/visual-quality.mjs';
 import { recordLoop, sendHandoff } from '../tests/handoffs/e2e/loop-journey.mjs';
 import { runQuality } from '../tests/handoffs/ui-quality.mjs';
@@ -32,6 +32,14 @@ try {
           const run = await recordLoop(page, server.data, mode, evidence, width);
           report.runs.push({ ...run, theme }); report.screenshots.push(...run.screenshots); report.passed++;
           console.log(`PASS ${width} ${theme} ${mode}: ${run.result}`);
+          await poll(() => api(page, '/jobs'), value => !value.jobs.some(job => [server.data.maker, server.data.checker].includes(job.bot_id) && ['queued', 'running'].includes(job.state)), 'Loop jobs finish');
+          await page.goto(`${server.base}/#bot/${server.data.maker}`);
+          const group = page.locator('.ho-loop-receipt').filter({ has: page.locator(`a[href="#loop/${run.id}"]`) });
+          await group.getByRole('button', { name: 'Show passes', exact: true }).click();
+          const passes = group.getByRole('group', { name: 'Loop passes', exact: true });
+          await passes.getByRole('link', { name: /^View handoff/ }).first().waitFor();
+          await group.scrollIntoViewIfNeeded();
+          report.screenshots.push(await screenshot(page, evidence, `${mode}-receipts-expanded`, width));
         } catch (error) {
           const id = new URL(page.url()).hash.match(/^#loop\/(lp_[^?]+)/)?.[1];
           const actual = id ? await api(page, `/loops/${id}`) : null;

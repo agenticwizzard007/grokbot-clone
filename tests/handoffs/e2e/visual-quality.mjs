@@ -6,14 +6,21 @@ import { inspectQuality, runQuality as checkUiQuality } from '../ui-quality.mjs'
 
 export async function runUiQuality(evidence, runQuality = checkUiQuality) {
   const startedAt = Date.now();
+  const previousOutput = process.env.HO_QUALITY_OUTPUT;
+  const checkerDirectory = path.resolve(evidence, 'ui-quality');
+  process.env.HO_QUALITY_OUTPUT = checkerDirectory;
   let error;
   try { await runQuality(); }
   catch (reason) { error = reason.stack || String(reason); }
-  const checkerReport = path.resolve('.context/ho-p/quality/report.json');
+  finally {
+    if (previousOutput === undefined) delete process.env.HO_QUALITY_OUTPUT;
+    else process.env.HO_QUALITY_OUTPUT = previousOutput;
+  }
+  const checkerReport = path.join(checkerDirectory, 'report.json');
   const fresh = fs.existsSync(checkerReport) && fs.statSync(checkerReport).mtimeMs >= startedAt - 1;
   const checks = fresh ? JSON.parse(fs.readFileSync(checkerReport, 'utf8')) : [];
   if (!checks.length) error ||= 'The UI quality checker did not produce any view results.';
-  // Keep this run's evidence even when another invocation reuses HO-P's directory.
+  // Keep the checker evidence with this run, independent of its default directory.
   const source = path.join(evidence, 'ui-quality-views.json');
   fs.writeFileSync(source, JSON.stringify(checks, null, 2));
   const result = { status: error ? 'fail' : 'pass', passed: checks.filter(check => !check.issues.length).length,

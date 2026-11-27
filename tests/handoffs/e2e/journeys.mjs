@@ -146,9 +146,10 @@ try {
     await check(7, 'Handoff detail, Activity handoff list and Back', async () => {
       if (!handoffId) handoffId = (await sendHandoff(page, f, evidence, width)).id;
       await go(page, `#bot/${f.maker}`);
-      await page.locator('.ho-receipt').first().waitFor();
+      const receipt = page.locator('.ho-receipt').filter({ has: page.getByRole('link', { name: /^View handoff/ }) }).first();
+      await receipt.waitFor();
       const chatHash = new URL(page.url()).hash;
-      await page.locator('.ho-receipt').first().getByRole('link', { name: /^View handoff/ }).click();
+      await receipt.getByRole('link', { name: /^View handoff/ }).click();
       await page.getByRole('heading', { name: 'Handoff', exact: true }).waitFor(); await auditRoute(page, width);
       await page.goBack(); await page.waitForURL(url => url.hash === chatHash);
       await go(page, `#bot/${f.maker}/details/activity`);

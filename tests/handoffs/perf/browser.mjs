@@ -64,7 +64,8 @@ try {
   fs.writeFileSync(path.join(evidence, 'browser.json'), JSON.stringify(report, null, 2) + '\n');
   const backend = JSON.parse(fs.readFileSync(path.join(evidence, 'server.json'), 'utf8'));
   const baseline = { ...backend, browser: report };
-  fs.writeFileSync('tests/handoffs/perf/baseline.json', JSON.stringify(baseline, null, 2) + '\n');
+  fs.writeFileSync(path.join(evidence, 'measured.json'), JSON.stringify(baseline, null, 2) + '\n');
+  if (process.env.HANDOFFS_UPDATE_BASELINE === '1') fs.writeFileSync('tests/handoffs/perf/baseline.json', JSON.stringify(baseline, null, 2) + '\n');
 }
 assert.ok(Object.values(metrics).every(m => m.pass), 'All measured browser budgets must pass');
 console.log(`PASS browser performance: ${Object.keys(metrics).length} budgets`);
