@@ -199,7 +199,7 @@ test('real feature flags honor account overrides and never expose disabled data'
   const target = new Hono().route('/api/ui', createDataApi({ executor: executor() }));
   try {
     process.env.UI_CUSTOMIZATION = 'off'; assert.equal((await request(target, batch())).status, 404);
-    db.prepare('INSERT INTO account_preferences(user_id,ui_custom_enabled) VALUES(?,1) ON CONFLICT(user_id) DO UPDATE SET ui_custom_enabled=1').run(a.id);
+    db.prepare('INSERT INTO account_preferences(user_id,ui_custom_enabled,updated_at) VALUES(?,1,?) ON CONFLICT(user_id) DO UPDATE SET ui_custom_enabled=1').run(a.id, Date.now());
     assert.equal((await request(target, batch())).status, 200);
     assert.equal((await request(target, batch(), b)).status, 404);
     process.env.UI_CUSTOMIZATION = 'on';
