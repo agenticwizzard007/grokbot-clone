@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { runAboutYouUi } from './about-you-ui.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readableWords } from '../paper-label-geometry.mjs';
@@ -142,3 +143,5 @@ async function wordCount(page) {
 }
 console.log(`DEMO P: ${checks.length} passed, 0 failed. ${output}/results.json`);
 console.log(JSON.stringify(counts));
+
+if (!before) await runAboutYouUi(output);
