@@ -213,3 +213,13 @@ test('cancelling a deferred handoff never interrupts unrelated work on the recei
     assert.ok(!interrupted.includes(busy.id));
     assert.equal((db.prepare('SELECT state FROM agent_jobs WHERE id=?').get(busy.id) as any).state, 'running');
 });
+test('unadmitted handoff expires at 24 hours and its task needs input', async () => {
+    const f = fixture(), o = output(f);
+    jobs.acceptJob(f.checker.id, { type: 'user' });
+    const h = handoffs.createHandoff(f.userId, { source: { outputId: o.id }, toBotId: f.checker.id, instruction: 'Waiting fixture.', idempotencyKey: 'expiry' }).handoff;
+    db.prepare('UPDATE handoffs SET created_at=? WHERE id=?').run(Date.now() - 86400001, h.id);
+    reconcile.reconcileHandoffs(f.userId);
+    assert.equal(handoffs.getHandoff(f.userId, h.id).status, 'expired');
+    assert.equal(requests.getInternalRequest(f.userId, h.requestId!).status, 'failed');
+    assert.equal((db.prepare('SELECT t.state FROM tasks t JOIN handoff_task_links l ON l.task_id=t.id WHERE l.handoff_id=?').get(h.id) as any).state, 'needs_input');
+});

@@ -8,6 +8,7 @@ import type { Handoff, HandoffStatus } from './contracts.js';
 let reconciling = false;
 const subscriptions = new Map<string, () => void>();
 const pending = new Set<string>();
+const expiries = new Map<string, ReturnType<typeof setTimeout>>();
 export function scheduleReconciliation(userId: string) {
     if (pending.has(userId))
         return;
@@ -36,6 +37,9 @@ export function watchHandoffs(userId: string) {
     }));
 }
 export function stopHandoffRecovery() {
+    for (const timer of expiries.values())
+        clearTimeout(timer);
+    expiries.clear();
     for (const stop of subscriptions.values())
         stop();
     subscriptions.clear();
@@ -101,11 +105,22 @@ export function reconcileHandoffs(userId?: string) {
                     return;
                 }
                 if (!r.job_id) {
+                    if (!expiries.has(h.id) && now() - h.createdAt < 86400000) {
+                        const timer = setTimeout(() => { expiries.delete(h.id); if (db.open)
+                            scheduleReconciliation(h.userId); }, Math.max(1, h.createdAt + 86400000 - now()));
+                        timer.unref();
+                        expiries.set(h.id, timer);
+                    }
                     if (now() - h.createdAt >= 86400000) {
                         db.prepare("UPDATE coordination_requests SET status='failed',reply=0,reason='expired' WHERE id=?").run(r.id);
                         move(h, 'expired', 'not_admitted');
                     }
                     return;
+                }
+                const expiry = expiries.get(h.id);
+                if (expiry) {
+                    clearTimeout(expiry);
+                    expiries.delete(h.id);
                 }
                 const outcome = db.prepare(`WITH RECURSIVE lineage(id) AS (
  SELECT ? UNION SELECT j.id FROM agent_jobs j JOIN lineage l ON json_extract(j.trigger,'$.parentJobId')=l.id WHERE j.user_id=? AND j.bot_id=?)
