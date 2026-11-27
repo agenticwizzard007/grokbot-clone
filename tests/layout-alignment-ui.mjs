@@ -1,5 +1,6 @@
 // Local seeded route audit. LAYOUT_ROOT can point at an untouched baseline checkout.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -212,8 +213,8 @@ async function main() {
   assert.equal(report.filter(r => r.enforce && r.issues.length).length, 0, 'Enforced routes follow the shared layout system');
   console.log(`${report.length} route views audited. Report: ${evidence}/report.json`);
   if (!process.env.LAYOUT_OWNER && !process.env.LAYOUT_ROUTES || process.env.LAYOUT_OWNER === 'UC-Y') {
-    const { runSuggestionUi } = await import('./ui-custom/e2e/suggest-dashboard-ui.mjs');
-    await runSuggestionUi(path.join(evidence, 'suggestions'));
+    const result = spawnSync(process.execPath, ['tests/ui-custom/e2e/suggest-dashboard-ui.mjs'], { stdio: 'inherit', env: { ...process.env, SUGGEST_EVIDENCE: path.join(evidence, 'suggestions') } });
+    assert.equal(result.status, 0, 'Dashboard suggestion routes follow Paper layout and visible-copy rules');
   }
 }
 if (import.meta.url === pathToFileURL(process.argv[1]).href) await main();

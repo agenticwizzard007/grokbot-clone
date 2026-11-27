@@ -21,7 +21,7 @@ export function inspectSuggestionQuality() {
   const visibleText = document.body.innerText;
   const match = visibleText.match(forbidden);
   if (match) issues.push(`Forbidden visible text: ${match[0]}`);
-  const root = document.querySelector('.dashboard-page, .app-settings__page:has([aria-label="About you"])');
+  const root = document.querySelector('.dashboard-page, .app-settings__page:has(.requirements-settings)');
   if (!root) return { issues, words: 0 };
   const visible = el => el.checkVisibility() && el.getBoundingClientRect().width > 1 && !el.closest('.sr-only, .dashboard-sr-only, [aria-hidden="true"], svg');
   const label = el => (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 55);
