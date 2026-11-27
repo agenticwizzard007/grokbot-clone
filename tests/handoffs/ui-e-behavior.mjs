@@ -75,7 +75,7 @@ try {
       await page.getByLabel('Name', { exact: true }).fill('Fixture review'); await page.getByLabel('Goal', { exact: true }).fill('Meet the five checks.');
       await page.getByLabel('Starting brief', { exact: true }).fill('Placeholder brief.');
       await page.getByLabel('Maker agent', { exact: true }).selectOption('bot_maker'); await page.getByLabel('Checker agent', { exact: true }).selectOption('bot_maker');
-      await page.getByRole('button', { name: 'Start loop', exact: true }).click(); await page.getByText('Choose a different checker or allow self review.', { exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Start loop', exact: true }).click(); await page.getByText('Choose a different checker.', { exact: true }).waitFor();
       await page.getByLabel('Checker agent', { exact: true }).selectOption('bot_checker');
       await page.getByLabel('Up to passes', { exact: true }).fill('11'); await page.getByRole('button', { name: 'Start loop', exact: true }).click();
       await page.getByText('Choose a number from 1 to 10.', { exact: true }).waitFor(); await page.getByLabel('Up to passes', { exact: true }).fill('4');

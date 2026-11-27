@@ -28,7 +28,7 @@ export function validateLoop(value: LoopDraft, bots: LoopBot[], compact = false)
     if (!valid.has(step.botId)) errors[`bot${index}`] = 'Choose an available agent.';
     if (!step.instruction.trim() || step.instruction.length > 1500) errors[`instruction${index}`] = 'Add instructions, up to 1500 characters.';
   }
-  if (value.kind === 'maker_checker' && value.steps[0]?.botId && value.steps[0]?.botId === value.steps[1]?.botId && !value.allowSameBotRoles) errors.bot1 = 'Choose a different checker or allow self review.';
+  if (value.kind === 'maker_checker' && value.steps[0]?.botId && value.steps[0]?.botId === value.steps[1]?.botId && !value.allowSameBotRoles) errors.bot1 = 'Choose a different checker.';
   if (value.steps.length < 2 || value.steps.length > 6 || (value.kind === 'maker_checker' && value.steps.length !== 2)) errors.steps = 'Use two agents, or 2 to 6 pipeline steps.';
   const bounds = { maxIterations: [compact ? 2 : 1, 10], maxMinutes: [5, 240], stepTimeoutMinutes: [1, 30] } as const;
   for (const [key, [min, max]] of Object.entries(bounds)) {
@@ -52,10 +52,10 @@ export function validateLoop(value: LoopDraft, bots: LoopBot[], compact = false)
 
 export interface LoopFieldsProps {
   value: LoopDraft; onChange: (value: LoopDraft) => void; bots: LoopBot[];
-  errors?: LoopFieldErrors; compact?: boolean; usageTracked?: boolean; tasks?: LoopTask[];
+  errors?: LoopFieldErrors; compact?: boolean; usageTracked?: boolean; tasks?: LoopTask[]; allowSelfReview?: boolean;
 }
 /** No form or modal wrapper: safe to embed inside the Send sheet. */
-export function LoopFields({ value, onChange, bots, errors = {}, compact = false, usageTracked = true, tasks = [] }: LoopFieldsProps) {
+export function LoopFields({ value, onChange, bots, errors = {}, compact = false, usageTracked = true, tasks = [], allowSelfReview = false }: LoopFieldsProps) {
   const prefix = useId();
   const available = bots.filter(eligibleBot);
   const patch = (change: Partial<LoopDraft>) => onChange({ ...value, ...change });
@@ -89,7 +89,7 @@ export function LoopFields({ value, onChange, bots, errors = {}, compact = false
       {value.kind === 'pipeline' && value.steps.length > 2 && <button type="button" className="ho-loop-button" onClick={() => patch({ steps: value.steps.filter((_, n) => index !== n).map((item, n, items) => ({ ...item, role: n === items.length - 1 ? 'checker' : 'step' })) })}>Remove step {index + 1}</button>}
     </fieldset>))}
     {value.kind === 'pipeline' && <button type="button" className="ho-loop-button" disabled={value.steps.length >= 6} onClick={() => patch({ steps: [...value.steps.map(step => ({ ...step, role: 'step' as const })), { id: crypto.randomUUID(), role: 'checker', botId: '', instruction: 'Check the result against the goal.' }] })}>Add step</button>}{error('steps')}
-    {value.kind === 'maker_checker' && <label className="ho-loop-check"><input type="checkbox" checked={!!value.allowSameBotRoles} onChange={event => patch({ allowSameBotRoles: event.target.checked || undefined })} /><span>Use the same agent to check its own work</span></label>}
+    {allowSelfReview && value.kind === 'maker_checker' && <label className="ho-loop-check"><input type="checkbox" checked={!!value.allowSameBotRoles} onChange={event => patch({ allowSameBotRoles: event.target.checked || undefined })} /><span>Use the same agent to check its own work</span></label>}
     <div className="ho-loop-field"><label htmlFor={`${prefix}-exit`}>Stop when</label><select id={`${prefix}-exit`} value={value.exit.mode} onChange={event => changeMode(event.target.value as LoopSpec['exit']['mode'])}><option value="verdict">Checker decides</option><option value="checklist">Checklist</option><option value="manual">I decide</option>{value.exit.mode === 'judge' && <option value="judge">Judge rubric</option>}</select></div>
     {value.exit.mode === 'checklist' && <fieldset className="ho-loop-step-fields"><legend>Checklist</legend>{value.exit.items.map((item, index) => <div key={item.id} className="ho-loop-field">
       <label htmlFor={`${prefix}-check-${index}`}>Check {index + 1}</label><input id={`${prefix}-check-${index}`} maxLength={400} value={item.text} onChange={event => { if (value.exit.mode === 'checklist') patch({ exit: { ...value.exit, items: value.exit.items.map(check => check.id === item.id ? { ...check, text: event.target.value } : check) } }); }} />
@@ -110,9 +110,9 @@ export function LoopFields({ value, onChange, bots, errors = {}, compact = false
   </div>;
 }
 
-export function LoopSheet({ bots, onClose, onCreated, initial, api = loopsApi, usageTracked = true, tasks = [] }: {
+export function LoopSheet({ bots, onClose, onCreated, initial, api = loopsApi, usageTracked = true, tasks = [], allowSelfReview = false }: {
   bots: LoopBot[]; onClose: () => void; onCreated: (id: string) => void;
-  initial?: LoopDraft; api?: LoopApi; usageTracked?: boolean; tasks?: LoopTask[];
+  initial?: LoopDraft; api?: LoopApi; usageTracked?: boolean; tasks?: LoopTask[]; allowSelfReview?: boolean;
 }) {
   const [value, setValue] = useState(() => initial ?? newLoopSpec());
   const [errors, setErrors] = useState<LoopFieldErrors>({});
@@ -124,11 +124,12 @@ export function LoopSheet({ bots, onClose, onCreated, initial, api = loopsApi, u
   const submitted = useRef('');
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault(); if (busy.current) return;
-    const checked = validateLoop(value, bots); setErrors(checked); setServerError('');
+    const draft = { ...value, allowSameBotRoles: allowSelfReview ? value.allowSameBotRoles : undefined };
+    const checked = validateLoop(draft, bots); setErrors(checked); setServerError('');
     if (Object.keys(checked).length) {
       requestAnimationFrame(() => { const invalid = document.querySelector<HTMLElement>('.ho-loop-sheet [aria-invalid="true"]'); invalid?.closest('details')?.setAttribute('open', ''); invalid?.focus(); }); return;
     }
-    const spec = { ...value, name: value.name.trim(), goal: value.goal.trim(), limits: { ...value.limits, ...(!usageTracked ? { maxCostUsd: undefined, maxTokens: undefined } : {}) } };
+    const spec = { ...draft, name: value.name.trim(), goal: value.goal.trim(), limits: { ...value.limits, ...(!usageTracked ? { maxCostUsd: undefined, maxTokens: undefined } : {}) } };
     const fingerprint = JSON.stringify(spec);
     if (submitted.current && submitted.current !== fingerprint) key.current = crypto.randomUUID();
     submitted.current = fingerprint; busy.current = true; setPending(true);
@@ -138,7 +139,7 @@ export function LoopSheet({ bots, onClose, onCreated, initial, api = loopsApi, u
   };
   return <Modal label="New loop" className="ho-loop-sheet" onClose={onClose}>
     <Page title="New loop" className="ho-loops"><form onSubmit={submit} noValidate>
-      <Section><Card><LoopFields value={value} onChange={setValue} bots={bots} errors={errors} usageTracked={usageTracked} tasks={tasks} /></Card></Section>
+      <Section><Card><LoopFields value={value} onChange={setValue} bots={bots} errors={errors} usageTracked={usageTracked} tasks={tasks} allowSelfReview={allowSelfReview} /></Card></Section>
       {Object.keys(errors).length > 0 && <p role="alert" className="ho-loop-error">Check the highlighted fields.</p>}
       {serverError && <p role="alert" className="ho-loop-error">{serverError}</p>}
       <Row title="Limits apply to every pass" subtitle="Up to 10 passes. You can stop at any time." />
