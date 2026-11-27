@@ -36,7 +36,7 @@ The current quality gate is blocked. Do not treat passing component fixtures or 
 
 - `.context/handoffs/demo-h/report.json` contains the actual loop records, events, screenshot quality records and explicit failures. The scripted drafts use realistic release notes, and each handoff selects the output from its newly completed job.
 - `.context/handoffs/demo-h/inspection.json` records the rejected receipt, running and finished timeline, Graph, Flow and cap-scenario views at 320, 390, 500 and 1280 in both themes. The cap scenario fails before the limit; these images are failure evidence, not a capped success substitute.
-- `.context/handoffs/e2e-h/report.json` contains every journey result at both required widths. The absent HO-P gate is an explicit skip until its merge.
+- `.context/handoffs/e2e-refresh/report.json` contains the latest full journey matrix at both required widths; the earlier `e2e-h` and focused `e2e-settings-refresh` runs remain available. The absent HO-P gate is an explicit skip until its merge.
 - `.context/handoffs/baseline-refresh/` preserves main's regression results. Existing tests are compared separately from the new acceptance failures.
 
 The deployed `BASE_URL` mode is implemented and documented, but has not been exercised without an isolated deployed test account configured for the scripted provider. The bundle comparison measures HO-H additions against the integrated main baseline; a historical pre-feature bundle comparison remains separate.
