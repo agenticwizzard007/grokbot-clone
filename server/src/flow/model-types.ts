@@ -8,6 +8,7 @@ export interface FlowModel {
 }
 export interface FlowNode {
   id: string;                                        // stable: lane + kind + source id, never random
+  order?: number;                                    // stable semantic order assigned by the model builder
   kind: 'schedule'|'routine'|'event'|'message'|'inbound_handoff'|'app'|'mcp'|'knowledge'|'suggested_app'|'suggested_mcp'
       |'step'|'skill'|'report'|'files'|'message_out'|'task'|'handoff_to'|'handoff_from'|'loop';
   label: string;                                     // <= 40 chars, cut at a word, no ellipsis char tricks

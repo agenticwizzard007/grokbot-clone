@@ -74,3 +74,10 @@ test('flow hash is stable across row order and irrelevant row noise, sensitive t
   assert.equal(inputsHash({ ...input, routines: [{ ...input.routines[0], lastRunAt: 999 } as typeof input.routines[number]] }), hash);
   assert.equal(stepsHash(input.instructions, input.skills), stepsHash(input.instructions, [...input.skills].reverse()));
 });
+test('layout preserves builder-assigned routine and instruction ordering across shuffles', () => {
+  const model = flow(), node = model.lanes[0].nodes[0];
+  model.lanes[0].nodes = [{ ...node, id: 'triggers:z', order: 0 }, { ...node, id: 'triggers:a', order: 1 }];
+  const plan = layoutFlow(model, 1280);
+  assert.deepEqual(plan.lanes[0].nodes.map(n => n.id), ['triggers:z', 'triggers:a']);
+  model.lanes[0].nodes.reverse(); assert.deepEqual(layoutFlow(model, 1280), plan);
+});

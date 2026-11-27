@@ -56,3 +56,12 @@ test('fake only active checker or judge jobs can submit an immutable verdict, lo
   await rejects(() => s.handoffToAgent(checker, { toBotId: 'bot_maker', instruction: 'Again' }), 'loop_nested');
   const spec = loopSpec(); await rejects(() => s.startLoop(checker, { goal: spec.goal, steps: spec.steps, exit: spec.exit, limits: spec.limits }), 'loop_nested');
 });
+test('concurrent fake snapshot handoffs commit one record and reject conflicting retries', async () => {
+  const s = service(), input = { toBotId: 'bot_checker', instruction: 'Review' };
+  const [a, b] = await Promise.all([s.handoffToAgent(context, input), s.handoffToAgent(context, input)]);
+  assert.equal(a.id, b.id); assert.equal((await s.listHandoffs(context, {})).length, 1);
+  const other = service();
+  const results = await Promise.allSettled([other.handoffToAgent(context, input), other.handoffToAgent(context, { ...input, instruction: 'Different' })]);
+  assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
+  assert.equal((results.find(r => r.status === 'rejected') as PromiseRejectedResult).reason.code, 'idempotency_conflict');
+});
