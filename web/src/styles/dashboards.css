@@ -141,6 +141,7 @@
 .dashboard-settings .cfg-seg { display: flex; width: 100%; padding: 4px; gap: 4px; border-radius: var(--radius-sm); }
 .dashboard-settings .cfg-seg button { min-height: 44px; padding: 4px; font-size: 14px; border-radius: var(--radius-sm); }
 .dashboard-page :focus-visible, .dashboard-dialog :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.dashboard-dialog :is(.dashboard-library, .dashboard-settings-fields):focus-visible { outline-offset: -2px; }
 @media (max-width: 760px) {
   .dashboard-heading h1, .dashboard-heading > div:first-child:not(:has(p)) { display: none; }
   .dashboard-page .dashboard-heading > div:first-child:has(p) { display: block; }

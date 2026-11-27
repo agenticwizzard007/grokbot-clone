@@ -34,7 +34,7 @@ export function WidgetSettings({ widget, save, close, error: serverError, title 
     event.preventDefault(); const parsed = widgetSchema.safeParse({ ...draft, id: draft.id.startsWith('$new') ? 'w_00000000' : draft.id });
     if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? 'Check the widget settings.'); return; }
     setError(''); setBusy(true); try { if (await save({ ...parsed.data, id: draft.id })) close(); } finally { setBusy(false); }
-  }}><div className="dashboard-settings-fields"><Section><Card><label className="dashboard-field">Title<input value={draft.title ?? ''} maxLength={60} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
+  }}><div className="dashboard-settings-fields" tabIndex={0} role="region" aria-label={`${title} fields`}><Section><Card><label className="dashboard-field">Title<input value={draft.title ?? ''} maxLength={60} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
     <div className="dashboard-field">Size<Segmented label="Size" value={draft.span <= 4 ? 'small' : draft.span <= 6 ? 'medium' : draft.span <= 8 ? 'large' : 'full'} options={['Small', 'Medium', 'Large', 'Full'].map(label => ({ label, value: label.toLowerCase() }))} onChange={size => {
       const dimensions = { small: [4, 2], medium: [6, 3], large: [8, 4], full: [12, 4] }[size]!;
       setDraft(current => ({ ...current, span: dimensions[0], rows: dimensions[1] }));

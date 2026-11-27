@@ -17,7 +17,7 @@ export function sourceWidget(id: SourceId, title: string): Widget { return { ...
 export function AddWidgetSheet({ add, close, error }: { add(widget: Widget): Promise<boolean>; close(): void; error?: string }) {
   const [busy, setBusy] = useState(false), [agent, setAgent] = useState<Widget>();
   const save = async (widget: Widget) => { setBusy(true); try { if (await add(widget)) close(); } finally { setBusy(false); } };
-  return <><DashboardDialog title="Add widget" close={close}><Section><div className="dashboard-library">{WIDGETS.map(widget => { const Icon = icons[widget.id]; return <button type="button" className="dashboard-library-item" key={widget.id} disabled={busy} onClick={() => {
+  return <><DashboardDialog title="Add widget" close={close}><Section><div className="dashboard-library" tabIndex={0} role="region" aria-label="Widget library">{WIDGETS.map(widget => { const Icon = icons[widget.id]; return <button type="button" className="dashboard-library-item" key={widget.id} disabled={busy} onClick={() => {
     if (widget.id === 'agent') setAgent({ ...defaultWidget('agent'), options: { prompt: '', display: 'text', schedule: 'manual' } }); else void save(defaultWidget(widget.id));
   }}><Icon size={20} aria-hidden="true" /><strong>{widget.id === 'agent' ? 'Ask your agent' : widget.label}</strong><span>{descriptions[widget.id]}</span></button>; })}
     {sources.map(([id, title, description, Icon]) => <button type="button" className="dashboard-library-item" key={id} disabled={busy} onClick={() => void save(sourceWidget(id, title))}><Icon size={20} aria-hidden /><strong>{title}</strong><span>{description}</span></button>)}
