@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { register } from 'node:module';
+import { register } from 'tsx/esm/api';
 
 export const COUNTS = { theme: 12, readability: 8, layout: 10, visibility: 6, dashboards: 14, refusals: 6, injection: 4 };
 const equal = (a, b) => { try { assert.deepEqual(a, b); return true; } catch { return false; } };
@@ -31,7 +31,7 @@ async function main() {
   const dry = process.argv.includes('--dry');
   const input = JSON.parse(fs.readFileSync(new URL('../tests/ui-custom/fixtures/nl-evals.json', import.meta.url), 'utf8'));
   const cases = validateFixtures(input);
-  register('tsx/esm', import.meta.url);
+  register();
   const { DEFAULT_CONFIG, previewPatch, REGISTRY } = await import('../server/src/ui-config/index.ts');
   const { uiPromptSection } = await import('../server/src/agent/ui-prompt.ts');
   const results = [];

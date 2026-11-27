@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DEFAULT_CONFIG, REGISTRY, type Dashboard, type PatchOp, type PreviewResult, type StoredPreview, type UiConfig, type UiConfigService, type UiPreviewCardBody, type Widget } from '../ui-config/index.js';
+import { DEFAULT_CONFIG, REGISTRY, type Dashboard, type PatchOp, type PreviewResult, type UiConfig, type UiConfigService, type UiPreviewCardBody, type Widget } from '../ui-config/index.js';
 import type { ToolCtx, ToolDef } from './tools.js';
 
 const plain = (max: number, min = 1) => z.string().min(min).max(max).regex(/^[^<>\u0000-\u001f\u007f\u2013\u2014]*$/u);
@@ -47,8 +47,8 @@ export interface UiToolDependencies {
   card(ctx: ToolCtx, body: UiPreviewCardBody): void;
   syncCards?(ctx: ToolCtx): void;
   history?(userId: string): { summary: string | string[]; revision: number }[];
-  presets?(userId: string): { id: string; doc: Partial<UiConfig> }[];
-  savePreset?(userId: string, name: string): { presetId: string };
+  presets?(userId: string): { id: string; label?: string; doc: Partial<UiConfig> }[];
+  savePreset?(userId: string, name: string): { presetId: string } | { ok: false; errors: unknown[] };
   accentPair(color: string): { light: string; dark: string };
   /** Durable failures supplement the per-context counter across approval resumes. */
   failures?(ctx: ToolCtx): number;
@@ -125,10 +125,13 @@ export function deleteDashboardPatch(doc: UiConfig, dashboardId: string): PatchO
     for (const tab of ['bots', 'tasks', 'search']) if (tabs.length < 3 && !tabs.includes(tab)) tabs.splice(tabs.indexOf('settings'), 0, tab);
     ops.push(replace('/layout/phoneTabs', tabs));
   }
-  doc.dashboards.forEach((dashboard, di) => dashboard.widgets.forEach((widget, wi) => {
+  doc.dashboards.forEach((dashboard, di) => [...dashboard.widgets.entries()].reverse().forEach(([wi, widget]) => {
     if (dashboard.id === dashboardId || widget.type !== 'shortcuts' || !Array.isArray(widget.options.items)) return;
     const items = widget.options.items as { label: string; target: string }[];
-    if (items.some(item => item.target === `dashboard:${dashboardId}`)) ops.push(replace(`/dashboards/${di}/widgets/${wi}/options/items`, items.filter(item => item.target !== `dashboard:${dashboardId}`)));
+    if (items.some(item => item.target === `dashboard:${dashboardId}`)) {
+      const remaining = items.filter(item => item.target !== `dashboard:${dashboardId}`);
+      ops.push(remaining.length ? replace(`/dashboards/${di}/widgets/${wi}/options/items`, remaining) : { op: 'remove', path: `/dashboards/${di}/widgets/${wi}` });
+    }
   }));
   ops.push({ op: 'remove', path: found.path });
   return ops;
@@ -176,11 +179,7 @@ export function buildUiPatch(name: UiToolName, args: any, doc: UiConfig, deps: P
       const preset = presets.find(p => p.id === args.presetId);
       if (!preset) throw new BuilderError('/presetId', 'Preset not found. Use list_ui_options with kind presets.');
       const patch: PatchOp[] = [replace('/preset', preset.id)];
-      const visit = (value: unknown, path: string) => {
-        if (value && typeof value === 'object' && !Array.isArray(value)) Object.entries(value).forEach(([key, val]) => visit(val, `${path}/${key.replace(/~/g, '~0').replace(/\//g, '~1')}`));
-        else patch.push(put(path, value));
-      };
-      for (const key of ['theme', 'layout', 'components', 'keybindings'] as const) if (preset.doc[key]) visit(preset.doc[key], `/${key}`);
+      for (const key of ['theme', 'layout', 'components', 'keybindings'] as const) if (preset.doc[key]) patch.push(replace(`/${key}`, preset.doc[key]));
       return { patch, intent: 'Apply an appearance preset' };
     }
     case 'reset_ui': {
@@ -251,7 +250,15 @@ export function createUiTools(deps: UiToolDependencies): ToolDef[] {
                 const doc = scope === 'dashboard' ? at(saved.doc, args.dashboardId).dashboard : scope === 'all' ? withoutDefaults(saved.doc, DEFAULT_CONFIG) ?? {} : withoutDefaults(saved.doc[scope as keyof UiConfig], DEFAULT_CONFIG[scope as keyof UiConfig]) ?? (scope === 'dashboards' ? [] : {});
                 result = { revision: saved.revision, doc, presetId: saved.doc.preset, history: (deps.history?.(user) ?? []).slice(0, 5).map(({ revision, summary }) => ({ revision, summary })) }; break;
               }
-              case 'list_ui_options': result = { kind: args.kind, options: REGISTRY[args.kind as keyof typeof REGISTRY] }; break;
+              case 'list_ui_options': {
+                const slice = REGISTRY[args.kind as keyof typeof REGISTRY];
+                // Publish JSON Schema instead of Zod implementation objects.
+                const options = JSON.parse(JSON.stringify(slice, (_key, value) => value instanceof z.ZodType ? z.toJSONSchema(value, { io: 'input' }) : value));
+                if (args.kind === 'presets' && Array.isArray(options)) for (const preset of deps.presets?.(user) ?? []) {
+                  if (!options.some((p: { id: string }) => p.id === preset.id)) options.push({ id: preset.id, label: preset.label ?? 'Saved preset' });
+                }
+                result = { kind: args.kind, options }; break;
+              }
               case 'apply_ui_patch': {
                 const preview = deps.service.getPreview(user, args.previewId);
                 if (!preview) result = failure('not_found', 'Preview not found.');
@@ -295,3 +302,10 @@ export function createUiTools(deps: UiToolDependencies): ToolDef[] {
     } } satisfies ToolDef;
   });
 }
+
+// Keep schema-only consumers independent of the database and production service.
+export const UI_TOOLS: ToolDef[] = Object.entries(UI_SCHEMAS).map(([name, schema]) => {
+  const { $schema: _schema, ...parameters } = z.toJSONSchema(schema, { io: 'input' });
+  return { name, description: DESCRIPTIONS[name as UiToolName], parameters, activity: 'working', label: name.replace(/_/g, ' '),
+    impl: async (args, ctx) => (await import('./ui-runtime.js')).runtimeUiTool(name, args, ctx) };
+});

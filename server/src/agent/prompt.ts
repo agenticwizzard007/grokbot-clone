@@ -17,12 +17,15 @@ import { learningContext } from './learning.js';
 import { coordinationPrompt } from '../coordination/index.js';
 import { platformContext } from './platform-state.js';
 import { currentUserMessageRef } from '../knowledge/sessions.js';
+import { uiPromptSection } from './ui-prompt.js';
+import { uiToolsOffered } from './ui-runtime.js';
 
 export async function systemPrompt(userId: string, botId: string, jobId?:string): Promise<string> {
   const bot = getBotRow(botId);
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(userId) as any;
   const setup = getSetup(botId);
   const currentSource = currentUserMessageRef(userId, botId, jobId);
+  const appearance = uiPromptSection({ offered: uiToolsOffered({ userId, botId, jobId }) });
   const nativeState = [asksBeforeEveryAction(userId) ? MAX_APPROVAL_INSTRUCTIONS : '', platformContext(userId, botId),coordinationPrompt(userId,botId,jobId),
     setup && setup.onboarding.status !== 'active' ? '' : learningContext(userId,botId,jobId)].filter(Boolean).join('\n\n');
   if (setup && setup.onboarding.status !== 'active') {
@@ -115,6 +118,7 @@ ${textingLine(userId)}${bot.is_primary ? `- You CAN create permanent teammates d
 - On long tasks, give a short update at meaningful phase changes (what you learned and what remains). Tool activity is displayed automatically; avoid repeating every step in chat.
 
 ${RECOVERY_PROMPT}
+${appearance}
 Your live screen for user handoffs: ${screenLink(botId)}
 
 ## Style
