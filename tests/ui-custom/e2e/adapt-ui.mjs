@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
-import { inspectAlignment } from '../../layout-alignment-ui.mjs';
+import { inspectAlignment, ROUTES } from '../../layout-alignment-ui.mjs';
 import { readableWords } from '../../paper-label-geometry.mjs';
 
 /** Send a chat message through the mock provider and wait for the real tool's preview card. */
@@ -73,7 +73,12 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
     assert.equal(response.status(), 200, `${method} ${route}: ${await response.text()}`); return response.json();
   };
   const capture = async (page, name, width) => {
-    await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(150);
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForFunction(() => [...document.querySelectorAll('.dashboard-widget-cell')].every(cell => {
+      const rect = cell.getBoundingClientRect();
+      return !cell.checkVisibility() || rect.top >= innerHeight || rect.bottom <= 0 || cell.dataset.widgetState === 'ready';
+    }));
+    await page.waitForTimeout(150);
     const filename = `${width}-${name}.png`;
     await page.screenshot({ path: path.join(evidence, filename), fullPage: true }); screenshots.push(filename);
   };
@@ -96,7 +101,7 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
             ? { role: 'Sales', goals: ['Outreach and pipeline'], workflows: [{ name: 'Pipeline review', cadence: 'weekly' }], focus: ['tasks', 'routines', 'bots'] }
             : { role: 'Operations manager', goals: ['Daily report', 'Usage review'], workflows: [{ name: 'Daily report', cadence: 'daily' }], focus: ['routines', 'usage', 'apps'] };
           const chatProposal = await proposeChatAdaptation(account.fixture, fields, kind === 'sales' ? 'I run outbound sales. I need follow ups and a weekly pipeline review.' : 'I manage operations. I need a daily report and usage review.');
-          const proposalCard = page.locator('.ui-preview-card').filter({ has: page.getByRole('button', { name: 'Apply', exact: true }) }).last();
+          const proposalCard = page.locator('.ui-preview-card').last();
           await proposalCard.waitFor(); await capture(page, `${kind}-chat-proposal`, width);
           await proposalCard.getByRole('button', { name: 'Apply', exact: true }).click();
           await proposalCard.getByText('Applied', { exact: true }).waitFor();
@@ -105,7 +110,7 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
           await page.goto('/#settings/appearance/use');
           const screen = page.getByRole('region', { name: 'About your use', exact: true }); await screen.waitFor();
           await screen.getByLabel('Role', { exact: true }).fill(kind === 'sales' ? 'Sales' : 'Operations manager');
-          await screen.getByLabel('Goals', { exact: true }).fill(kind === 'sales' ? 'Outreach and pipeline' : 'Daily report\nUsage review');
+          await screen.getByLabel('Goals', { exact: true }).fill(kind === 'sales' ? 'Outreach and pipeline\nWeekly review' : 'Daily report\nUsage review\nTeam reports');
           assert.equal(await screen.getByRole('button', { name: kind === 'sales' ? 'Tasks' : 'Usage', exact: true }).getAttribute('aria-pressed'), 'true');
           const revision = (await request(page, 'GET', '/config')).revision;
           await screen.getByRole('button', { name: 'Save changes', exact: true }).click();
@@ -124,6 +129,10 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
           const config = await request(page, 'GET', '/config');
           fs.writeFileSync(path.join(evidence, `${width}-${kind}-config.json`), JSON.stringify(config, null, 2));
           await capture(page, `${kind}-home`, width);
+          assert.ok(await page.locator('.dashboard-stat, .dashboard-list, .dashboard-empty-data').count());
+          await page.getByText('Suggested Bots', { exact: true }).scrollIntoViewIfNeeded();
+          await capture(page, `${kind}-suggestions`, width);
+          await page.getByRole('heading', { level: 1 }).scrollIntoViewIfNeeded();
           if (width === 390) { await page.getByRole('navigation', { name: 'App navigation', exact: true }).waitFor(); assert.ok(await page.getByRole('button', { name: 'More', exact: true }).isVisible()); }
           assert.deepEqual(errors, []); pass(`${kind} home, navigation and suggestions`, width);
         }
@@ -138,9 +147,9 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
         await capture(salesPage, 'chat-widget-before', width);
         await salesPage.goto(`/#bot/${fixture.fixture.bot.id}`);
         const chat = await proposeChatWidgetEdit(fixture, 'update_widget', {
-          dashboardId: dashboard.id, widgetId: widget.id, set: { span: 12 },
-        }, 'Make the follow ups widget full width.');
-        const chatCard = salesPage.locator('.ui-preview-card').filter({ has: salesPage.getByRole('button', { name: 'Apply', exact: true }) }).last();
+          dashboardId: dashboard.id, widgetId: widget.id, set: { span: 12, rows: 2 },
+        }, 'Make the follow ups widget full width and two rows tall.');
+        const chatCard = salesPage.locator('.ui-preview-card').last();
         await chatCard.waitFor(); await capture(salesPage, 'chat-widget-preview', width);
         await chatCard.getByRole('button', { name: 'Apply', exact: true }).click();
         await chatCard.getByText('Applied', { exact: true }).waitFor();
@@ -148,6 +157,7 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
         await salesPage.getByText('Suggested Bots', { exact: true }).waitFor();
         const edited = await request(salesPage, 'GET', '/config');
         assert.equal(edited.doc.dashboards[0].widgets.find(item => item.id === widget.id).span, 12);
+        assert.equal(edited.doc.dashboards[0].widgets.find(item => item.id === widget.id).rows, 2);
         await salesPage.reload(); await salesPage.getByText('Suggested Bots', { exact: true }).waitFor();
         assert.deepEqual((await request(salesPage, 'GET', '/config')).doc, edited.doc);
         await capture(salesPage, 'chat-widget-after', width);
@@ -155,25 +165,37 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
         pass('chat widget resize previews, applies and persists', width);
         const page = pages.operations; active = page;
         await capture(page, 'operations-before-support', width);
-        // A normal manual edit must survive the next requirements change.
-        await request(page, 'PATCH', '/config', [{ op: 'replace', path: '/layout/sidebar/width', value: 'wide' }], ops.revision);
-        await page.goto('/#settings/appearance/use');
-        const screen = page.getByRole('region', { name: 'About your use', exact: true }); await screen.waitFor();
-        await screen.getByLabel('Role', { exact: true }).fill('Support team'); await screen.getByLabel('Goals', { exact: true }).fill('Response queue');
-        for (const button of await screen.getByRole('button', { pressed: true }).all()) await button.click();
-        for (const name of ['Tasks', 'Chat', 'Team']) await screen.getByRole('button', { name, exact: true }).click();
-        await screen.getByRole('button', { name: 'Save changes', exact: true }).click(); await screen.getByText('Saved', { exact: true }).waitFor();
-        await screen.getByRole('button', { name: 'Re-adapt', exact: true }).click();
-        const card = screen.locator('.ui-preview-card'); await card.getByRole('button', { name: 'Apply', exact: true }).waitFor();
-        await capture(page, 'support-preview', width); await card.getByRole('button', { name: 'Apply', exact: true }).click(); await card.getByText('Applied', { exact: true }).waitFor();
+        // A managed path edited by hand must survive the next requirements change.
+        const handOrder = [...ops.doc.layout.sidebar.order].reverse();
+        await request(page, 'PATCH', '/config', [
+          { op: 'replace', path: '/layout/sidebar/order', value: handOrder },
+          { op: 'replace', path: '/layout/sidebar/width', value: 'wide' },
+        ], ops.revision);
+        await page.goto(`/#bot/${operationsFixture.fixture.bot.id}`);
+        const changed = await proposeChatAdaptation(operationsFixture, { role: 'Support team', goals: ['Response queue'],
+          workflows: [{ name: 'Queue review', cadence: 'daily' }], focus: ['tasks', 'chat', 'team'] }, 'Actually I now lead a support team. I need a daily response queue review.');
+        assert.ok(changed.toolResults.some(item => {
+          try { return JSON.parse(item.output).kept?.some(value => value.path === '/layout/sidebar/order'); } catch { return false; }
+        }), 'The preview reports the hand-edited sidebar order as kept');
+        chatEdits.push({ width, kind: 'support', ...changed });
+        const supportCard = page.locator('.ui-preview-card').last();
+        await supportCard.getByRole('button', { name: 'Apply', exact: true }).waitFor();
+        await capture(page, 'support-preview', width);
+        await supportCard.getByRole('button', { name: 'Apply', exact: true }).click(); await supportCard.getByText('Applied', { exact: true }).waitFor();
         await page.goto('/'); await page.waitForURL(/#dash\//); await page.getByText('Suggested Bots', { exact: true }).waitFor();
         await capture(page, 'support-after', width);
-        const support = await request(page, 'GET', '/config'); assert.equal(support.doc.dashboards[0].name, 'Support queue'); assert.equal(support.doc.layout.sidebar.width, 'wide');
+        const support = await request(page, 'GET', '/config'); assert.equal(support.doc.dashboards[0].name, 'Support queue'); assert.equal(support.doc.layout.sidebar.width, 'wide'); assert.deepEqual(support.doc.layout.sidebar.order, handOrder);
         pass('operations to support preserves a hand edit', width);
-        await page.goto('/#all'); await page.getByRole('heading', { name: 'All sections', exact: true }).waitFor();
+        await page.getByRole('button', { name: width === 390 ? 'More' : 'All sections', exact: true }).click();
+        await page.getByRole('heading', { name: 'All sections', exact: true }).waitFor();
         for (const name of ['Bots', 'Tasks', 'Files', 'Routines', 'Settings']) assert.ok(await page.getByRole('link', { name, exact: true }).count());
         await capture(page, 'all-sections', width); pass('All sections remains reachable', width);
-        await page.goto('/#settings/appearance/use'); await screen.waitFor();
+        await page.goto('/#search'); await page.getByRole('link', { name: 'All sections', exact: true }).click();
+        await page.waitForURL('**/#all'); pass('command palette opens All sections', width);
+        await page.goto('/#settings/appearance/use');
+        const screen = page.getByRole('region', { name: 'About your use', exact: true }); await screen.waitFor();
+        assert.equal(await screen.getByLabel('Role', { exact: true }).inputValue(), 'Support team');
+        const card = screen.locator('.ui-preview-card');
         await screen.getByRole('button', { name: 'Reset', exact: true }).click();
         await card.getByRole('button', { name: 'Apply', exact: true }).waitFor(); await card.getByRole('button', { name: 'Apply', exact: true }).click();
         await card.getByText('Applied', { exact: true }).waitFor();
@@ -187,6 +209,39 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
         // Finish the story on Reset, with the default arrangement visible.
         await screen.getByRole('button', { name: 'Reset', exact: true }).click(); await card.getByRole('button', { name: 'Apply', exact: true }).click(); await card.getByText('Applied', { exact: true }).waitFor();
         await page.goto('/#bots'); await capture(page, 'reset-home', width);
+        if (width === 390) {
+          const expectedRoutes = ROUTES.filter(route => !route.signedOut).map(route => route.hash.replace('{bot}', operationsFixture.fixture.bot.id).replace('{room}', operationsFixture.fixture.room));
+          for (const lens of ['sales', 'operations', 'support', 'engineering', 'research', 'creator', 'general']) {
+            const current = await request(page, 'GET', '/requirements');
+            const updated = await request(page, 'PUT', '/requirements', { patch: [
+              { op: 'add', path: '/role', value: 'Workspace' }, { op: 'add', path: '/lens', value: lens },
+            ] }, current.revision);
+            const proposed = await request(page, 'POST', '/requirements/adapt', {}, updated.revision);
+            const config = await request(page, 'GET', '/config');
+            await request(page, 'POST', `/previews/${proposed.previewId}/apply`, {}, config.revision);
+            await page.goto('/'); await page.waitForURL(/#dash\//);
+            await page.getByRole('button', { name: 'More', exact: true }).click();
+            await page.getByRole('heading', { name: 'All sections', exact: true }).waitFor();
+            const reachability = await page.evaluate(async expected => {
+              const { parseScreen, resolveScreen, screenHash } = await import('/src/lib/navigation.ts');
+              const { useStore } = await import('/src/store.ts');
+              const canonical = hash => { const parsed = parseScreen(hash); return parsed ? screenHash(resolveScreen(parsed, useStore.getState().bots, true)) : null; };
+              const links = [...document.querySelectorAll('[data-layout="page"] a[href]')].map(link => link.getAttribute('href'));
+              return { invalid: links.filter(link => !canonical(link)), missing: expected.filter(hash => !links.some(link => canonical(link) === canonical(hash))), links };
+            }, expectedRoutes);
+            assert.deepEqual(reachability.invalid, []); assert.deepEqual(reachability.missing, []);
+            for (const href of ['#bots', '#tasks', '#reports', '#search', '#new-bot', '#settings/usage', '#settings', '#all/routines']) assert.ok(reachability.links.includes(href), `${lens}: ${href}`);
+            assert.deepEqual(await page.evaluate(inspectAlignment, { selector: '.chat-pane' }), []);
+            await readableWords(page.locator('[data-layout="page"]'));
+            pass(`${lens}: every product route reachable through More in two taps`, width, { routeCount: new Set(expectedRoutes).size, maxTaps: 2 });
+          }
+          // Leave the seeded account at Reset after the reachability property check.
+          const current = await request(page, 'GET', '/requirements');
+          const reset = await request(page, 'DELETE', '/requirements', {}, current.revision);
+          const config = await request(page, 'GET', '/config');
+          await request(page, 'POST', `/previews/${reset.previewId}/apply`, {}, config.revision);
+        }
+
       } catch (error) {
         if (active && !active.isClosed()) await active.screenshot({ path: path.join(evidence, 'failure.png'), fullPage: true });
         throw error;

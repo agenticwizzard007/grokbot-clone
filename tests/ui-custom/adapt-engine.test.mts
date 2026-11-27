@@ -123,3 +123,18 @@ test('All sections cannot be hidden by a patch, while default arrangements stay 
     if (!result.ok) assert.ok(result.errors.some(error => error.code === 'required_item' && error.message.includes('All sections')));
   }
 });
+
+
+test('every lens promotes registered phone routes with immutable access to All sections', () => {
+  for (const lens of LENS_IDS) {
+    const result = ok(adaptFromRequirements(profile({ lens }), DEFAULT_CONFIG)).result;
+    assert.ok(result.layout.phoneTabs.includes('more'));
+    assert.ok(result.layout.phoneTabs.includes('settings'));
+    const removed = previewPatch(result, [{ op: 'replace', path: '/layout/phoneTabs', value: result.layout.phoneTabs.filter(tab => tab !== 'more') }], { ctx: {} });
+    assert.equal(removed.ok, false);
+    if (!removed.ok) assert.equal(removed.errors[0].code, 'required_item');
+    const reset = ok(previewPatch(result, [{ op: 'replace', path: '/layout', value: DEFAULT_CONFIG.layout }], { ctx: {} }));
+    assert.deepEqual(reset.result.layout, DEFAULT_CONFIG.layout);
+  }
+  assert.equal(ok(adaptFromRequirements(profile({ lens: 'operations' }), DEFAULT_CONFIG)).result.layout.phoneTabs[0], 'routines');
+});
