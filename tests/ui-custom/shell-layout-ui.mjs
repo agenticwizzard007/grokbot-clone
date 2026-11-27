@@ -46,7 +46,8 @@ try {
   pass('collapsed preference applies once and manual expansion works');
   await page.route('**/api/ui/config', route => route.fulfill({ status: 304 }));
   await page.evaluate(async () => {
-    const { useCustomization } = await import('/src/customization/store.ts');
+    const { useCustomization, refreshUiConfig } = await import('/src/customization/store.ts');
+    await refreshUiConfig();
     const doc = structuredClone(useCustomization.getState().effective);
     doc.layout.sidebar.order = ['tasks']; doc.layout.sidebar.hidden = ['settings']; doc.layout.phoneTabs = ['tasks'];
     doc.layout.pinned = [{ type: 'bot', id: 'missing' }, { type: 'dashboard', id: 'd_missing1' }];
@@ -63,7 +64,7 @@ try {
   // Restore through the real API so later checks use the regular store path.
   await server.patch([{ op: 'replace', path: '/layout', value: defaults.layout }]);
   await page.setViewportSize({ width: 1280, height: 900 });
-  await server.open(page, `#bot/${server.fixture.bot.id}`); await scan(page);
+  await server.open(page, `#bot/${server.fixture.bot.id}`); await page.locator('.composer__input').waitFor(); await scan(page);
   await preparePbeState(page, 'approval', server.fixture.bot.id);
   await server.patch([{ op: 'add', path: '/components/chat.runLog', value: 'hide' }]);
   await page.getByRole('button', { name: /Run log/ }).waitFor({ state: 'detached' });
@@ -115,6 +116,7 @@ try {
   await server.open(page); await page.waitForURL('**/#bot/**'); pass('default home stays Bots on phone and last chat on desktop');
   await server.patch([{ op: 'replace', path: '/keybindings', value: { search: 'Alt+S', settings: 'Alt+O', goBots: 'Alt+B', goTasks: 'Alt+T', goDashboard1: 'Alt+D' } }]);
   await page.waitForFunction(async () => (await import('/src/lib/shortcuts.ts')).shortcutLabel('search', false) === 'Alt+S');
+  await page.waitForFunction(() => document.querySelector('.sidebar__search')?.getAttribute('title')?.includes('Alt+S'));
   assert.match(await page.locator('.sidebar__search').getAttribute('title'), /Alt\+S/);
   await page.keyboard.press('Control+k'); assert.equal(await page.locator('.search-modal').isVisible(), false);
   await page.keyboard.press('Alt+s'); await page.waitForURL('**/#search');
