@@ -10,6 +10,7 @@ export function allSectionLinks(bots: { id: string; name: string }[], dashboards
   return [
     { group: 'Sections', label: 'Bots', href: '#bots' },
     { group: 'Sections', label: 'Tasks', href: '#tasks' },
+    { group: 'Sections', label: 'Loops', href: '#loops' },
     { group: 'Sections', label: 'Files', href: '#reports' },
     { group: 'Sections', label: 'Team', href: '#team' },
     { group: 'Sections', label: 'Goals', href: '#goals' },
@@ -20,12 +21,14 @@ export function allSectionLinks(bots: { id: string; name: string }[], dashboards
     { group: 'Sections', label: 'Create a group', href: '#new-bot/group' },
     { group: 'Sections', label: 'Set up Swarm', href: '#first-run' },
     { group: 'Settings', label: 'Settings', href: '#settings' },
+    { group: 'Settings', label: 'About your use', href: '#settings/appearance/use' },
     ...APP_SECTIONS.map(id => ({ group: 'Settings', label: SETTINGS_LABELS[id], href: `#settings/${id}` })),
     ...dashboards.map(d => ({ group: 'Dashboards', label: d.name, href: `#dash/${dashboardSlug(d)}` })),
     ...bots.flatMap(bot => {
       const root = `#bot/${botSlug(bot)}`, group = bot.name;
       return [
         { group, label: 'Chat', href: root },
+        { group, label: 'Flow', href: `${root}/details/flow` },
         ...['tasks', 'team', 'goals', 'reports'].map(id => ({ group, label: id === 'reports' ? 'Files' : id[0].toUpperCase() + id.slice(1), href: `${root}/${id}` })),
         ...['activity', 'tasks', 'files', 'files/reports', 'setup', 'setup/responsibilities', 'setup/harness', 'setup/files', 'setup/history'].map(id => ({ group, label: `Details: ${id.replaceAll('/', ' ')}`, href: `${root}/details/${id}` })),
         ...BOT_TABS.map(id => ({ group, label: `Bot settings: ${id}`, href: `${root}/settings/${id}` })),

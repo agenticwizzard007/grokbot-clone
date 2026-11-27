@@ -210,7 +210,7 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
         await screen.getByRole('button', { name: 'Reset', exact: true }).click(); await card.getByRole('button', { name: 'Apply', exact: true }).click(); await card.getByText('Applied', { exact: true }).waitFor();
         await page.goto('/#bots'); await capture(page, 'reset-home', width);
         if (width === 390) {
-          const expectedRoutes = ROUTES.filter(route => !route.signedOut).map(route => route.hash.replace('{bot}', operationsFixture.fixture.bot.id).replace('{room}', operationsFixture.fixture.room));
+          const expectedRoutes = ROUTES.filter(route => !route.signedOut).map(route => route.hash.replace('{bot}', operationsFixture.fixture.bot.id).replace('{room}', operationsFixture.fixture.room)).concat('#loops', `#bot/${operationsFixture.fixture.bot.id}/details/flow`);
           for (const lens of ['sales', 'operations', 'support', 'engineering', 'research', 'creator', 'general']) {
             const current = await request(page, 'GET', '/requirements');
             const updated = await request(page, 'PUT', '/requirements', { patch: [
@@ -230,7 +230,7 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
               return { invalid: links.filter(link => !canonical(link)), missing: expected.filter(hash => !links.some(link => canonical(link) === canonical(hash))), links };
             }, expectedRoutes);
             assert.deepEqual(reachability.invalid, []); assert.deepEqual(reachability.missing, []);
-            for (const href of ['#bots', '#tasks', '#reports', '#search', '#new-bot', '#settings/usage', '#settings', '#all/routines']) assert.ok(reachability.links.includes(href), `${lens}: ${href}`);
+            for (const href of ['#bots', '#tasks', '#loops', '#reports', '#search', '#new-bot', '#settings/usage', '#settings', '#all/routines']) assert.ok(reachability.links.includes(href), `${lens}: ${href}`);
             assert.deepEqual(await page.evaluate(inspectAlignment, { selector: '.chat-pane' }), []);
             await readableWords(page.locator('[data-layout="page"]'));
             pass(`${lens}: every product route reachable through More in two taps`, width, { routeCount: new Set(expectedRoutes).size, maxTaps: 2 });

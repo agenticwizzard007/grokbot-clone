@@ -1,8 +1,8 @@
 import { botSlug, routeBot, linkedWork, workHash, workTabLabel, type WorkRoute } from './userRoutes';
 
-export const APP_SECTIONS = ['general', 'appearance', 'appearance/use', 'keys', 'usage', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions', 'learning'] as const;
+export const APP_SECTIONS = ['general', 'appearance', 'keys', 'usage', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions', 'learning'] as const;
 export const SETTINGS_LABELS: Record<AppSection, string> = {
-  general: 'General', appearance: 'Appearance', 'appearance/use': 'About your use', keys: 'API keys', usage: 'Usage', computer: 'Computer', messaging: 'Messaging',
+  general: 'General', appearance: 'Appearance', keys: 'API keys', usage: 'Usage', computer: 'Computer', messaging: 'Messaging',
   permissions: 'Permissions', apps: 'Connected apps', mcp: 'MCP servers', account: 'Account',
   subscriptions: 'Models & access', learning: 'Learning',
 };
@@ -21,7 +21,7 @@ export type Screen =
   | { kind: 'chat'; bot: string }
   | { kind: 'details'; bot: string; tab: DetailTab; setup?: SetupTab; reports?: boolean; flow?: boolean; link?: string }
   | { kind: 'bot-settings'; bot: string; tab: BotSettingsTab }
-  | { kind: 'settings'; section?: AppSection }
+  | { kind: 'settings'; section?: AppSection; use?: true }
   | { kind: 'work'; route: WorkRoute }
   | { kind: 'create' | 'group' | 'search' | 'apps' | 'first-run' };
 
@@ -44,6 +44,7 @@ export function parseScreen(hash: string): Screen | null {
   if (hash === '#new-bot') return { kind: 'create' };
   if (hash === '#new-bot/group') return { kind: 'group' };
   if (hash === '#search' || hash === '#apps/connect') return { kind: hash === '#search' ? 'search' : 'apps' };
+  if (hash === '#settings/appearance/use') return { kind: 'settings', section: 'appearance', use: true };
   if (/^#settings\/?$/.test(hash)) return { kind: 'settings' };
   const section = hash.replace(/^#(?:settings\/)?/, '').replace(/^whatsapp$/, 'messaging').replace(/^api-keys$/, 'keys');
   if (APP_SECTIONS.includes(section as AppSection)) return { kind: 'settings', section: section as AppSection };
@@ -97,7 +98,7 @@ export function screenHash(screen: Screen): string {
     case 'chat': return `#bot/${encodeURIComponent(screen.bot)}`;
     case 'details': return `#bot/${encodeURIComponent(screen.bot)}/details/${screen.flow ? `flow${screen.link ? `?link=${encodeURIComponent(screen.link)}` : ''}` : ({ activity: 'activity', tasks: 'tasks', library: 'files', configuration: 'setup' })[screen.tab]}${screen.setup ? `/${screen.setup}` : screen.reports ? '/reports' : ''}`;
     case 'bot-settings': return `#bot/${encodeURIComponent(screen.bot)}/settings/${screen.tab}`;
-    case 'settings': return `#settings${screen.section ? `/${screen.section}` : ''}`;
+    case 'settings': return `#settings${screen.section ? `/${screen.section}` : ''}${screen.use ? '/use' : ''}`;
     case 'work': return workHash(screen.route);
     case 'create': return '#new-bot';
     case 'group': return '#new-bot/group';
@@ -121,7 +122,7 @@ export function parentScreen(screen: Screen): Screen | null {
       return { kind: 'chat', bot: screen.bot };
     case 'bot-settings': return { kind: 'chat', bot: screen.bot };
     case 'all': return screen.routines ? { kind: 'all' } : { kind: 'bots' };
-    case 'settings': return screen.section === 'appearance/use' ? { kind: 'settings', section: 'appearance' } : screen.section ? { kind: 'settings' } : null;
+    case 'settings': return screen.use ? { kind: 'settings', section: 'appearance' } : screen.section ? { kind: 'settings' } : null;
     case 'work': return screen.route.botSlug ? { kind: 'work', route: { tab: screen.route.tab } } : null;
     default: return null;
   }
@@ -181,7 +182,7 @@ export function screenTitle(screen: Screen, bots: NavigationBot[] = [], loaded =
     case 'handoff': title = 'Handoff'; break;
     case 'output': title = 'Output'; break;
     case 'chat': title = name; break;
-    case 'settings': title = screen.section ? `Settings · ${SETTINGS_LABELS[screen.section]}` : 'Settings'; break;
+    case 'settings': title = screen.use ? 'Settings · About your use' : screen.section ? `Settings · ${SETTINGS_LABELS[screen.section]}` : 'Settings'; break;
     case 'work': {
       const scoped = screen.route.botSlug && routeBot(screen.route.botSlug, bots);
       const scope = scoped ? `${scoped.name} · ` : screen.route.botSlug && loaded ? 'Bot unavailable · ' : '';

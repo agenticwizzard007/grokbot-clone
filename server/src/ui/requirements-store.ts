@@ -145,7 +145,7 @@ export class RequirementsStore {
       const result = this.ui.undo(userId, 1, 'user'); if (!result.ok) return result;
     } else if (preview?.status === 'pending') this.ui.discardPreview(userId, preview.id);
     const profile = undo.profile ? { ...undo.profile, revision: expected + 1, updatedAt: this.clock(), updatedBy: 'user' as const } : null;
-    const restored: Ledger = undo.state ? { state: undo.state } : {};
+    const restored: Ledger = undo.state ? { state: undo.state, seenRevision: this.ui.get(userId).revision } : {};
     this.db.transaction(() => this.write(userId, profile, expected + 1, 'user', restored, ['Reset undone']))();
     return { ok: true as const, profile, revision: expected + 1, diff: ['Reset undone'] };
   }

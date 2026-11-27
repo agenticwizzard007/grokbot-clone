@@ -148,3 +148,17 @@ test('failed requirements history persistence rolls back the entire profile writ
   assert.throws(() => store.update('a', patch(), 0), /Fixture history failure/);
   assert.equal(store.get('a').revision, 0); assert.equal(store.get('a').profile, null); assert.equal(ui.get('a').revision, 0);
 });
+
+
+test('Undo reset retains history tracking for a hand edit followed by a revert', t => {
+  const { ui, store } = fixture(t); ok(store.update('a', patch(), 0));
+  const first = ok(store.preview('a', store.get('a').revision)); ok(ui.applyPreview('a', first.previewId, 'user')); store.get('a');
+  const reset = ok(store.reset('a', store.get('a').revision)); ok(ui.applyPreview('a', reset.previewId, 'user'));
+  ok(store.undoReset('a', store.get('a').revision, reset.undoToken));
+  const home = ui.get('a').doc.layout.home;
+  ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: { kind: 'tasks' } }], ui.get('a').revision, 'user'));
+  ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: home }], ui.get('a').revision, 'user'));
+  const next = ok(store.preview('a', store.get('a').revision, 'user', 'support'));
+  assert.ok(next.kept.some(item => item.path === '/layout/home'));
+  assert.deepEqual(next.after.layout.home, home);
+});
