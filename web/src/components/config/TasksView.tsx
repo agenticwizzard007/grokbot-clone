@@ -79,6 +79,10 @@ function WorkWorkspace() {
           <div className="work-heading"><h1 id="tasks-heading" ref={pageHeading} tabIndex={-1}>{title === workTabLabel(tab) ? `${scope}${title}` : title}</h1>
             {tab === 'Tasks' && <button type="button" className="btn btn--primary" onClick={() => { const bot = selectedBot ?? bots.find(b => b.isPrimary) ?? bots[0]; if (bot) { prefillComposer(bot.id, 'Create a task: '); openConversation(bot.id); } }} disabled={!bots.length}>Add task</button>}
           </div>
+          {tab === 'Tasks' && counts.needs_input > 0 && <Card tone="warning" className="tasks-needs-input" role="status" data-testid="tasks-needs-input">
+            <span>{counts.needs_input} {counts.needs_input === 1 ? 'task needs' : 'tasks need'} your input</span>
+            <button type="button" className="link-btn" onClick={() => setFilter('needs_input')}>Review</button>
+          </Card>}
           {!heading?.detail && <nav className="work-tabs" aria-label="Work sections">{TABS.map(item => <button key={item} type="button" aria-current={item === tab ? 'page' : undefined} onClick={() => updateContext({ tab: item })}>{workTabLabel(item)}</button>)}</nav>}
           <RosterFeedback />
           {!rosterUnavailable && <>

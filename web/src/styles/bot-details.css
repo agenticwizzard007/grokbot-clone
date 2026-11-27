@@ -25,7 +25,7 @@
 .app .bot-details-pane { flex: 1 1 0; width: 100%; max-width: none; border: 0; }
 .app .bot-details-pane .pb-details { display: block; position: static; width: 100%; height: 100%; padding: 0; border: 0; background: var(--color-bg-pane); overflow-y: auto; scrollbar-gutter: auto; }
 .pb-bot-tabs { display: flex; justify-content: center; gap: var(--space-3); border-bottom: 1px solid var(--color-border); }
-.pb-bot-tabs button { display: flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: var(--control-h); padding: 8px 4px; font-size: 14px; border-bottom: 2px solid transparent; }
+.pb-bot-tabs button { display: flex; flex: 1 1 0; min-width: 0; align-items: center; justify-content: center; gap: var(--space-2); min-height: var(--control-h); padding: 8px 4px; font-size: 14px; border-bottom: 2px solid transparent; }
 .pb-bot-tabs button[aria-current] { color: var(--color-primary); border-bottom-color: var(--color-primary); }
 .pb-activity-stats { display: flex; gap: var(--space-3); }
 .pb-activity-stats > .layout-card { flex: 1 1 0; display: flex; flex-direction: column; gap: var(--space-2); }
@@ -60,7 +60,7 @@
 }
 @media (max-width: 760px) {
   .pb-bot-settings__body { display: block; }
-  .pb-settings-tabs { width: auto; flex-direction: row; flex-wrap: wrap; margin: var(--space-3) var(--space-3) 0; }
+  .pb-settings-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 104px), 1fr)); width: auto; margin: var(--space-3) var(--space-3) 0; }
   .pb-settings-tabs button { border-radius: var(--radius-full); background: var(--color-bg-subtle); }
   .pb-settings-tabs button[aria-current] { color: var(--color-bg-pane); background: var(--color-text-primary); }
   .pb-settings-footer { padding-inline: var(--space-3); }
@@ -90,8 +90,8 @@
 }
 /* Nested legacy controls inherit the shared control geometry during migration. */
 .pb-details [data-layout] button, .pb-bot-settings [data-layout] button, .pb-create [data-layout] button { min-height: var(--control-h); height: auto; }
-.pb-details .agent-config__tabs { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.pb-details .agent-config__tabs button { flex: 1 1 auto; }
+.pb-details.details--page .agent-config__tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 128px), 1fr)); gap: var(--space-2); }
+.pb-details .agent-config__tabs button { min-width: 0; }
 .pb-details .agent-config__content, .pb-details .agent-config__section { min-width: 0; }
 .pb-group.group-create { display: flex; flex-direction: column; gap: var(--space-3); padding: 0; margin: 0; width: 100%; }
 .pb-group .group-create__members { border: 0; padding: 0; margin: 0; }

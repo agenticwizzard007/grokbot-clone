@@ -8,7 +8,7 @@ export async function readableWords(scope) {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const parent = node.parentElement;
-      if (!parent || parent.closest('svg, script, style, [hidden]') || !parent.checkVisibility()) continue;
+      if (!parent || parent.closest('svg, script, style, [hidden], .sr-only') || !parent.checkVisibility()) continue;
       if (parent.scrollWidth > parent.clientWidth + 1) failures.push(`overflow: ${node.textContent.trim()}`);
       for (const word of node.textContent.matchAll(/\S+/g)) {
         const range = document.createRange();

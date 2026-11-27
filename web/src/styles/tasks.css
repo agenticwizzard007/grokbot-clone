@@ -105,7 +105,9 @@
 .app.paper-shell .task-column__filter { display: flex; justify-content: space-between; width: 100%; margin: 0; padding: 0; gap: 4px; text-align: left; }
 .app.paper-shell .task-column .layout-section__header h2 { width: 100%; }
 .app.paper-shell .task-column .layout-section__header { min-height: var(--control-h); }
-.app.paper-shell .task-filters .task-filter { padding-inline: 8px; gap: 4px; }
+.app.paper-shell .task-filters .task-filter { flex: 1 1 0; min-width: 0; justify-content: center; padding-inline: 8px; gap: 4px; }
+.tasks-needs-input { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: 13px; line-height: 18px; }
+.tasks-needs-input > button { flex-shrink: 0; color: inherit; }
 .tasks-empty-title { font: 500 14px/20px var(--font-stack); color: var(--color-text-2); }
 @media (max-width: 760px) {
   .app.paper-shell .task-board.is-filtered .task-column:has(.layout-section__content:empty) { display: flex; }

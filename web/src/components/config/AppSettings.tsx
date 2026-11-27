@@ -95,7 +95,7 @@ function GeneralSection() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const shortcuts = SHORTCUTS.filter(s => !(s.web && isNativeApp));
   return <div className="settings-general">
-    <Section className="settings-appearance" aria-label="Appearance" ><Card variant="list" ><SettingRow icon={Settings2} title="Theme">
+    <Section className="settings-appearance" aria-label="Appearance" footer={<button type="button" className="link-btn settings-diagnostics" aria-expanded={diagnosticsOpen} onClick={() => setDiagnosticsOpen(!diagnosticsOpen)}>Diagnostics</button>}><Card variant="list" ><SettingRow icon={Settings2} title="Theme">
           <Segmented label="Theme" value={theme} onChange={setTheme} options={(['light', 'dark', 'system'] as const).map(t => ({ value: t, label: t === 'system' ? 'Auto' : THEME_LABEL[t] }))} />
         </SettingRow><SettingRow icon={PanelLeftOpen} title="Show details panel">
           <Switch label="Show details panel" on={detailsDefault} onChange={v => { writeDetailsDefault(accountId, v); setDetailsDefault(v); }} />
@@ -103,9 +103,9 @@ function GeneralSection() {
           <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('account')}>Change</button>
         </SettingRow><SettingRow icon={TextCursorInput} title="Keyboard shortcuts">
           <button type="button" className="cfg-btn cfg-btn--secondary" aria-expanded={shortcutsOpen} aria-controls="general-shortcuts" onClick={() => setShortcutsOpen(!shortcutsOpen)}>{shortcutsOpen ? 'Hide' : 'View'}</button>
-        </SettingRow></Card></Section>
+        </SettingRow></Card>
     {shortcutsOpen && <Card variant="list" id="general-shortcuts" className="settings-shortcuts" aria-label="Keyboard shortcuts">{shortcuts.map(shortcut => <SettingRow icon={TextCursorInput} key={shortcut.label} title={shortcut.label}><Keys keys={shortcutKeys(shortcut)} /></SettingRow>)}</Card>}
-    <button type="button" className="link-btn settings-diagnostics" aria-expanded={diagnosticsOpen} onClick={() => setDiagnosticsOpen(!diagnosticsOpen)}>Diagnostics</button>
+    </Section>
     {diagnosticsOpen && <InputLatencyDiagnostics />}
   </div>;
 }

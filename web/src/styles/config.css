@@ -35,7 +35,7 @@
 .cfg-textarea--tall { min-height: 132px; }
 .text-input[aria-invalid='true'] { border-color: var(--color-danger); }
 .cfg-seg { display: inline-flex; align-self: flex-start; padding: 2px; gap: 2px; border-radius: var(--radius-full); background: var(--color-bg-tertiary); box-shadow: var(--color-border-tertiary) 0 0 0 0.5px inset; flex-wrap: wrap; }
-.cfg-seg button { height: 26px; padding: 0 12px; border-radius: var(--radius-full); font-size: 13px; line-height: 18px; color: var(--color-text-secondary); transition: background-color 120ms, color 120ms; }
+.cfg-seg button { flex: 1 1 0; min-width: 0; height: 26px; padding: 0 12px; border-radius: var(--radius-full); font-size: 13px; line-height: 18px; color: var(--color-text-secondary); transition: background-color 120ms, color 120ms; }
 .cfg-seg button:hover { color: var(--color-text-primary); }
 .cfg-seg button.is-active { background: var(--color-bg-elevated); color: var(--color-text-primary); box-shadow: var(--shadow-card); }
 

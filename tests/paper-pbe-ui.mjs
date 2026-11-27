@@ -67,7 +67,9 @@ for(const width of widths)for(const theme of themes) {
   }
   if(name==='tasks' && width>760) assert.equal(await page.locator('.task-column').count(),4,'Four equal desktop columns');
   if(name==='search') { await page.getByText('Files and tasks',{exact:true}).waitFor(); assert.equal(await page.getByRole('option').count(),4); const list = await page.locator('.search-modal__results').boundingBox(); const last = await page.getByRole('option').last().boundingBox(); assert.ok(list.height >= 300 && last.y + last.height <= list.y + list.height + 1, 'Search results are visible inside the panel'); }
-  if ([390,1280].includes(width)) assert.ok(words <= budgets[name][width === 1280 ? 0 : 1], `${name} copy stays within the Paper budget: ${words} words`);
+  // PB-F restores the approved six-word waiting-task notice and Review action.
+  const waitingCopy = name === 'tasks' && await page.getByTestId('tasks-needs-input').isVisible() ? 6 : 0;
+  if ([390,1280].includes(width)) assert.ok(words <= budgets[name][width === 1280 ? 0 : 1] + waitingCopy, `${name} copy stays within the Paper budget: ${words} words`);
   results.push({name,width,theme,words,alignment,labels});
   console.log(`${alignment.length||labels.length?'FAIL':'PASS'} ${name} ${width} ${theme}: ${words} words`,alignment,labels);
   if(screenshots.includes(name)&&([390,1280].includes(width)||(width===320&&theme==='light')))await page.screenshot({path:`${evidence}/${name}-${width}-${theme}.png`});
