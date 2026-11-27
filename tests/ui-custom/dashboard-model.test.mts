@@ -24,7 +24,7 @@ test('all edit actions use guarded patches and enforce array and geometry bounda
     if (action === 'later') assert.equal(result.result.dashboards[0].widgets[1].id, widgets[0].id);
     if (action === 'wider') assert.equal(result.result.dashboards[0].widgets[0].span, 5);
     if (action === 'taller') assert.equal(result.result.dashboards[0].widgets[0].rows, 2);
-    if (action === 'remove') assert.equal(result.result.dashboards[0].widgets.length, 9);
+    if (action === 'remove') assert.equal(result.result.dashboards[0].widgets.length, widgets.length - 1);
   }
   for (const action of ['earlier', 'narrower', 'shorter'] as const) {
     const ops = widgetAction(0, widgets, widgets[2].id, action);

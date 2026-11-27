@@ -25,3 +25,4 @@ import { PRESETS } from './presets.js';
 import { LIMITS } from './schema.js';
 export const REGISTRY = { tokens: TOKENS, fonts: FONTS, components: COMPONENTS, nav: NAV, widgets: WIDGETS, sources: SOURCES, shortcuts: SHORTCUTS, presets: PRESETS, limits: LIMITS };
 export * from './summarize.js';
+export * from './agent-widget.js';

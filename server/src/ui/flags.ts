@@ -22,3 +22,8 @@ export function uiAdaptEnabled(db: Database.Database, userId: string, stage = pr
   for (const char of userId) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
   return hash % 100 < 10;
 }
+
+export function uiAgentWidgetsEnabled(db: Database.Database, userId: string, globalFlag = process.env.UI_AGENT_WIDGETS): boolean {
+  const row = db.prepare('SELECT ui_agent_widgets FROM account_preferences WHERE user_id=?').get(userId) as { ui_agent_widgets: number | null } | undefined;
+  return row?.ui_agent_widgets == null ? globalFlag !== 'off' : row.ui_agent_widgets === 1;
+}

@@ -8,7 +8,7 @@ import { SOURCE_IDS, SOURCE_PARAMS, SOURCES, botIdSchema } from './registry-sour
 import { WIDGET_TYPES, WIDGET_OPTIONS, WIDGETS, DASHBOARD_ICONS, plainText } from './registry-widgets.js';
 import { jsonSize } from './errors.js';
 
-export const LIMITS = { documentBytes: 256 * 1024, warningBytes: 128 * 1024, dashboards: 12, widgets: 24, dashboardName: 40, widgetTitle: 60, note: 2000, pinned: 8, keybindings: 24, patchOps: 100, patchBytes: 64 * 1024, depth: 12, presets: 20, history: 50, historyDays: 90, previewTtlMs: 15 * 60 * 1000 } as const;
+export const LIMITS = { documentBytes: 256 * 1024, warningBytes: 128 * 1024, dashboards: 12, widgets: 24, agentWidgets: 12, dashboardName: 40, widgetTitle: 60, note: 2000, pinned: 8, keybindings: 24, patchOps: 100, patchBytes: 64 * 1024, depth: 12, presets: 20, history: 50, historyDays: 90, previewTtlMs: 15 * 60 * 1000 } as const;
 export const hexColorSchema = z.string().regex(/^#[\da-f]{6}$/i).transform(s => s.toUpperCase());
 export const dashboardIdSchema = z.string().regex(/^d_[a-z0-9]{8}$/);
 export const widgetIdSchema = z.string().regex(/^w_[a-z0-9]{8}$/);
@@ -49,7 +49,7 @@ export const widgetSchema = z.object({
     if (widget.type === 'stat' && ['needsYou.list', 'bots.status'].includes(widget.source.id) && value !== 'count' && key === 'field') ctx.addIssue({ code: 'custom', path: ['options', key], message: 'Use count for this list source.' });
   }
 });
-export const dashboardSchema = z.object({ id: dashboardIdSchema, name: plainText(40, 1), icon: z.enum(DASHBOARD_ICONS), description: plainText(200).optional(), widgets: z.array(widgetSchema).max(LIMITS.widgets) }).strict();
+export const dashboardSchema = z.object({ id: dashboardIdSchema, name: plainText(40, 1), icon: z.enum(DASHBOARD_ICONS), description: plainText(200).optional(), widgets: z.array(widgetSchema).max(LIMITS.widgets) }).strict().refine(d => d.widgets.filter(w => w.type === 'agent').length <= LIMITS.agentWidgets, { path: ['widgets'], message: 'Use at most 12 agent widgets per dashboard.', params: { code: 'limit_exceeded' } });
 export const uiConfigShape = z.object({
   $schema: z.literal('/api/ui/schema').optional(), version: z.literal(1), preset: z.string().regex(/^(?:swarm|midnight|paper|forest|contrast|focus|calm|colorblind|p_[a-z0-9]{8})$/),
   theme: themeSchema, layout: layoutSchema, components: z.partialRecord(z.enum(COMPONENT_IDS), z.enum(['show', 'hide', 'collapsed'])),
