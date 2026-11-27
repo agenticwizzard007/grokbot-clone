@@ -34,12 +34,35 @@ async function capture(page, name, width, theme, selector) {
       if (width <= 760) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1, 'One Back control');
     }
     await readableWords(root);
+    const typeIssues = await root.evaluate(root => {
+      const requirements = [
+        ['.dashboard-list-title, .dashboard-library-item strong, .dashboard-field, .dashboard-empty-data p, .appearance-settings .layout-row__title', 14],
+        ['.dashboard-list-meta, .dashboard-library-item > span, .appearance-settings .layout-row__subtitle, .appearance-helper', 13],
+        ['.dashboard-chart-values, .dashboard-chart-labels, .dashboard-chart-legend', 12],
+      ];
+      const issues = [];
+      const rgb = value => { const values = value.match(/[\d.]+/g)?.map(Number); return values?.length >= 3 ? values : null; };
+      const luminance = channels => channels.slice(0, 3).map(value => value / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4).reduce((sum, value, i) => sum + value * [.2126, .7152, .0722][i], 0);
+      for (const [selector, minimum] of requirements) for (const el of root.querySelectorAll(selector)) {
+        if (!el.checkVisibility()) continue;
+        const style = getComputedStyle(el);
+        if (parseFloat(style.fontSize) < minimum) issues.push(`${el.textContent}: below ${minimum}px`);
+        const ink = rgb(style.color); let surface = el, background;
+        while (surface) { const candidate = rgb(getComputedStyle(surface).backgroundColor); if (candidate && (candidate[3] ?? 1) === 1) { background = candidate; break; } surface = surface.parentElement; }
+        if (ink && background) {
+          const a = luminance(ink), b = luminance(background), ratio = (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+          if (ratio < 4.5) issues.push(`${el.textContent}: contrast ${ratio.toFixed(2)}`);
+        }
+      }
+      return issues;
+    });
+    assert.deepEqual(typeIssues, [], `${name}: readable type and contrast`);
     const switches = await root.locator('[role="switch"]').evaluateAll(elements => elements.map(el => {
       const knob = el.querySelector('.toggle__knob').getBoundingClientRect(), target = el.getBoundingClientRect();
       return knob.left >= target.left && knob.right <= target.right && knob.top >= target.top && knob.bottom <= target.bottom && knob.width === 20;
     }));
     assert.ok(switches.every(Boolean), `${name}: switch knobs stay inside their targets`);
-    checks.push(`${name} ${width} ${theme}: alignment, touch targets and clean visible text`);
+    checks.push(`${name} ${width} ${theme}: alignment, typography, contrast, touch targets and clean visible text`);
   }
 }
 try {
