@@ -1,5 +1,8 @@
 import type { ServerEvent } from '@shared/types';
 import { useStore } from '../store';
+import { handleUiEvent, refreshUiConfig } from '../customization/store.js';
+import { parseScreen } from './navigation';
+import { routeBot } from './userRoutes';
 import { createSseWatchdog } from './sseWatchdog';
 import { revalidateSession, sessionExpired } from './session';
 
@@ -16,6 +19,7 @@ export function startEvents(): () => void {
 
   const resync = () => {
     const st = useStore.getState();
+    void refreshUiConfig();
     st.loadBots({ silent: true }).catch(() => {});
     st.loadComputer().catch(() => {});
     const cached = new Set([...Object.keys(st.transcripts), ...Object.keys(st.routines)]);
@@ -56,6 +60,10 @@ export function startEvents(): () => void {
         // A proxy can accept headers/hello, then immediately reset the stream.
         // Keep backoff until a heartbeat interval of actual delivery has survived.
         if (Date.now() - openedAt >= 10_000) retry = 1000;
+        if (event.type === 'ui_config' || event.type === 'ui_preview') {
+          const state = useStore.getState(), screen = parseScreen(window.location.hash);
+          void handleUiEvent(event, screen?.kind === 'chat' ? routeBot(screen.bot, state.bots)?.id ?? null : null);
+        }
         useStore.getState().handleEvent(event);
       } catch (e) { console.warn('bad event', e); }
     };

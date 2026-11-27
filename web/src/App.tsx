@@ -1,3 +1,5 @@
+import { PreviewBanner, AppearanceUndo } from './customization/PreviewBanner';
+import { SafeModeBanner } from './customization/SafeModeBanner';
 import { lazy, Suspense, useEffect } from 'react';
 import { installOverlayScrollbars } from './lib/overlayScrollbars';
 import { useStore } from './store';
@@ -61,5 +63,5 @@ export function App() {
     </main>
   );
   if (!authChecked) return <div className="boot" />;
-  return user ? <Suspense fallback={<div className="boot" role="status">Loading...</div>}><AuthenticatedShell key={user.id} /></Suspense> : <SignIn />;
+  return user ? <><SafeModeBanner /><PreviewBanner /><AppearanceUndo /><Suspense fallback={<div className="boot" role="status">Loading...</div>}><AuthenticatedShell key={user.id} /></Suspense></> : <SignIn />;
 }

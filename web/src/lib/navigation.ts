@@ -1,8 +1,8 @@
 import { botSlug, routeBot, linkedWork, workHash, workTabLabel, type WorkRoute } from './userRoutes';
 
-export const APP_SECTIONS = ['general', 'keys', 'usage', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions', 'learning'] as const;
+export const APP_SECTIONS = ['general', 'appearance', 'keys', 'usage', 'computer', 'messaging', 'permissions', 'apps', 'mcp', 'account', 'subscriptions', 'learning'] as const;
 export const SETTINGS_LABELS: Record<AppSection, string> = {
-  general: 'General', keys: 'API keys', usage: 'Usage', computer: 'Computer', messaging: 'Messaging',
+  general: 'General', appearance: 'Appearance', keys: 'API keys', usage: 'Usage', computer: 'Computer', messaging: 'Messaging',
   permissions: 'Permissions', apps: 'Connected apps', mcp: 'MCP servers', account: 'Account',
   subscriptions: 'Models & access', learning: 'Learning',
 };
@@ -13,6 +13,7 @@ export type DetailTab = 'activity' | 'tasks' | 'library' | 'configuration';
 export type SetupTab = 'responsibilities' | 'harness' | 'files' | 'history';
 export type Screen =
   | { kind: 'bots' }
+  | { kind: 'dash'; dashboard: string }
   | { kind: 'chat'; bot: string }
   | { kind: 'details'; bot: string; tab: DetailTab; setup?: SetupTab; reports?: boolean }
   | { kind: 'bot-settings'; bot: string; tab: BotSettingsTab }
@@ -31,6 +32,10 @@ export function parseScreen(hash: string): Screen | null {
   const section = hash.replace(/^#(?:settings\/)?/, '').replace(/^whatsapp$/, 'messaging').replace(/^api-keys$/, 'keys');
   if (APP_SECTIONS.includes(section as AppSection)) return { kind: 'settings', section: section as AppSection };
   if (hash.startsWith('#settings/')) return { kind: 'settings' };
+  const dashboard = hash.match(/^#dash\/([^/]{1,256})$/);
+  if (dashboard) {
+    try { const reference = decodeURIComponent(dashboard[1]); return /^[a-z0-9][a-z0-9_-]*$/i.test(reference) ? { kind: 'dash', dashboard: reference } : null; } catch { return null; }
+  }
   const work = linkedWork(hash);
   if (work) return { kind: 'work', route: work };
   const match = hash.match(/^#bot\/([^/]{1,256})(?:\/(.*))?$/);
@@ -59,6 +64,7 @@ export function screenHash(screen: Screen): string {
   switch (screen.kind) {
     case 'first-run': return '#first-run';
     case 'bots': return '#bots';
+    case 'dash': return `#dash/${encodeURIComponent(screen.dashboard)}`;
     case 'chat': return `#bot/${encodeURIComponent(screen.bot)}`;
     case 'details': return `#bot/${encodeURIComponent(screen.bot)}/details/${({ activity: 'activity', tasks: 'tasks', library: 'files', configuration: 'setup' })[screen.tab]}${screen.setup ? `/${screen.setup}` : screen.reports ? '/reports' : ''}`;
     case 'bot-settings': return `#bot/${encodeURIComponent(screen.bot)}/settings/${screen.tab}`;
@@ -74,7 +80,7 @@ export function screenHash(screen: Screen): string {
 /** Structural parents never depend on how a screen was opened. */
 export function parentScreen(screen: Screen): Screen | null {
   switch (screen.kind) {
-    case 'first-run': case 'chat': case 'create': return { kind: 'bots' };
+    case 'first-run': case 'chat': case 'create': case 'dash': return { kind: 'bots' };
     case 'group': return { kind: 'create' };
     case 'details':
       if (screen.reports) return { kind: 'details', bot: screen.bot, tab: 'library' };
@@ -115,7 +121,7 @@ export function backLabel(screen: Screen, bots: NavigationBot[] = []): string {
   if (screen.kind === 'details') return screen.tab === 'library' ? 'Back to files' : screen.tab === 'configuration' ? 'Back to setup' : 'Back to details';
   const names: Record<Screen['kind'], string> = {
     'first-run': 'model setup',
-    work: 'Tasks', details: 'details', bots: 'Bots', create: 'create a Bot', group: 'new group chat',
+    dash: 'dashboard', work: 'Tasks', details: 'details', bots: 'Bots', create: 'create a Bot', group: 'new group chat',
     'bot-settings': 'Bot settings', settings: 'Settings', chat: 'chat', search: 'search', apps: 'apps',
   };
   return `Back to ${names[screen.kind]}`;
@@ -133,6 +139,7 @@ export function screenTitle(screen: Screen, bots: NavigationBot[] = [], loaded =
   let title: string;
   switch (screen.kind) {
     case 'bots': title = 'Bots'; break;
+    case 'dash': title = 'Dashboard'; break;
     case 'chat': title = name; break;
     case 'settings': title = screen.section ? `Settings · ${SETTINGS_LABELS[screen.section]}` : 'Settings'; break;
     case 'work': {
@@ -277,3 +284,12 @@ export const navigationActions: {
   details?: (open: boolean) => void;
   list?: () => void;
 } = {};
+
+/** A stable id or a readable slug ending in that id resolves within the current user's document. */
+export function dashboardSlug(dashboard: { id: string; name: string }): string {
+  const name = dashboard.name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return `${name ? `${name}-` : ''}${dashboard.id}`;
+}
+export function routeDashboard<T extends { id: string; name: string }>(reference: string, dashboards: readonly T[]): T | undefined {
+  return dashboards.find(dashboard => reference === dashboard.id || reference === dashboardSlug(dashboard) || reference.endsWith(`-${dashboard.id}`));
+}

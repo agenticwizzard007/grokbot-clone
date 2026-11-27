@@ -6,7 +6,7 @@ const classes = (...values: (string | undefined | false)[]) => values.filter(Boo
 
 /** The width describes the content column, excluding symmetric page gutters. */
 export function Page({ type = 'form', title, helper, children, className, ...props }: Omit<Props, 'title'> & {
-  type?: 'form' | 'list' | 'chat'; title?: ReactNode; helper?: ReactNode;
+  type?: 'form' | 'list' | 'chat' | 'wide'; title?: ReactNode; helper?: ReactNode;
 }) {
   return <div {...props} data-layout="page" data-page-type={type} className={classes('layout-page', className)}>
     <div className="layout-page__content">
