@@ -29,6 +29,8 @@ import { Copy } from 'lucide-react';
 import { toast } from '../lib/toast';
 import { stepApprovalOutcome } from '../lib/stepApproval';
 import { savedFileResult, savedFileLinksByMessage } from '../lib/savedFiles';
+import { HandoffRow, type HandoffRowBody } from '../handoffs/HandoffRow';
+import type { ReactNode } from 'react';
 
 type Item =
   | { kind: 'exchange'; key: string; group: ExchangeGroup }
@@ -210,6 +212,8 @@ function Steps({ rows, visibility }: { rows: Row[]; visibility: ComponentVisibil
 const SystemRow = memo(function SystemRow({ row }: { row: Row }) {
   const clean = useDisplayText();
   const b = row.body;
+  const receipt = row.kind === 'handoff' ? b as unknown as HandoffRowBody : undefined;
+  const otherBotName = useStore(state => state.bots.find(bot => bot.id === receipt?.otherBotId)?.name);
   const [retrying, setRetrying] = useState(false);
   const [retried, setRetried] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -226,7 +230,8 @@ const SystemRow = memo(function SystemRow({ row }: { row: Row }) {
     } catch (error) { setRetryError((error as Error).message); }
     finally { setRetrying(false); }
   };
-  if (b.type === 'event') return <div className="system-event" data-row-seq={row.seq}>{clean(b.text)}</div>;
+  if (receipt) return <div data-row-seq={row.seq}><HandoffRow body={receipt} otherBotName={otherBotName} /></div>;
+  if (b.type === 'event') return <div className="system-event" data-row-seq={row.seq}>{clean(b.text)}{b.ref?.startsWith('#loop/') && <a href={b.ref.split('?')[0]}>View loop</a>}</div>;
   if (b.type === 'notice') return <Card className={`notice is-${b.tone ?? 'info'}`} data-row-seq={row.seq} data-recovery-job={b.recovery?.jobId}>
     <div>{b.text === 'Stopped.' ? 'Request interrupted. Send again to retry.' : clean(b.text)}</div>
     {b.credits && <div className="credit-notice">
@@ -254,12 +259,12 @@ const recoveryStatus: Record<ToolCallBody['status'], string> = {
   interrupted: 'Interrupted before dispatch', queued: 'Queued', running: 'Running', 'awaiting-approval': 'Waiting for approval',
 };
 
-interface Props { bot: Bot; generation: number; rows: Row[]; live: LiveState | undefined; loaded: boolean }
+interface Props { bot: Bot; generation: number; rows: Row[]; live: LiveState | undefined; loaded: boolean; messageActions?: (row: Row) => ReactNode }
 
 // Card anchors use display: contents, so their child owns the visible rectangle.
 const rowRect = (anchor: HTMLElement) => (anchor.style.display === 'contents' && anchor.firstElementChild ? anchor.firstElementChild : anchor).getBoundingClientRect();
 
-export const Transcript = memo(function Transcript({ bot, generation, rows, live, loaded }: Props) {
+export const Transcript = memo(function Transcript({ bot, generation, rows, live, loaded, messageActions }: Props) {
   const runLog = useComponentVisible('chat.runLog');
   const scrollRef = useRef<HTMLDivElement>(null);
   const readingPosition = useRef<{ seq: string; top: number } | null>(null);
@@ -455,7 +460,7 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
                   {it.runRows && <Steps rows={it.runRows} visibility={runLog} />}
                   {it.from && it.from.kind !== 'bot' && <SenderLabel from={it.from} />}
                   {it.rows.map((r, i) => (
-                    <Fragment key={r.seq}><Bubble row={r} side={it.side} botName={bot.name} pos={cornerClass(i, it.rows.length)} savedFileLinks={savedFileLinks.get(r.seq)} /></Fragment>
+                    <Fragment key={r.seq}><Bubble row={r} side={it.side} botName={bot.name} pos={cornerClass(i, it.rows.length)} savedFileLinks={savedFileLinks.get(r.seq)} />{r.body.type === 'message' && r.body.role === 'assistant' && !r.body.streaming && messageActions?.(r)}</Fragment>
                   ))}
                 </div>
               );

@@ -22,6 +22,7 @@ import { backLabel, parentScreen, parseScreen, routeDashboard, screenTitle } fro
 import { Modal } from './components/modals/Modal';
 import { BotAvatarFor } from './avatar/BotAvatar';
 import { routeBot } from './lib/userRoutes';
+import { HandoffRoutes, type HandoffScreen } from './App';
 
 import './styles/shell.css';
 import './styles/chat.css';
@@ -139,6 +140,7 @@ function Shell() {
       <div className="chat-pane" data-ui-id="tasks.filters" data-ui-visibility={taskFilters}>
       <Suspense fallback={view === 'chat' && !botSettings && !modal ? <ChatSkeleton /> : <main className="chat chat--empty" role="status">Loading...</main>}>
         {rosterUnavailable && view !== 'tasks' ? <main className="boot boot--data"><RosterFeedback /></main>
+          : ['loops', 'loop', 'handoff', 'output'].includes(screen.kind) ? <HandoffRoutes screen={screen as HandoffScreen} />
           : screen.kind === 'dash' ? <DashboardView dashboardId={dashboard?.id ?? screen.dashboard} />
           : screen.kind === 'first-run' ? <FirstRun />
           : modal === 'create' ? <CreateBotModal inline />

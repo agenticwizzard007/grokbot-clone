@@ -48,6 +48,11 @@ import { flowApi } from './flow/routes.js';
 import { configureFlowRefresh } from './flow/summary.js';
 import { recordFlowConnections } from './flow/cache.js';
 import { enqueueSystemRequest } from './coordination/requests.js';
+import { handoffTasksApi } from './handoffs/tasks.js';
+import { ownBot as ownHandoffBot, requireEnabled, missing, sha256 } from './handoffs/db.js';
+import { HandoffError } from './handoffs/errors.js';
+import { saveOutput } from './handoffs/outputs.js';
+import { messageRefSchema } from './handoffs/handoff-service.js';
 
 configureFlowRefresh(enqueueSystemRequest);
 
@@ -160,7 +165,33 @@ for (const path of ['/outputs/*', '/handoffs', '/handoffs/*', '/handoff-settings
     }
   });
 }
+// A room message belongs to its speaking member. Preserve that producer when
+// snapshotting the message so the normal handoff membership checks still apply.
+api.post('/outputs/from-message', apiBodyLimit, async (c, next) => {
+  const parsed = await readJson(c, messageRefSchema); if (!parsed.ok) return parsed.response;
+  const { botId, generation, seq } = parsed.data, userId = c.get('user').id;
+  try {
+    requireEnabled(userId);
+    const bot = ownHandoffBot(userId, botId);
+    if (bot.kind !== 'room') return next();
+    const stored = db.prepare("SELECT body FROM rows WHERE bot_id=? AND generation=? AND seq=? AND kind='message'").get(botId, generation, seq) as { body: string } | undefined;
+    if (!stored) missing();
+    const message = JSON.parse(stored!.body);
+    if (message.role !== 'assistant' || message.audience === 'internal' || message.streaming || message.from?.kind !== 'bot'
+      || !JSON.parse(bot.members ?? '[]').includes(message.from.id)) missing();
+    const producer = ownHandoffBot(userId, message.from.id);
+    if (producer.kind === 'room') missing();
+    const text = typeof message.text === 'string' ? message.text : '';
+    c.header('Cache-Control', 'private, no-store');
+    return c.json(saveOutput({ userId, botId: producer.id, body: text, source: 'message', final: true,
+      sourceKey: `room-message:${botId}:${generation}:${seq}:${sha256(text)}` }));
+  } catch (error) {
+    if (error instanceof HandoffError) return c.json({ error: error.message, code: error.code }, error.status as 400 | 404 | 409 | 422 | 503);
+    throw error;
+  }
+});
 api.route('/', handoffsApi);
+api.route('/', handoffTasksApi);
 api.route('/', flowApi);
 
 // ---------- events (SSE) ----------
@@ -356,7 +387,7 @@ api.post('/bots/:id/setup/activate', async (c) => {
 api.post('/bots/:id/setup/skip', async (c) => {
   const userId = c.get('user').id;
   const botId = c.req.param('id');
-  const bot = ownBot(userId, botId);
+  const bot = ownHandoffBot(userId, botId);
   if (!bot || bot.kind === 'room' || bot.hidden) return c.json({ error: 'not found' }, 404);
   const setup = getSetup(botId);
   if (!setup || setup.onboarding.status === 'active') return c.json({ error: 'This Bot is already active.' }, 409);
@@ -830,7 +861,7 @@ api.get('/apps/callback', async (c) => {
       if (ok) await connectionsDetail(userId, { details: true }).then(accounts => snapshotFlowConnections(userId, accounts)).catch(() => {});
       hub.emit(userId, { type: 'connections' });
       if (botId && ownBot(userId, botId)) {
-        const bot = ownBot(userId, botId);
+        const bot = ownHandoffBot(userId, botId);
         if (seq && bot && bot.generation === Number(c.req.query('generation'))) {
           const row = getRow(botId, seq);
           if (row?.body.type === 'card' && row.body.card === 'connect' && row.body.toolkit === slug &&

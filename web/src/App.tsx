@@ -7,8 +7,9 @@ import { SignIn } from './components/SignIn';
 import { installVoiceEntry } from './voice/entry';
 import { consumeSignedInRedirect } from './lib/signedIn';
 import { navigation, useConfigUI } from './configStore';
-import { parentScreen, type Screen } from './lib/navigation';
-import { startEvents } from './lib/events';
+import { parentScreen, parseScreen, type Screen } from './lib/navigation';
+// Load the Flow bridge before the roster so its cold-link bootstrap runs once.
+import { notifyFlow } from './flow/api';
 import type { RunOutput } from './handoffs/api';
 import type { LoopDraft } from './handoffs/loops/LoopSheet';
 
@@ -20,18 +21,14 @@ const HandoffDetail = lazy(() => import('./handoffs/HandoffDetail').then(m => ({
 const OutputViewer = lazy(() => import('./handoffs/OutputViewer').then(m => ({ default: m.OutputViewer })));
 const SendSheet = lazy(() => import('./handoffs/SendSheet').then(m => ({ default: m.SendSheet })));
 const LoopSheet = lazy(() => import('./handoffs/loops/LoopSheet'));
-type HandoffScreen = Extract<Screen, { kind: 'loops' | 'loop' | 'handoff' | 'output' }>;
+export type HandoffScreen = Extract<Screen, { kind: 'loops' | 'loop' | 'handoff' | 'output' }>;
 
-/** Route boundary stays here until the customization shell mount is available. */
-function HandoffRoutes({ screen }: { screen: HandoffScreen }) {
+/** The shell owns navigation, authentication and the single Back control. */
+export function HandoffRoutes({ screen }: { screen: HandoffScreen }) {
   const bots = useStore(state => state.bots);
   const [send, setSend] = useState<RunOutput | null>(null);
   const [loop, setLoop] = useState<LoopDraft | null>(null);
   const [error, setError] = useState('');
-  useEffect(() => {
-    void useStore.getState().loadBots().catch(() => {});
-    return startEvents();
-  }, []);
   useEffect(() => {
     setSend(null); setLoop(null); setError('');
     if (screen.kind !== 'output' || !screen.send) return;
@@ -46,11 +43,12 @@ function HandoffRoutes({ screen }: { screen: HandoffScreen }) {
     const { newLoopSpec } = await import('./handoffs/loops/LoopSheet');
     setLoop(newLoopSpec(output.botId, '', `swarm://output/${output.id}`));
   };
-  return <main className="paper-shell" style={{ height: '100dvh', overflowY: 'auto' }}>
+  return <main className="ho-route" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+    <style>{'.ho-route .ho-back { display: none; }'}</style>
     {error && <p role="alert">{error}</p>}
     <Suspense fallback={<div className="boot" role="status">Loading...</div>}>
-      {screen.kind === 'loops' && <LoopsPage onBack={back} onOpen={id => navigation.navigate({ kind: 'loop', id })} usageTracked={false} />}
-      {screen.kind === 'loop' && <LoopRun id={screen.id} onBack={back} />}
+      {screen.kind === 'loops' && <LoopsPage showBack={false} onBack={back} onOpen={id => navigation.navigate({ kind: 'loop', id })} usageTracked={false} />}
+      {screen.kind === 'loop' && <LoopRun id={screen.id} showBack={false} onBack={back} />}
       {screen.kind === 'handoff' && <HandoffDetail handoffId={screen.id} onBack={back} onSend={setSend} />}
       {screen.kind === 'output' && <OutputViewer outputId={screen.id} partId={screen.part} onBack={back} onSend={setSend} onStartLoop={output => void startLoop(output)} />}
       {send && <SendSheet open senderId={send.botId} output={send} onClose={() => setSend(null)} onSent={handoff => navigation.navigate({ kind: 'handoff', id: handoff.id })} onLoopStarted={id => navigation.navigate({ kind: 'loop', id })} />}
@@ -63,11 +61,41 @@ function AuthenticatedApp() {
   // Every applied route publishes ConfigUI state, including browser history restores.
   useConfigUI();
   const userId = useStore(state => state.user?.id);
+  // Keep HO-G's local Flow adapter on the shared history trail until its
+  // standalone header and hash adapter can be removed by that workstream.
+  useEffect(() => {
+    const restore = (event: Event) => {
+      const screen = parseScreen(location.hash);
+      if (screen?.kind !== 'details' || !screen.flow) return;
+      const entry = history.state?.swarmNavigation, previous = parseScreen(entry?.hash ?? '');
+      if (event.type === 'swarm:flow-location' && previous?.kind === 'details' && previous.tab === 'activity' && !previous.flow) {
+        history.replaceState({ ...history.state, swarmNavigation: { ...entry, hash: location.hash } }, '');
+      }
+      navigation.restore();
+    };
+    const back = (event: MouseEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest('.flow-header .shell-back')) return;
+      const screen = navigation.screen;
+      if (screen?.kind !== 'details' || !screen.flow) return;
+      event.preventDefault(); event.stopPropagation();
+      navigation.back(parentScreen(screen) ?? { kind: 'bots' });
+    };
+    window.addEventListener('popstate', restore, true);
+    window.addEventListener('hashchange', restore, true);
+    window.addEventListener('swarm:flow-location', restore);
+    document.addEventListener('click', back, true);
+    return () => {
+      window.removeEventListener('popstate', restore, true);
+      window.removeEventListener('hashchange', restore, true);
+      window.removeEventListener('swarm:flow-location', restore);
+      document.removeEventListener('click', back, true);
+    };
+  }, [userId]);
   useEffect(() => {
     const refresh = (message: Event) => {
       const event = (message as CustomEvent).detail;
-      if (event?.type === 'flow') useConfigUI.getState().bump(`flow:${event.botId}`);
-      if (event?.type === 'reconnect') for (const bot of useStore.getState().bots) useConfigUI.getState().bump(`flow:${bot.id}`);
+      if (event?.type === 'flow') notifyFlow(event.botId);
+      if (event?.type === 'reconnect') for (const bot of useStore.getState().bots) notifyFlow(bot.id);
     };
     window.addEventListener('swarm:event', refresh);
     return () => window.removeEventListener('swarm:event', refresh);
@@ -118,9 +146,7 @@ function AuthenticatedApp() {
     window.addEventListener('hashchange', focus);
     return () => { cancel(); window.removeEventListener('swarm:flow-focus', focus); window.removeEventListener('popstate', focus); window.removeEventListener('hashchange', focus); };
   }, [userId]);
-  const screen = navigation.screen;
-  return screen && ['loops', 'loop', 'handoff', 'output'].includes(screen.kind)
-    ? <HandoffRoutes screen={screen as HandoffScreen} /> : <AuthenticatedShell />;
+  return <AuthenticatedShell />;
 }
 
 export function App() {
