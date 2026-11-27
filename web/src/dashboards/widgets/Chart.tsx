@@ -5,7 +5,7 @@ export default function Chart({ widget, data }: WidgetProps) {
   if (!rows.length || !data?.count) return <Empty text="No activity in this period." />;
   const fields = widget.source?.id === 'tasks.series' ? ['created', 'done'] : ['value'];
   const values = fields.map(field => rows.map(row => typeof row[field] === 'number' && Number.isFinite(row[field]) ? Math.max(0, Number(row[field])) : 0));
-  const max = Math.max(1, ...values.flat()), width = 480, height = 160, step = width / Math.max(1, rows.length);
+  const max = Math.max(...values.flat()) || 1, width = 480, height = 160, step = width / Math.max(1, rows.length);
   const y = (value: number) => height - value / max * (height - 12);
   return <div className="dashboard-chart">
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${widgetLabel(widget)}. Data table follows.`} preserveAspectRatio="none">

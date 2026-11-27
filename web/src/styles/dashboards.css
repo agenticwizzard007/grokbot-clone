@@ -1,4 +1,4 @@
-.dashboard-page { min-width: 0; }
+.dashboard-page { min-width: 0; color: var(--color-text-primary); }
 .dashboard-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .dashboard-heading > div { min-width: 0; }
 .dashboard-heading h1 { margin: 0; font: 600 var(--text-page-title)/var(--line-title) var(--font-heading); }
@@ -7,12 +7,14 @@
 .dashboard-page :is(h1,h2,h3,p,span,a,button,label,td,th,strong,output), .dashboard-dialog :is(label,button,span,strong) { overflow-wrap: anywhere; white-space: normal; text-overflow: clip; }
 .dashboard-grid { display: grid; grid-template-columns: repeat(12,minmax(0,1fr)); grid-auto-rows: minmax(88px,auto); gap: 16px; align-items: stretch; min-width: 0; }
 .dashboard-grid-slot { grid-column: span var(--widget-span); grid-row: span var(--widget-rows); min-width: 0; min-height: calc(var(--widget-rows) * 88px + (var(--widget-rows) - 1) * 16px); }
+.dashboard-grid-slot > .layout-section__content { height: 100%; flex: 1; min-height: 0; }
 .dashboard-widget-cell { display: flex; flex-direction: column; gap: 8px; height: 100%; min-width: 0; }
 .dashboard-widget { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; position: relative; }
 .dashboard-widget > h2 { margin: 0; flex: 0 0 auto; font: 600 14px/20px var(--font-stack); color: var(--color-text-primary); }
 .dashboard-widget-body { min-width: 0; flex: 1; }
 .dashboard-widget-body--scroll { min-height: 0; overflow: auto; max-height: calc(var(--widget-rows) * 88px + (var(--widget-rows) - 1) * 16px - 64px); scrollbar-gutter: stable; }
-.dashboard-stat { display: block; font: 600 clamp(22px,2.6vw,32px)/1.1 var(--font-stack); font-variant-numeric: tabular-nums; }
+.dashboard-widget--stat { gap: 4px; }
+.dashboard-stat { display: block; font: 600 clamp(22px,2.6vw,30px)/1 var(--font-stack); font-variant-numeric: tabular-nums; }
 .dashboard-empty-data { margin: 0; color: var(--color-text-secondary); line-height: 1.5; }
 .dashboard-muted { color: var(--color-text-secondary); font-size: 12px; line-height: 18px; }
 .dashboard-widget-error { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
@@ -20,6 +22,8 @@
 .dashboard-skeleton { display: flex; flex-direction: column; gap: 8px; }
 .dashboard-skeleton i { display: block; height: 12px; border-radius: 4px; background: var(--color-bg-hover); }
 .dashboard-skeleton i:last-child { width: 65%; }
+.dashboard-widget--stat .dashboard-skeleton i { height: 28px; }
+.dashboard-widget--stat .dashboard-skeleton i:not(:first-child) { display: none; }
 .dashboard-list, .dashboard-bot-grid, .dashboard-schedule { list-style: none; margin: 0; padding: 0; }
 .dashboard-list li { padding-block: 8px; border-bottom: 1px solid var(--color-border); }
 .dashboard-list li:first-child { padding-top: 0; }
@@ -45,7 +49,7 @@
 .dashboard-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .dashboard-meter { display: flex; flex-direction: column; gap: 8px; }
 .dashboard-meter progress { width: 100%; accent-color: var(--color-primary); height: 16px; }
-.dashboard-bot-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,160px),1fr)); gap: 16px; }
+.dashboard-bot-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,120px),1fr)); gap: 16px; }
 .dashboard-bot-grid li { display: flex; align-items: start; gap: 8px; min-width: 0; }
 .dashboard-bot-grid li > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .dashboard-bot-grid a { display: flex; align-items: center; min-height: 44px; }
@@ -90,7 +94,6 @@
   .dashboard-grid-slot { grid-column: span var(--widget-phone-span); }
   .dashboard-heading { flex-direction: column; }
   .dashboard-actions { max-width: none; flex-basis: auto; width: 100%; }
-  .dashboard-task-board { grid-template-columns: minmax(0,1fr); }
   .dashboard-chart svg { height: 112px; }
   .dashboard-library { grid-template-columns: minmax(0,1fr); }
 }

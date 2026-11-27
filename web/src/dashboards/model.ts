@@ -1,14 +1,15 @@
 import type { Dashboard, Widget } from '@shared/ui-config/schema';
 import type { PatchOp } from '@shared/ui-config/service';
 import { WIDGETS, type WidgetType } from '@shared/ui-config/registry-widgets';
+import { routeDashboard } from '../lib/navigation';
+export { dashboardSlug } from '../lib/navigation';
 export type { Dashboard, Widget };
 export interface WidgetData { ok: boolean; rows?: Record<string, unknown>[]; value?: Record<string, unknown>; count?: number; available?: boolean; fetchedAt?: number; message?: string }
 export interface WidgetState { status: 'loading' | 'ready' | 'error'; data?: WidgetData; error?: string; refreshing?: boolean }
 export const widgetLabel = (widget: Widget) => widget.title || WIDGETS.find(entry => entry.id === widget.type)?.label || 'Widget';
 export const columnSpan = (span: number, width: number) => width <= 480 ? span <= 4 ? 1 : 2 : width <= 1023 ? Math.ceil(span / 2) : span;
-export const dashboardSlug = (dashboard: Dashboard) => `${dashboard.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'dashboard'}-${dashboard.id}`;
 export function findDashboard(dashboards: Dashboard[], reference?: string) {
-  return dashboards.find(dashboard => dashboard.id === reference || dashboardSlug(dashboard) === reference || dashboard.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') === reference);
+  return reference ? routeDashboard(reference, dashboards) : undefined;
 }
 export const sourceKey = (widget: Widget) => widget.source ? JSON.stringify([widget.source.id, Object.fromEntries(Object.entries(widget.source.params).sort(([a], [b]) => a.localeCompare(b)))]) : '';
 export function defaultWidget(type: WidgetType): Widget {
