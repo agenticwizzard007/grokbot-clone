@@ -234,3 +234,18 @@ test('single event projection entry point updates room and tasks and is replay s
   assert.equal(db.prepare("SELECT COUNT(*) n FROM handoff_task_links WHERE handoff_id=? AND kind='receiver'").get(f.handoffId).n, 1);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM rows WHERE bot_id=? AND kind='handoff'").get(f.roomId).n, 1);
 });
+
+test('HO-A MemoryHandoffService loop contract projects its approval into the starter task', async () => {
+  const f = fixture();
+  const { MemoryHandoffService } = await import('../../server/src/handoffs/memory-service.ts');
+  const service = new MemoryHandoffService({ bots: f.bots.map(bot => ({ id: bot.id, userId: f.userId, name: bot.name, kind: 'agent' })), now: () => Date.now() });
+  const context = { userId: f.userId, botId: f.bots[0].id, jobId: f.job.id, toolCallId: 'test-loop' };
+  const loop = await service.startLoop(context, f.spec);
+  assert.equal(loop.status, 'awaiting_approval');
+  db.prepare('DELETE FROM loops WHERE id=? AND user_id=?').run(f.loopId, f.userId);
+  db.prepare('INSERT INTO loops(id,user_id,owner_bot_id,room_id,task_id,name,spec,status,initiated_by,idempotency_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(loop.id, loop.userId, loop.ownerBotId, loop.spec.roomId, loop.spec.taskId, loop.spec.name, JSON.stringify(loop.spec), loop.status, loop.initiatedBy, loop.idempotencyKey, loop.createdAt, loop.updatedAt);
+  tasks.syncLoopTasks(loop.userId, loop.id);
+  assert.equal(f.task().state, 'needs_input');
+  assert.equal(tasks.getTaskHandoffLinks(f.userId)[f.taskId].loopId, loop.id);
+});

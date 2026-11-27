@@ -136,7 +136,7 @@ export async function runRoomsTasksDemo() {
       assert.equal(await roomSheet.locator('.ho-target').count(), 1, 'Room scope lists its member first');
       assert.equal(await roomSheet.getByRole('button', { name: /Other agent|Project room/ }).count(), 0, 'Rooms and nonmembers cannot be selected');
       await screenshot('room-send');
-      await page.keyboard.press('Escape'); await roomSheet.waitFor({ state: 'hidden' });
+      await roomSheet.getByRole('button', { name: 'Close', exact: true }).click(); await roomSheet.waitFor({ state: 'hidden' });
       results.push({ width, case: 'room member targets and room refusal', pass: true });
       assert.deepEqual(errors, []);
       results.push({ width, case: 'disabled handoffs hide task actions', pass: true });
