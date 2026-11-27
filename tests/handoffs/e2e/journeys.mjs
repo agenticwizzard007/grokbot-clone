@@ -37,17 +37,18 @@ try {
       const handoff = await sendHandoff(page, f, evidence, width); handoffId = handoff.id;
       const detail = await api(page, `/handoffs/${handoffId}`); outputId = detail.sourceOutputId;
       await go(page, `#bot/${f.checker}`);
-      await page.locator('.ho-receipt').filter({ hasText: 'Review the release draft for clarity.' }).getByText('Handed off from Maker', { exact: true }).waitFor();
+      const receipt = page.locator('.ho-receipt').filter({ has: page.locator(`a[href="#handoff/${handoffId}"]`) });
+      await receipt.getByText('Handed off from Maker', { exact: true }).waitFor();
       await go(page, `#bot/${f.maker}`);
-      await page.locator('.ho-receipt').filter({ hasText: 'Review the release draft for clarity.' }).getByText('Completed', { exact: true }).waitFor();
+      await receipt.getByText('Completed', { exact: true }).waitFor();
       assert.ok(detail.resultOutputId);
-      await page.locator('.ho-receipt').filter({ hasText: 'Review the release draft for clarity.' }).getByRole('link', { name: /^View handoff/ }).click();
+      await receipt.getByRole('link', { name: /^View handoff/ }).click();
       await page.locator('.ho-output-card').filter({ hasText: 'The draft is clear.' }).waitFor();
       details.push({ width, journey: 1, handoff });
     });
     await check(2, 'Send from a done task and assistant message overflow', async () => {
       await go(page, '#tasks'); await page.locator('.task-filters .is-done').click();
-      await page.locator('.task-card-frame').filter({ hasText: 'Release draft' }).getByRole('button', { name: 'Send to agent', exact: true }).click();
+      await page.locator('.task-card-frame').filter({ has: page.getByText('Release draft', { exact: true }) }).getByRole('button', { name: 'Send to agent', exact: true }).click();
       const sheet = page.getByRole('dialog', { name: 'Send to agent' });
       await sheet.getByRole('button', { name: /^Checker/ }).click();
       await sheet.getByLabel('Ask', { exact: true }).fill('Review this finished task.');
@@ -86,9 +87,6 @@ try {
     await check(5, 'Agent gate, Tasks count, Approve and Decline', async () => {
       for (const action of ['Approve', 'Decline']) {
         const name = `Release review ${action} ${width}`;
-        const spec = { name, goal: goals.slow, kind: 'maker_checker',
-          steps: [{ id: 'maker', botId: f.maker, role: 'maker', instruction: 'Draft.' }, { id: 'checker', botId: f.checker, role: 'checker', instruction: 'Check.' }],
-          exit: { mode: 'verdict' }, limits: { maxIterations: 3, maxMinutes: 30, stepTimeoutMinutes: 10 } };
         await go(page, `#bot/${f.maker}`);
         await page.locator('.composer textarea').fill(`Start a release review that needs my approval.\n${name}`);
         await page.locator('.composer').getByRole('button', { name: 'Send', exact: true }).click();
@@ -168,6 +166,12 @@ try {
         await go(page, `#bot/${id}/details/flow`); await page.locator('.flow-chart').waitFor();
         assert.deepEqual(await page.locator('.flow-lane h2').allTextContents(), ['1Triggers', '2Inputs', '3Steps', '4Outputs', '5Handoffs']);
         assert.match(await page.locator('.flow-chart p.flow-sr').innerText(), /^Flow:/); await auditRoute(page, width);
+        const controls = page.locator('.flow-lanes button');
+        await controls.first().focus();
+        for (let n = 1; n < await controls.count(); n++) {
+          await page.keyboard.press('Tab');
+          assert.equal(await controls.nth(n).evaluate(el => el === document.activeElement), true, 'Keyboard follows lane reading order');
+        }
         const model = await api(page, `/bots/${id}/flow`);
         for (const node of model.lanes.flatMap(lane => lane.nodes)) {
           const button = page.locator(`[data-flow-node="${node.id}"]`);
@@ -180,10 +184,10 @@ try {
           kinds.add(node.kind);
         }
       }
-      await go(page, `#bot/${f.maker}/details/flow`); await page.locator('[data-kind="schedule"]').first().waitFor();
-      const paused = await page.locator('[data-kind="schedule"]').filter({ hasText: 'Paused' }).count();
+      await go(page, `#bot/${f.maker}/details/flow`); await page.locator('[data-kind="routine"]').first().waitFor();
+      const paused = await page.locator('[data-kind="routine"]').filter({ hasText: 'Paused' }).count();
       await api(page, '/routines/hoh-routine', 'PATCH', { enabled: !!paused });
-      await page.locator('[data-kind="schedule"]').filter({ hasText: 'Paused' }).waitFor({ state: paused ? 'hidden' : 'visible' });
+      await page.locator('[data-kind="routine"]').filter({ hasText: 'Paused' }).waitFor({ state: paused ? 'hidden' : 'visible' });
       details.push({ width, journey: 10, nodeKinds: [...kinds] });
     });
     await check(11, 'XSS, gullible persona injection corpus and cross-account references', async () => {

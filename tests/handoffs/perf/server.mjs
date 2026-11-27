@@ -31,8 +31,15 @@ try {
   const visit = key => { const value = manifest[key]; if (!value || staticFiles.has(value.file)) return; staticFiles.add(value.file); for (const child of value.imports ?? []) visit(child); };
   visit('index.html');
   const bytes = [...staticFiles].reduce((sum, file) => sum + gzipSync(fs.readFileSync(path.join('web/dist', file))).length, 0);
-  for (const route of ['src/handoffs/loops/LoopRun.tsx', 'src/handoffs/loops/LoopsPage.tsx']) assert.equal(manifest[route]?.isDynamicEntry, true, `Lazy route ${route}`);
-  report.bundle = { entry: entry.file, entryGzipBytes: bytes, comparison: 'HO-H changes no production source or dependencies; entry graph matches base main.', addedEntryGzipBytes: 0, budgetBytes: 40 * 1024, pass: true,
+  for (const route of ['src/handoffs/loops/LoopRun.tsx', 'src/handoffs/loops/LoopsPage.tsx', 'src/handoffs/HandoffDetail.tsx', 'src/handoffs/OutputViewer.tsx', 'src/flow/FlowTab.tsx']) {
+    assert.equal(manifest[route]?.isDynamicEntry, true, `Lazy route ${route}`);
+    assert.equal(staticFiles.has(manifest[route].file), false, `Route excluded from entry imports: ${route}`);
+  }
+  const unchanged = spawnSync('git', ['diff', '--quiet', 'origin/main', '--', 'web', 'package-lock.json'], { encoding: 'utf8' });
+  assert.equal(unchanged.status, 0, 'Zero added entry bytes requires unchanged web source and dependencies versus origin/main. Measure both builds if production code differs.');
+  const base = spawnSync('git', ['rev-parse', 'origin/main'], { encoding: 'utf8' });
+  assert.equal(base.status, 0);
+  report.bundle = { entry: entry.file, entryGzipBytes: bytes, baseRevision: base.stdout.trim(), comparison: 'Verified unchanged web source and lockfile versus main after HO integration. This measures HO-H additions, not the total historical HO feature cost.', addedEntryGzipBytes: 0, budgetBytes: 40 * 1024, pass: true,
     lazyRoutes: Object.entries(manifest).filter(([name]) => /handoffs|flow/.test(name)).map(([name, value]) => ({ name, file: value.file, gzipBytes: gzipSync(fs.readFileSync(path.join('web/dist', value.file))).length })) };
 } finally {
   cleanup(); fs.mkdirSync('.context/handoffs/perf-h', { recursive: true });

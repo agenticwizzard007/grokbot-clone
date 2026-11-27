@@ -31,7 +31,15 @@ export async function recordLoop(page, data, mode, evidence, width, options) {
 export async function recordExistingLoop(page, id, mode, evidence, width) {
   await page.getByRole('button', { name: 'Pause', exact: true }).waitFor();
   const shots = [await screenshot(page, evidence, `${mode}-running`, width)];
+  try {
   const detail = await poll(() => api(page, `/loops/${id}`), value => ['succeeded', 'capped', 'failed', 'cancelled', 'stalled'].includes(value.status), 'Loop terminal state', 90000);
+  await page.locator('.ho-loop-result').waitFor();
+  shots.push(await screenshot(page, evidence, `${mode}-finished`, width));
+  await page.getByRole('tab', { name: 'Graph', exact: true }).click();
+  await page.locator('.ho-loop-graph-node').first().waitFor();
+  shots.push(await screenshot(page, evidence, `${mode}-graph`, width));
+  const graphNodes = await page.locator('.ho-loop-graph-node').count();
+  await page.getByRole('tab', { name: 'Timeline', exact: true }).click();
   assert.equal(detail.resultText, sentences[mode], `Real loop ${id}: ${detail.stopReason}`);
   await page.getByText(sentences[mode], { exact: true }).waitFor();
   assert.equal(detail.iteration, 3); assert.equal(detail.steps.length, 6);
@@ -45,13 +53,9 @@ export async function recordExistingLoop(page, id, mode, evidence, width) {
   const core = events.map(event => event.type).filter(type => type.startsWith('loop.'));
   const iteration = ['loop.step_dispatched', 'loop.step_completed', 'loop.step_dispatched', 'loop.verdict', 'loop.step_completed', 'loop.iteration_completed'];
   assert.deepEqual(core.filter(type => type !== 'loop.warning'), ['loop.created', 'loop.started', ...iteration, ...iteration, ...iteration, 'loop.finished']);
-  shots.push(await screenshot(page, evidence, `${mode}-finished`, width));
-  await page.getByRole('tab', { name: 'Graph', exact: true }).click();
-  await page.locator('.ho-loop-graph-node').first().waitFor();
-  assert.equal(await page.locator('.ho-loop-graph-node').count(), 6);
-  shots.push(await screenshot(page, evidence, `${mode}-graph`, width));
-  await page.getByRole('tab', { name: 'Timeline', exact: true }).click();
+  assert.equal(graphNodes, 6);
   return { id, mode, width, status: detail.status, passes: detail.iteration, result: detail.resultText, steps: detail.steps, verdicts: detail.verdicts, events, screenshots: shots };
+  } catch (error) { error.screenshots = shots; throw error; }
 }
 
 export async function finishedChat(page, data, width) {
@@ -72,7 +76,7 @@ export async function sendHandoff(page, data, evidence, width) {
   const response = page.waitForResponse(r => r.url().endsWith('/api/handoffs') && r.request().method() === 'POST');
   await sheet.getByRole('button', { name: 'Send', exact: true }).click();
   const created = await (await response).json(), handoff = created.handoff ?? created;
-  const receipt = page.locator('.ho-receipt').filter({ hasText: 'Review the release draft for clarity.' }).first();
+  const receipt = page.locator('.ho-receipt').filter({ has: page.locator(`a[href="#handoff/${handoff.id}"]`) });
   await receipt.getByText('Sent to Checker', { exact: true }).waitFor();
   shots.push(await screenshot(page, evidence, 'handoff-receipt', width));
   await receipt.getByRole('link', { name: /^View handoff/ }).click();

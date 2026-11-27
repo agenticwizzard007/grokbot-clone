@@ -37,6 +37,7 @@ try {
           const events = id ? await api(page, `/loops/${id}/events`) : null;
           report.runs.push({ width, theme, mode, status: 'fail', actual, events });
           report.failed++; report.failures.push({ width, theme, mode, message: error.message });
+          report.screenshots.push(...(error.screenshots ?? []));
           report.screenshots.push(await screenshot(page, evidence, `${mode}-failure`, width));
           console.error(`FAIL ${width} ${theme} ${mode}: ${error.message}`);
         }
@@ -58,7 +59,7 @@ try {
   }
   if (uiQuality.status === 'fail') { report.failed++; report.failures.push({ message: 'HO-P UI quality gate failed.' }); }
   report.visualQuality = report.screenshots.map(file => file.replace(/\.png$/, '.quality.json')).filter(file => fs.existsSync(file)).map(file => ({ file, ...JSON.parse(fs.readFileSync(file, 'utf8')) }));
-  if (report.visualQuality.some(item => item.issues.length)) { report.failed++; report.failures.push({ message: 'Demo captures contain text below 13px. See visualQuality.' }); }
+  if (report.visualQuality.some(item => item.issues.length)) { report.failed++; report.failures.push({ message: 'Demo captures fail typography or Paper layout rules. See visualQuality.' }); }
   console.log(`${report.failed ? 'FAIL' : 'PASS'} demo of record: ${report.passed} checks, ${report.failed} failures. ${path.join(evidence, 'report.json')}`);
   if (report.failed) process.exitCode = 1;
 } finally {

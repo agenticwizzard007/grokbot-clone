@@ -13,7 +13,14 @@ export function iterationScript(text) {
   if (!mode) return null;
   const checker = /Submit your verdict with submit_verdict/.test(text.slice(text.lastIndexOf('\nHOW TO ANSWER')));
   if (!checker) {
-    const body = `- Version ${iteration}.0\n- ${iteration === 1 || mode === 'cap' ? 'The update improves search, saved reports and workspace navigation. '.repeat(9) : 'Search and saved reports are easier to use.'}\n- ${iteration >= 3 && mode !== 'cap' ? 'Try the release.' : 'More details soon.'}`;
+    const longDraft = [
+      'Version 1.0 brings faster search to your workspace. Results now include saved reports and recent conversations, so you can find the context you need without opening several pages.',
+      'Saved reports keep their source links and a clear update date. The new navigation groups related work together and makes it easier to return to an unfinished task.',
+      ['The release also includes small improvements to keyboard navigation. More details will follow in the release guide.',
+        'Keyboard navigation has clearer focus states throughout the workspace. The release guide will cover these changes in more detail.',
+        'The release guide will include a closer look at keyboard navigation and the updated report view. More details will follow.'][Math.min(iteration, 3) - 1],
+    ].map(line => `- ${line}`).join('\n');
+    const body = iteration === 1 || mode === 'cap' ? longDraft : `- Version 1.0 improves workspace search.\n- Saved reports are easier to find and share.\n- ${iteration >= 3 ? 'Try the release.' : 'More details soon.'}`;
     return `say ${body}`;
   }
   // Checklist IDs are assigned by the real sheet, so read them from its packet.
