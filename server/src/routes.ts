@@ -388,7 +388,7 @@ api.post('/bots/:id/setup/activate', async (c) => {
 api.post('/bots/:id/setup/skip', async (c) => {
   const userId = c.get('user').id;
   const botId = c.req.param('id');
-  const bot = ownHandoffBot(userId, botId);
+  const bot = ownBot(userId, botId);
   if (!bot || bot.kind === 'room' || bot.hidden) return c.json({ error: 'not found' }, 404);
   const setup = getSetup(botId);
   if (!setup || setup.onboarding.status === 'active') return c.json({ error: 'This Bot is already active.' }, 409);
@@ -862,7 +862,7 @@ api.get('/apps/callback', async (c) => {
       if (ok) await connectionsDetail(userId, { details: true }).then(accounts => snapshotFlowConnections(userId, accounts)).catch(() => {});
       hub.emit(userId, { type: 'connections' });
       if (botId && ownBot(userId, botId)) {
-        const bot = ownHandoffBot(userId, botId);
+        const bot = ownBot(userId, botId);
         if (seq && bot && bot.generation === Number(c.req.query('generation'))) {
           const row = getRow(botId, seq);
           if (row?.body.type === 'card' && row.body.card === 'connect' && row.body.toolkit === slug &&
