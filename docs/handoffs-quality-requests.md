@@ -20,11 +20,15 @@ Request to HO-B: invoke `projectHandoffEvent` for committed handoff and loop tra
 
 Reproduce: `HANDOFFS_JOURNEYS=9 node tests/handoffs/e2e/journeys.mjs`. After fixing runtime context, journey 5 must also verify the gate task and needs-input count.
 
+An isolated journey 9 at both widths records `loop.created`, `loop.started` and `loop.finished` with `stopReason: "user_stopped"`, but zero corresponding room progress rows. It does not reach the Checker, so FIX-4 cannot resolve this failure. See `.context/handoffs/independent-integration/report.json`.
+
 ## Activity handoff list
 
 Request to the Bot-details integration owner: mount the existing `HandoffList` on the Bot Activity page, with All, Sent and Received filters and one Back control.
 
 The component exists in `web/src/handoffs/HandoffList.tsx`; the baseline Bot Activity surface does not mount it. Reproduce: `HANDOFFS_JOURNEYS=7 node tests/handoffs/e2e/journeys.mjs`.
+
+An isolated journey 7 at both widths verifies a completed handoff and a nonempty list API before the Activity filter lookup fails. This is independent of loop verdict submission. The same report above records the completed status and listed IDs.
 
 ## UI polish and Settings dependencies
 
