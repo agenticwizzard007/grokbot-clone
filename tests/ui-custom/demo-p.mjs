@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
-import { runAdaptUi } from './e2e/adapt-ui.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readableWords } from '../paper-label-geometry.mjs';
 import { dashboardFixture, widgetTypes, readyWidgets, patch, inspectAlignment, assertGrid } from './dashboard-fixture.mjs';
 
 const before = process.argv.includes('--before');
-const output = path.resolve(process.env.POLISH_OUTPUT || `.context/ui-custom/polish-${before ? 'before' : 'after'}`);
+const output = path.resolve(process.env.POLISH_OUTPUT || `shots/polish/${before ? 'before' : 'after'}`);
 fs.mkdirSync(output, { recursive: true });
 let server, failure;
 const checks = [], screenshots = [], counts = [];
@@ -143,6 +142,3 @@ async function wordCount(page) {
 }
 console.log(`DEMO P: ${checks.length} passed, 0 failed. ${output}/results.json`);
 console.log(JSON.stringify(counts));
-
-// The polish demo includes the Requirements, recovery and chat adaptation surfaces.
-if (!before) await runAdaptUi(path.join(output, 'adaptation'));

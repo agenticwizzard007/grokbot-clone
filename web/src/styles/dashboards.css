@@ -67,9 +67,6 @@
 .dashboard-note h3 { font-size: 16px; line-height: 24px; }
 .dashboard-note p, .dashboard-note li { line-height: 1.5; }
 .dashboard-note ul, .dashboard-note ol { padding-inline-start: 24px; }
-.dashboard-note-pairs .layout-row__title { font-size: 14px; line-height: 20px; }
-.dashboard-note-pairs .layout-row__subtitle { margin-top: 8px; font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }
-.dashboard-note-pairs .layout-row { min-height: 44px; margin-inline: -16px; padding-inline: 16px; }
 .dashboard-link-domain { font-size: 14px; color: var(--color-text-secondary); }
 .dashboard-shortcuts { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,120px),1fr)); gap: 8px; }
 .dashboard-shortcuts .cfg-btn { min-height: 44px; }
