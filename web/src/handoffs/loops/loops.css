@@ -67,3 +67,4 @@
 
 .ho-loop-chip { padding: 2px var(--space-2); border-radius: var(--radius-full); font: 500 var(--text-xs)/var(--line-caption) var(--font-stack); }
 .ho-loop-muted, .ho-loop-error { font-size: var(--text-base); }
+.ho-loops .ho-loop-expiry { margin-block: var(--space-2); }
