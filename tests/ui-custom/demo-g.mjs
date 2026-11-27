@@ -6,129 +6,120 @@ import { appearanceFixture, appearanceContext, saved, waitForSaved, reset } from
 import { inspectAlignment } from '../layout-alignment-ui.mjs';
 import { readableWords } from '../paper-label-geometry.mjs';
 
-const evidence = path.resolve('.context/ui-custom/demo-g'); fs.mkdirSync(evidence, { recursive: true });
+const evidence = path.resolve('.context/ui-custom/demo-g-layout'); fs.mkdirSync(evidence, { recursive: true });
 const fixture = await appearanceFixture();
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-const report = [];
+const report = [], failures = [];
 let activePage;
 for (const name of ['failure.png', 'failure.json']) fs.rmSync(path.join(evidence, name), { force: true });
 try {
-  for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
-    const context = await appearanceContext(browser, fixture, width, theme);
-    const page = await context.newPage(); page.setDefaultTimeout(20000);
-    activePage = page;
+  for (const width of [390, 1280]) for (const scheme of ['light', 'dark']) {
+    const context = await appearanceContext(browser, fixture, width, scheme);
+    const page = await context.newPage(); page.setDefaultTimeout(20000); activePage = page;
     const errors = []; page.on('pageerror', error => errors.push(error.message));
-    const screen = page.locator('.appearance-settings');
-    const shot = async name => {
-      if (['preset-preview', 'preset-applied', 'show-before', 'import-preview', 'undo'].includes(name)) await screen.locator('.ui-preview-card').scrollIntoViewIfNeeded();
-      if (name === 'appearance') await page.locator('.app-settings__main').evaluate(el => el.scrollTop = 0);
-      await page.screenshot({ path: path.join(evidence, `${width}-${theme}-${name}.png`) }); };
-    const pass = (name, details = {}) => { report.push({ width, theme, name, ...details }); console.log(`PASS UC-G ${width} ${theme}: ${name}`); };
+    const screen = page.locator('.appearance-settings'), card = screen.locator('.ui-preview-card');
+    const shot = async name => page.screenshot({ path: path.join(evidence, `${width}-${scheme}-${name}.png`) });
+    const pass = (name, details = {}) => { report.push({ width, scheme, name, ...details }); console.log(`PASS UC-G ${width} ${scheme}: ${name}`); };
+    // Preserve integration failures while allowing the rest of the workspace journey to run.
+    const integration = (ok, name) => { if (ok) pass(name); else { failures.push({ width, scheme, name }); console.log(`FAIL UC-G ${width} ${scheme}: ${name}`); } };
     const open = async () => { await page.goto('/#settings/appearance'); await screen.waitFor(); await page.waitForFunction(() => !document.querySelector('.appearance-fields')?.disabled); };
-    await page.goto('/#bots'); await reset(page); await open();
-    await screen.getByRole('radio', { name: theme === 'light' ? 'Light' : 'Dark', exact: true }).click();
-    await waitForSaved(page, c => c.doc.theme.mode === theme, 'mode');
-    await page.evaluate(() => document.fonts.ready);
+    const manage = screen.getByRole('button', { name: 'Manage layout', exact: true });
+    const menu = async name => { await manage.click(); await page.getByRole('menuitem', { name, exact: true }).click(); };
+    const boardMenu = async (name, action) => { await screen.getByRole('button', { name: `Manage ${name}`, exact: true }).click(); await page.getByRole('menuitem', { name: action, exact: true }).click(); };
+    const create = async name => {
+      await screen.getByRole('button', { name: 'New dashboard', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'New dashboard', exact: true });
+      await dialog.getByRole('textbox', { name: 'Name' }).fill(name); await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+      const result = await waitForSaved(page, c => c.doc.dashboards.some(d => d.name === name), 'dashboard create');
+      await page.waitForURL(/#dash\//); await open(); return result.doc.dashboards.find(d => d.name === name);
+    };
+    await page.goto('/#bots'); await reset(page); await open(); await page.evaluate(() => document.fonts.ready);
     assert.deepEqual(await page.evaluate(inspectAlignment, { selector: '.app-settings' }), []);
     await readableWords(screen);
-    const words = await screen.evaluate(root => {
-      const text = [...root.querySelectorAll('*')].filter(el => el.checkVisibility() && !el.closest('select, .sr-only')).flatMap(el => [...el.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent)).join(' ');
-      return text.trim().split(/\s+/).filter(Boolean).length;
-    });
+    const words = await screen.evaluate(root => [...root.querySelectorAll('*')].filter(el => el.checkVisibility() && !el.closest('select, .sr-only')).flatMap(el => [...el.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent)).join(' ').trim().split(/\s+/).filter(Boolean).length);
     assert.ok(words < 250, `Copy budget: ${words}`);
     for (const section of await screen.locator('.appearance-section').all()) {
-      const title = await section.locator(':scope > header h2').innerText();
-      assert.ok(title.split(/\s+/).length <= 3);
+      assert.ok((await section.locator(':scope > header h2').innerText()).split(/\s+/).length <= 3);
       assert.ok(await section.locator('.appearance-helper').count() <= 1);
       for (const helper of await section.locator('.appearance-helper').all()) assert.ok((await helper.innerText()).split(/\s+/).length <= 8);
     }
     assert.doesNotMatch(await screen.innerText(), /[\u2013\u2014]/);
     assert.equal(await page.locator('.shell-back:visible').count(), 1);
-    await shot('appearance'); pass('alignment, copy and one Back', { words });
-    const current = await saved(page);
-    await screen.getByRole('button', { name: 'Forest', exact: true }).click();
-    const card = screen.locator('.ui-preview-card'); await card.getByRole('button', { name: 'Apply', exact: true }).waitFor();
-    assert.equal((await saved(page)).revision, current.revision, 'preset previews do not save');
-    await page.getByRole('status', { name: 'Appearance preview', exact: true }).waitFor();
-    await page.waitForTimeout(400);
-    assert.equal(await page.getByRole('status', { name: 'Appearance preview', exact: true }).isVisible(), true, 'late pending SSE preserves the manual preview');
-    await shot('preset-preview');
-    assert.ok(await page.evaluate(() => document.querySelector('.app').getBoundingClientRect().bottom <= innerHeight + 1), 'the signed-in shell fits below the preview banner');
-    await page.waitForFunction(color => getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim().toUpperCase() === color, theme === 'light' ? '#0F766E' : '#5EEAD4');
-    await card.getByRole('button', { name: 'Apply', exact: true }).click();
-    await waitForSaved(page, c => c.doc.preset === 'forest', 'preset');
-    await shot('preset-applied'); pass('preset preview and Apply');
-    await card.getByRole('button', { name: 'Show before', exact: true }).focus(); await page.keyboard.down('Space');
-    assert.equal(await card.getByRole('button', { name: 'Show before', exact: true }).getAttribute('aria-pressed'), 'true');
-    await shot('show-before'); await page.keyboard.up('Space');
-    pass('Applied comparison');
-    await screen.getByRole('radio', { name: theme === 'light' ? 'Light' : 'Dark', exact: true }).click();
-    await waitForSaved(page, c => c.doc.theme.mode === theme, 'mode restored');
-    const custom = screen.getByLabel('Custom', { exact: true });
-    const valid = theme === 'light' ? '#0F766E' : '#5EEAD4';
-    await custom.fill(valid); await screen.getByRole('button', { name: 'Save', exact: true }).click();
-    await waitForSaved(page, c => c.doc.theme.colors[theme].primary === valid, 'accent');
-    await page.waitForFunction(color => getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim().toUpperCase() === color, valid);
-    await shot('accent'); pass('valid accent applies immediately');
-    const beforeInvalid = (await saved(page)).revision;
-    await custom.fill(theme === 'light' ? '#FFFFFF' : '#17222F'); await screen.getByRole('button', { name: 'Save', exact: true }).click();
-    await screen.getByText('Low contrast', { exact: true }).waitFor();
-    assert.equal((await saved(page)).revision, beforeInvalid);
-    assert.match(await screen.getByRole('alert').innerText(), /contrast|ratio|primary/i);
-    await shot('accent-rejected'); pass('low contrast rejected with suggestion');
-    for (const [group, choice, test] of [
-      ['Size', 'Large', c => c.doc.theme.font.scale === 'large'],
-      ['Density', 'Roomy', c => c.doc.theme.density === 'comfortable'],
-      ['Corners', 'Round', c => c.doc.theme.radius === 'round'],
-    ]) { await screen.getByRole('radiogroup', { name: group, exact: true }).getByRole('radio', { name: choice, exact: true }).click(); await waitForSaved(page, test, group); await shot(group.toLowerCase()); pass(group); }
+    await shot('layout'); pass('alignment, copy and one Back', { words });
     await screen.getByRole('button', { name: 'Move Tasks up', exact: true }).focus(); await page.keyboard.press('Enter');
     await waitForSaved(page, c => c.doc.layout.sidebar.order[0] === 'tasks', 'sidebar reorder');
-    await shot('sidebar-reordered'); pass('sidebar reorder by keyboard');
-    await screen.getByRole('button', { name: 'New dashboard', exact: true }).click();
-    let dialog = page.getByRole('dialog', { name: 'New dashboard', exact: true });
-    await dialog.getByRole('textbox', { name: 'Name' }).fill('QA-Temp-Board'); await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-    const created = await waitForSaved(page, c => c.doc.dashboards.length === 1, 'dashboard create');
-    await page.waitForURL(/#dash\//); await open();
-    await screen.getByRole('button', { name: 'Manage QA-Temp-Board', exact: true }).scrollIntoViewIfNeeded(); await shot('dashboard-created');
-    await screen.getByRole('button', { name: 'Manage QA-Temp-Board', exact: true }).click(); await page.getByRole('menuitem', { name: 'Rename', exact: true }).click();
-    dialog = page.getByRole('dialog', { name: 'Rename dashboard', exact: true });
+    await screen.getByRole('button', { name: 'Move Tasks up', exact: true }).scrollIntoViewIfNeeded(); await shot('sidebar-reordered'); pass('sidebar reorder by keyboard');
+    const board = await create('QA-Temp-Board'); assert.ok(board.id.startsWith('d_'));
+    await screen.getByRole('button', { name: 'Manage QA-Temp-Board', exact: true }).scrollIntoViewIfNeeded(); await shot('dashboard-created'); pass('dashboard create opens its route');
+    await boardMenu('QA-Temp-Board', 'Rename');
+    let dialog = page.getByRole('dialog', { name: 'Rename dashboard', exact: true });
     await dialog.getByRole('textbox', { name: 'Name' }).fill('QA-Temp-Renamed'); await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-    await waitForSaved(page, c => c.doc.dashboards[0].name === 'QA-Temp-Renamed', 'rename'); pass('dashboard create and rename');
-    await screen.getByRole('button', { name: 'Manage QA-Temp-Renamed', exact: true }).click(); await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
-    dialog = page.getByRole('dialog', { name: 'Delete dashboard', exact: true });
-    assert.match(await dialog.innerText(), /0 widgets/); await shot('delete-confirm');
-    await dialog.getByRole('button', { name: 'Delete', exact: true }).click(); await waitForSaved(page, c => !c.doc.dashboards.length, 'delete'); pass('dashboard delete confirms count');
-    const manage = screen.getByRole('button', { name: 'Manage appearance', exact: true });
+    const renamed = await waitForSaved(page, c => c.doc.dashboards[0].name === 'QA-Temp-Renamed', 'rename'); pass('dashboard rename');
+    await boardMenu('QA-Temp-Renamed', 'Set as home');
+    await waitForSaved(page, c => c.doc.layout.home.dashboardId === board.id, 'dashboard home');
+    await screen.getByLabel('Tab 5', { exact: true }).selectOption(`dashboard:${board.id}`);
+    await waitForSaved(page, c => c.doc.layout.phoneTabs.includes(`dashboard:${board.id}`), 'dashboard phone tab');
+    await screen.getByRole('button', { name: 'Open QA-Temp-Renamed', exact: true }).click(); await page.waitForURL(new RegExp(`#dash/${board.id}$`));
+    await page.reload(); assert.equal((await saved(page)).doc.layout.home.dashboardId, board.id); await open();
+    await shot('dashboard-home'); pass('dashboard home, phone tab and Open persist');
     await manage.click(); const downloadPromise = page.waitForEvent('download'); await page.getByRole('menuitem', { name: 'Export', exact: true }).click();
-    const download = await downloadPromise, exportPath = path.join(evidence, `${width}-${theme}-export.json`); await download.saveAs(exportPath);
-    assert.equal(download.suggestedFilename(), 'swarm-appearance.json');
-    await screen.getByLabel('Import appearance file').setInputFiles(exportPath);
-    await card.getByRole('button', { name: 'Apply', exact: true }).waitFor(); await page.getByRole('status', { name: 'Appearance preview', exact: true }).waitFor(); await shot('import-preview');
+    const download = await downloadPromise, exportPath = path.join(evidence, `${width}-${scheme}-export.json`); await download.saveAs(exportPath);
+    assert.equal(download.suggestedFilename(), 'swarm-layout.json');
+    const imported = JSON.parse(fs.readFileSync(exportPath, 'utf8')); imported.layout.home = { kind: 'tasks' };
+    const importPath = path.join(evidence, `${width}-${scheme}-import.json`); fs.writeFileSync(importPath, JSON.stringify(imported));
+    pass('export downloads the saved workspace');
+    const before = await saved(page);
+    await screen.getByLabel('Import layout file').setInputFiles(importPath); await card.getByRole('button', { name: 'Apply', exact: true }).waitFor();
+    assert.equal((await saved(page)).revision, before.revision, 'import waits for Apply');
+    await page.waitForTimeout(400); await card.scrollIntoViewIfNeeded(); await shot('import-preview');
+    integration(await page.locator('.ui-runtime-banner[aria-label="Appearance preview"]').isVisible(), 'manual import preview survives pending SSE');
+    integration(await page.evaluate(() => document.querySelector('.app').getBoundingClientRect().bottom <= innerHeight + 1), 'shell fits below the preview banner');
     await card.getByRole('button', { name: 'Apply', exact: true }).click(); await card.getByText('Applied', { exact: true }).waitFor();
+    await waitForSaved(page, c => c.doc.layout.home.kind === 'tasks', 'import Apply'); await shot('import-applied'); pass('import card Apply');
+    await card.getByRole('button', { name: 'Show before', exact: true }).focus(); await page.keyboard.down('Space');
+    assert.equal(await card.getByRole('button', { name: 'Show before', exact: true }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await screen.getByLabel('Start on', { exact: true }).inputValue(), board.id);
+    await shot('show-before'); await page.keyboard.up('Space'); pass('applied card compares the previous layout');
     await card.getByRole('button', { name: 'Undo', exact: true }).click(); await card.getByText('Undone', { exact: true }).waitFor();
-    await shot('undo'); pass('export, import preview, Apply and Undo');
-    await manage.click(); await page.getByRole('menuitem', { name: 'History', exact: true }).click();
-    dialog = page.getByRole('dialog', { name: 'Appearance history', exact: true });
-    const restores = dialog.getByRole('button', { name: /^Restore revision/ }); await restores.first().waitFor(); assert.ok(await restores.count() > 0 && await restores.count() <= 50);
-    await shot('history'); await restores.last().click(); await dialog.waitFor({ state: 'hidden' }); pass('history and Restore');
-    await manage.click(); await page.getByRole('menuitem', { name: 'Reset', exact: true }).click();
-    dialog = page.getByRole('dialog', { name: 'Reset appearance', exact: true }); assert.match(await dialog.innerText(), /Clears colors, fonts, spacing, navigation, visibility and shortcuts/);
-    await shot('reset-confirm'); await dialog.getByRole('button', { name: 'Cancel', exact: true }).click(); pass('Reset describes losses and can cancel');
-    await screen.getByRole('button', { name: 'Forest', exact: true }).click(); await card.getByRole('button', { name: 'Discard', exact: true }).click(); await card.getByText('Discarded', { exact: true }).waitFor(); pass('preview Discard');
+    await waitForSaved(page, c => c.doc.layout.home.dashboardId === board.id, 'Undo import'); await shot('undo'); pass('card Undo restores the saved home');
+    const beforeDiscard = (await saved(page)).revision;
+    await screen.getByLabel('Import layout file').setInputFiles(importPath); await card.getByRole('button', { name: 'Discard', exact: true }).click();
+    await card.getByText('Discarded', { exact: true }).waitFor(); assert.equal((await saved(page)).revision, beforeDiscard); pass('import Discard does not save');
+    await menu('History'); dialog = page.getByRole('dialog', { name: 'Layout history', exact: true });
+    const restores = dialog.getByRole('button', { name: /^Restore revision/ }); await restores.first().waitFor(); assert.ok(await restores.count() <= 50);
+    await shot('history'); await dialog.getByRole('button', { name: `Restore revision ${renamed.revision}`, exact: true }).click(); await dialog.waitFor({ state: 'hidden' });
+    await waitForSaved(page, c => c.doc.layout.home.kind === 'default', 'history restore'); pass('history restores a selected revision');
+    await boardMenu('QA-Temp-Renamed', 'Set as home'); await waitForSaved(page, c => c.doc.layout.home.dashboardId === board.id, 'home before delete');
+    await boardMenu('QA-Temp-Renamed', 'Delete'); dialog = page.getByRole('dialog', { name: 'Delete dashboard', exact: true });
+    assert.match(await dialog.innerText(), /0 widgets/); await shot('delete-confirm');
+    await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+    const deleted = await waitForSaved(page, c => !c.doc.dashboards.length, 'delete');
+    assert.equal(deleted.doc.layout.home.kind, 'default'); assert.ok(!deleted.doc.layout.phoneTabs.includes(`dashboard:${board.id}`)); pass('dashboard Delete confirms count and clears references');
+    await create('QA-Temp-Kept');
+    await screen.getByLabel('Start on', { exact: true }).selectOption('tasks'); await waitForSaved(page, c => c.doc.layout.home.kind === 'tasks', 'home before reset');
+    await screen.getByRole('button', { name: 'Change Focus composer shortcut', exact: true }).click(); await page.keyboard.press('Alt+j');
+    await waitForSaved(page, c => c.doc.keybindings.focusComposer === 'Alt+J', 'shortcut before reset');
+    await menu('Reset'); dialog = page.getByRole('dialog', { name: 'Reset layout', exact: true });
+    assert.match(await dialog.innerText(), /Resets navigation, visibility and shortcuts/); assert.match(await dialog.innerText(), /Keeps 1 dashboard\./);
+    const beforeReset = (await saved(page)).revision; await shot('reset-confirm'); await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    assert.equal((await saved(page)).revision, beforeReset); pass('Reset confirmation can cancel');
+    await menu('Reset'); dialog = page.getByRole('dialog', { name: 'Reset layout', exact: true }); await dialog.getByRole('button', { name: 'Reset', exact: true }).click();
+    await waitForSaved(page, c => c.doc.layout.home.kind === 'default' && !Object.keys(c.doc.keybindings).length && c.doc.dashboards.length === 1, 'reset keeping dashboards');
+    await screen.getByRole('button', { name: 'Undo', exact: true }).click();
+    await waitForSaved(page, c => c.doc.layout.home.kind === 'tasks' && c.doc.keybindings.focusComposer === 'Alt+J', 'Undo reset'); pass('Reset keeps dashboards and supports Undo');
+    await menu('Reset'); dialog = page.getByRole('dialog', { name: 'Reset layout', exact: true }); await dialog.getByLabel('Reset', { exact: true }).selectOption('all');
+    assert.match(await dialog.innerText(), /Deletes 1 dashboard and 0 widgets/); await dialog.getByRole('button', { name: 'Reset', exact: true }).click();
+    await waitForSaved(page, c => !c.doc.dashboards.length && c.doc.layout.home.kind === 'default', 'reset including dashboards');
+    await open(); assert.equal((await saved(page)).doc.dashboards.length, 0); await shot('reset-complete'); pass('Reset can include dashboards and persists');
     assert.deepEqual(errors, []);
-    fs.writeFileSync(path.join(evidence, `${width}-${theme}-config.json`), JSON.stringify(await saved(page), null, 2));
-    assert.ok(created.doc.dashboards[0].id.startsWith('d_'));
-    await context.close();
+    fs.writeFileSync(path.join(evidence, `${width}-${scheme}-config.json`), JSON.stringify(await saved(page), null, 2)); await context.close();
   }
 } catch (error) {
   if (activePage && !activePage.isClosed()) {
     await activePage.screenshot({ path: path.join(evidence, 'failure.png') });
-    fs.writeFileSync(path.join(evidence, 'failure.json'), JSON.stringify({
-      passed: report.length, error: error.message, url: activePage.url(),
-      alerts: await activePage.getByRole('alert').allTextContents(),
-      saved: await saved(activePage),
-    }, null, 2));
+    fs.writeFileSync(path.join(evidence, 'failure.json'), JSON.stringify({ passed: report.length, error: error.message, url: activePage.url(), alerts: await activePage.getByRole('alert').allTextContents(), saved: await saved(activePage) }, null, 2));
   }
   throw error;
-} finally { await browser.close(); await fixture.close(); fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2)); }
-console.log(`${report.length} passed, 0 failed. Demo: ${evidence}`);
+} finally { await browser.close(); await fixture.close(); fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify({ passed: report.length, failed: failures.length, checks: report, failures }, null, 2)); }
+console.log(`${report.length} passed, ${failures.length} failed. Demo: ${evidence}`);
+assert.equal(failures.length, 0, 'Runtime integration checks must pass');

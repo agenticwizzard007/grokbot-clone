@@ -16,6 +16,9 @@ export function Manage({ doc, revision, run, onPreview, onChange }: { doc: UiCon
   const [scope, setScope] = useState('layout');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const dashboardCount = `${doc.dashboards.length} dashboard${doc.dashboards.length === 1 ? '' : 's'}`;
+  const widgets = doc.dashboards.reduce((n, d) => n + d.widgets.length, 0);
+  const widgetCount = `${widgets} widget${widgets === 1 ? '' : 's'}`;
   const change = async (save: () => Promise<unknown>) => { setBusy(true); setError(''); try { await save(); await onChange(); setDialog(null); } catch (failure) { setError((failure as Error).message); throw failure; } finally { setBusy(false); } };
   const mutate = (path: string, body: unknown) => change(() => appearanceRequest(path, 'POST', body, revision));
   return <AppearanceSection title="Manage">
@@ -40,7 +43,7 @@ export function Manage({ doc, revision, run, onPreview, onChange }: { doc: UiCon
         {history.map(entry => <Row key={entry.revision} title={`Revision ${entry.revision}`} subtitle={<><span>{entry.actor.startsWith('agent:') ? 'Agent' : entry.actor} · {new Date(entry.createdAt).toLocaleDateString()}</span><ul>{entry.summary.map((line, i) => <li key={i}>{line}</li>)}</ul></>} trailing={<button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} aria-label={`Restore revision ${entry.revision}`} onClick={() => void run(() => mutate(`/ui/history/${entry.revision}/restore`, {}))}>Restore</button>} />)}
       </> : <>
         <SelectRow label="Reset" value={scope} options={[{ value: 'layout', label: 'Layout' }, { value: 'all', label: 'Layout and dashboards' }]} onChange={setScope} />
-        <p>Resets navigation, visibility and shortcuts. {scope === 'all' ? `Deletes ${doc.dashboards.length} dashboards and ${doc.dashboards.reduce((n, d) => n + d.widgets.length, 0)} widgets.` : `Keeps ${doc.dashboards.length} dashboards.`}</p>
+        <p>Resets navigation, visibility and shortcuts. {scope === 'all' ? `Deletes ${dashboardCount} and ${widgetCount}.` : `Keeps ${dashboardCount}.`}</p>
         <ButtonGroup><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setDialog(null)}>Cancel</button><button type="button" className="cfg-btn cfg-btn--danger" disabled={busy} onClick={() => void run(() => change(async () => { const result = await write(resetLayout(scope === 'all'), 'Reset layout'); if (!result.ok) throw new AppearanceError(result.errors); }))}>Reset</button></ButtonGroup>
       </>}
     </Modal>}

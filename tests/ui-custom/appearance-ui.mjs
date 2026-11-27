@@ -58,7 +58,7 @@ try {
   // Seed only the private local transcript, using real preview lifecycle endpoints.
   const context = await appearanceContext(browser, fixture, 390, 'light');
   const page = await context.newPage(); page.setDefaultTimeout(15000); await page.goto('/#bots'); await reset(page);
-  const title = 'QA-Temp layout '.repeat(9).trim();
+  const title = 'Fixture dashboard request '.repeat(7).trim();
   const current = await saved(page);
   const response = await page.request.post('/api/ui/patches/preview', { headers: { 'If-Match': `"${current.revision}"` }, data: { intent: title, patch: [{ op: 'add', path: '/layout/home', value: { kind: 'tasks' } }] } });
   assert.equal(response.status(), 200, await response.text()); const preview = await response.json();
