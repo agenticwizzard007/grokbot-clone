@@ -17,6 +17,22 @@ const { accessibilityFixture, navigationRoutes } = await import('../fixtures/acc
 const out = path.resolve(process.env.A11Y_OUTPUT || '.context/ui-custom/accessibility');
 fs.mkdirSync(out, { recursive: true });
 const results = [];
+const modalSelector = 'dialog[open], [role=dialog][aria-modal=true]';
+async function assertSingleDialog(page, flow) {
+  const names = await page.locator(modalSelector).evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label') || node.textContent?.trim().slice(0, 80)));
+  assert.ok(names.length <= 1, `${flow}: at most one dialog may be open; found ${names.length}: ${names.join(', ')}`);
+  assert.ok(await page.evaluate(() => window.__a11yMaxDialogs <= 1), `${flow}: multiple dialogs were open during the sheet flow`);
+}
+async function openAgentSheet(page) {
+  await page.getByRole('button', { name: 'Add widget', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Add widget', exact: true }).waitFor();
+  await assertSingleDialog(page, 'Add widget');
+  await page.getByRole('button', { name: /^Ask your agent/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Ask your agent', exact: true });
+  await dialog.waitFor();
+  await assertSingleDialog(page, 'Add widget to Ask your agent');
+  assert.equal(await dialog.evaluate(node => node.contains(document.activeElement)), true, 'Focus moves inside Ask your agent');
+}
 async function openRoutines(page) {
   await page.getByRole('button', { name: 'Routines', exact: true }).click();
   await page.getByRole('region', { name: 'Routines', exact: true }).getByRole('switch').first().waitFor();
@@ -33,7 +49,7 @@ const routes = [...navigationRoutes.map(hash => ({ name: hash || 'home', hash })
   { name: 'dashboard-empty', hash: '#dash/d_a11y0002' },
   { name: 'dashboard-edit', hash: '#dash/d_a11y0001', action: async page => page.getByRole('button', { name: 'Edit', exact: true }).click() },
   { name: 'add-widget', hash: '#dash/d_a11y0001', action: async page => { await page.getByRole('button', { name: 'Edit', exact: true }).click(); await page.getByRole('button', { name: 'Add widget', exact: true }).click(); } },
-  { name: 'ask-agent', hash: '#dash/d_a11y0001', parentDialog: true, action: async page => { await page.getByRole('button', { name: 'Edit', exact: true }).click(); await page.getByRole('button', { name: 'Add widget', exact: true }).click(); await page.getByRole('button', { name: /^Ask your agent/ }).click(); } },
+  { name: 'ask-agent', hash: '#dash/d_a11y0001', action: async page => { await page.getByRole('button', { name: 'Edit', exact: true }).click(); await openAgentSheet(page); } },
   { name: 'widget-settings', hash: '#dash/d_a11y0001', action: async page => { await page.getByRole('button', { name: 'Edit', exact: true }).click(); await page.getByRole('button', { name: 'Settings: Task table', exact: true }).click(); } },
   { name: 'dashboard-switcher', hash: '#dash/d_a11y0001', action: async page => page.getByRole('button', { name: 'Switch dashboard: My week', exact: true }).click() },
   { name: 'create-dashboard', hash: '#dashboards', action: async page => page.getByRole('button', { name: 'Create', exact: true }).click() },
@@ -55,12 +71,17 @@ try {
         await server.open(page, route.hash);
         await page.evaluate(() => {
           window.__a11yOpener = null;
+          window.__a11yMaxDialogs = 0;
+          const recordDialogs = () => { window.__a11yMaxDialogs = Math.max(window.__a11yMaxDialogs, document.querySelectorAll('dialog[open], [role=dialog][aria-modal=true]').length); };
+          new MutationObserver(recordDialogs).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'role', 'aria-modal'] });
+          recordDialogs();
           document.addEventListener('click', event => {
             const button = event.target.closest?.('button');
             if (button && !button.closest('dialog[open], [role=dialog][aria-modal=true], [role=menu]')) window.__a11yOpener = button;
           }, true);
         });
         await route.action?.(page);
+        await assertSingleDialog(page, route.name);
         await page.evaluate(() => document.fonts.ready);
         const axe = await new AxeBuilder({ page }).withRules(rules).analyze();
         item.violations = axe.violations.map(({ id, impact, nodes }) => ({ id, impact, nodes: nodes.map(({ target, html, failureSummary }) => ({ target, html, failureSummary })) }));
@@ -73,6 +94,7 @@ try {
           if (scale === 4) await cdp.send('Emulation.setDeviceMetricsOverride', { width: 320, height: 844, deviceScaleFactor: 4, mobile: false, screenWidth: 1280, screenHeight: 3376 });
           await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('is-mobile') === matchMedia('(max-width: 760px)').matches);
           await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          await assertSingleDialog(page, `${route.name} at ${cssWidth}px`);
           const issues = await page.evaluate(() => {
             const issues = [];
             for (const root of [document.documentElement, document.body]) if (root.scrollWidth > innerWidth + 1) issues.push({ issue: 'page-overflow', tag: root.tagName, width: root.scrollWidth, viewport: innerWidth });
@@ -120,7 +142,7 @@ try {
           }
         }
         if (['#tasks', 'dashboard', 'about-you'].includes(route.name)) await page.screenshot({ path: path.join(out, `${file}.png`) });
-        const dialog = page.locator('dialog[open], [role=dialog][aria-modal=true]').last();
+        const dialog = page.locator(modalSelector);
         if (await dialog.count()) {
           const focusable = dialog.locator('button:enabled, input:enabled, select:enabled, textarea:enabled, a[href], [tabindex="0"]').filter({ visible: true });
           assert.ok(await focusable.count(), 'Dialog must have keyboard controls');
@@ -130,14 +152,21 @@ try {
           assert.equal(await dialog.evaluate(node => node.contains(document.activeElement)), true, 'Shift+Tab stays in the dialog');
           const dialogName = await dialog.getAttribute('aria-label');
           await page.keyboard.press('Escape'); await page.getByRole('dialog', { name: dialogName, exact: true }).waitFor({ state: 'hidden' });
-          if (route.parentDialog) {
-            const parent = page.getByRole('dialog', { name: 'Add widget', exact: true }); await parent.waitFor();
-            assert.equal(await parent.getByRole('button', { name: /^Ask your agent/ }).evaluate(node => node === document.activeElement), true, 'Nested sheet returns focus to its trigger');
-            await page.keyboard.press('Escape'); await parent.waitFor({ state: 'hidden' });
-          }
+          await assertSingleDialog(page, `${route.name} after Escape`);
+          assert.equal(await page.locator(modalSelector).count(), 0, 'Escape closes the sheet completely');
           assert.equal(await page.evaluate(() => !!window.__a11yOpener?.isConnected && document.activeElement === window.__a11yOpener), true, 'Escape returns focus to the opener');
-          item.keyboard = 'focus trap, Escape, focus return passed';
+          if (route.name === 'ask-agent') {
+            await openAgentSheet(page);
+            await page.getByRole('dialog', { name: 'Ask your agent', exact: true }).getByRole('button', { name: 'Cancel', exact: true }).click();
+            await page.getByRole('dialog', { name: 'Ask your agent', exact: true }).waitFor({ state: 'hidden' });
+            await assertSingleDialog(page, 'Ask your agent after Cancel');
+            assert.equal(await page.locator(modalSelector).count(), 0, 'Cancel closes the sheet completely');
+            assert.equal(await page.getByRole('button', { name: 'Add widget', exact: true }).evaluate(node => node === document.activeElement), true, 'Cancel returns focus to the Add widget button');
+          }
+          item.keyboard = 'single dialog, focus trap, Escape, focus return passed';
+          if (route.name === 'ask-agent') item.keyboard += '; Cancel returns to Add widget';
         }
+        item.maxOpenDialogs = await page.evaluate(() => window.__a11yMaxDialogs);
       } catch (error) { item.error = error.stack; }
       if (route.name === 'chat-preview') {
         try { await page.getByRole('region', { name: 'Review dashboard layout', exact: true }).getByRole('button', { name: 'Discard', exact: true }).click(); } catch (error) { item.error ??= error.stack; }

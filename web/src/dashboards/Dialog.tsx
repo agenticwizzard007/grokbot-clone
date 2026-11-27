@@ -4,16 +4,17 @@ import '../styles/config.css';
 import { Page } from '../components/layout';
 export function DashboardDialog({ title, children, close }: { title: string; children: ReactNode; close(): void }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     const node = dialog.current!, opener = document.activeElement;
     node.showModal();
     return () => {
       node.close();
-      // Nested sheets can unmount together after saving. Restore focus once all
-      // native modal layers have closed, so the outer trigger is no longer inert.
+      // Restore after the sheet has unmounted and its trigger is no longer inert.
       queueMicrotask(() => { if (opener instanceof HTMLElement && opener.isConnected) opener.focus({ preventScroll: true }); });
     };
   }, []);
+  useEffect(() => { heading.current?.focus({ preventScroll: true }); }, [title]);
   return <dialog ref={dialog} className="dashboard-dialog" aria-label={title} onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }} onKeyDown={event => {
     if (event.key !== 'Tab' || event.defaultPrevented) return;
     const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea, [tabindex]')]
@@ -24,6 +25,6 @@ export function DashboardDialog({ title, children, close }: { title: string; chi
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }}>
     <div className="dashboard-dialog-back"><button type="button" onClick={close}><ChevronLeft size={20} aria-hidden="true" />Back</button></div>
-    <Page><header className="dashboard-dialog-heading"><h1>{title}</h1><button type="button" className="cfg-btn cfg-btn--secondary" aria-label="Close" title="Close" onClick={close}><X size={20} aria-hidden="true" /></button></header>{children}</Page>
+    <Page><header className="dashboard-dialog-heading"><h1 ref={heading} tabIndex={-1}>{title}</h1><button type="button" className="cfg-btn cfg-btn--secondary" aria-label="Close" title="Close" onClick={close}><X size={20} aria-hidden="true" /></button></header>{children}</Page>
   </dialog>;
 }
