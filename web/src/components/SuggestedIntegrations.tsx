@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
 import { api, ApiError, openPopup, type SuggestedToolkit } from '../lib/api';
 import { verifyAccessAccount } from '../lib/accessApi';
 import { useStore } from '../store';
@@ -9,6 +9,8 @@ import { useVersion } from '../configStore';
 import { SUGGESTION_FILTER_VERSION } from '../../../server/src/suggestion-policy';
 import { reconcileSuggestionDisplay } from '../lib/suggestionDisplay';
 import '../styles/suggested-integrations.css';
+
+const FlowCompact = lazy(() => import('../flow/FlowCompact'));
 
 export const SUGGESTIONS_DEBOUNCE_MS = 450;
 export const SUGGESTIONS_TIMEOUT_MS = 4_500;
@@ -61,6 +63,7 @@ function SuggestionCard({ app, refresh }: { app: SuggestedToolkit; refresh: () =
 export function SuggestedIntegrations({ botId, description, instructions, placement = 'default' }: { botId: string; description: string; instructions: string; placement?: 'details' | 'settings' | 'default' }) {
   const userId = useStore(state => state.user?.id);
   const connectionsVersion = useStore(state => state.connectionsVersion);
+  const isAgent = useStore(state => state.bots.some(bot => bot.id === botId && bot.kind !== 'room' && bot.onboarding?.status !== 'interviewing'));
   const setupVersion = useVersion(`setup:${botId}`);
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState<{ displayKey: string; apps: SuggestedToolkit[]; hasContext?: boolean; error?: string }>();
@@ -133,7 +136,7 @@ export function SuggestedIntegrations({ botId, description, instructions, placem
   if (!userId) return null;
   const current = result?.displayKey === displayKey ? result : cached ? { apps: cached.suggestions, hasContext: cached.hasContext, error: undefined } : undefined;
   const refresh = () => { loadingDeadlines.delete(windowKey); setRetry(value => value + 1); };
-  return <section ref={section} className="suggested-integrations bot-detail-section" style={reservedHeight ? { minBlockSize: reservedHeight } : undefined} aria-label="Suggested integrations" aria-busy={!current}>
+  return <>{isAgent && <Suspense fallback={null}><FlowCompact botId={botId} /></Suspense>}<section ref={section} className="suggested-integrations bot-detail-section" style={reservedHeight ? { minBlockSize: reservedHeight } : undefined} aria-label="Suggested integrations" aria-busy={!current}>
     <h2>Suggested integrations</h2>
     {!current ? loadingKey === key && <p className="suggested-integrations__note" role="status">Finding relevant apps…</p>
       : <>
@@ -144,5 +147,5 @@ export function SuggestedIntegrations({ botId, description, instructions, placem
         ? 'No matching additional apps for this Bot right now.'
         : "Describe this Bot's work in Bot settings > General to find relevant integrations."}</p>}
       </>}
-  </section>;
+  </section></>;
 }
