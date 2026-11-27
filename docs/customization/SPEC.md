@@ -1118,6 +1118,7 @@ Known open questions (decided here, revisit if wrong):
 7. A wider widget library (calendar, inbox glance) through the connected app tools, each requiring its own security review.
 
 ## 26. Scope change: the app adapts to each user's requirements (added Nov 27, 2026, 14:14 Europe/Bratislava)
+Superseded by section 27 (2026-11-27 19:23 Malta)
 
 Decision from the user: "The app will be changing based on the requirements." Customization is not only a custom dashboard. The app as a whole adapts to each user's stated requirements and use case. The agent captures requirements (role, goals, workflows) in chat, then tailors the home dashboard, which sections and nav items are shown or emphasized, suggested Bots, templates, widgets and default views. When the requirements change in chat, the app re-adapts. This section is binding for workstream UC-I and extends sections 5, 6, 10, 12, 14 and 19 without changing their frozen interfaces.
 
@@ -1194,3 +1195,68 @@ UC-I owns the chat-first dashboard proposal: from the stated role, goals and wor
 Lenses change home widgets, navigation order, landing route and suggestions only. No new cosmetic theme, font, accent, density-preset, color or visual preset features, tests or screenshots are in scope. Existing merged code stays. Users with no config retain the main defaults.
 
 In addition to the two use cases, operations-to-support requirement change and Reset, `tests/ui-custom/demo-i.mjs` captures one chat-driven widget edit before and after at 390 and 1280. The edit must run through `tests/mock-provider.mjs` and the real agent tools, then Apply and reload to demonstrate persistence. The demo does not change cosmetic settings.
+
+## 27. Scope correction: user-created agentic dashboards (2026-11-27, 19:23 Malta, supersedes section 26)
+
+Decision from the user: "Every single user should be able to create custom agentic dashboards as they require, to be the most productive and have the highest visibility across everything they are working on."
+
+This corrects section 26. The product is USER-CREATED AGENTIC DASHBOARDS, not an app that reshapes itself.
+
+### 27.1 What changes
+
+1. Section 26 is withdrawn as a product direction. The navigation, sidebar, phone tabs and default home are the same for every user until that user changes them by hand. Nothing is reordered, emphasised or demoted by a requirements profile. The adaptive home, emphasised sections, Suggested Bots card, lens scoring of layout and the All sections page are removed from the main experience (anything that stays must be harmless and unreachable by default). The requirements chat survives only as an optional starting point: "Suggest a dashboard for me". It asks for role and goals, then previews ONE new dashboard (a `create_dashboard` patch with widgets) that the user applies, edits or discards. It never edits layout, nav, home, components or theme.
+2. Every user can have several dashboards. They create, name, rename, duplicate, reorder, delete and switch between them, by talking to the agent or directly in the UI. Each dashboard is per user, versioned, persisted, and previewed before apply like every other ui_config change.
+3. Dashboards exist to give the highest visibility across everything the user works on. Widgets cover: all Bots and their status; running and finished tasks; items needing the user's input; handoffs and loops in progress; routines and next runs; connector data where connected (email, calendar, CRM and similar; a clean "Connect" empty state otherwise); outputs and recent results; usage and costs.
+4. Widgets are AGENTIC. A widget can be backed by an agent query or prompt ("show me deals stuck for more than 7 days", "summarize what my research bot found today"). It refreshes on demand and on a schedule, shows a typed result, and offers inline actions: open, send to agent, approve. Widgets can be added, removed, reordered and resized by chat or by direct edit (drag on desktop, buttons and keyboard everywhere).
+
+### 27.2 Agent widget contract (type `agent`)
+
+Added to WIDGET_TYPES. Options (strict zod, plain text only, secret scan applies):
+
+```ts
+interface AgentWidgetOptions {
+  prompt: string;                         // 1..400 chars, the user's question or instruction
+  botId?: string;                         // one of the user's own Bots; default is the user's first Bot
+  display: 'text' | 'list' | 'stat';      // how the typed result is rendered
+  schedule: 'manual' | 'hourly' | 'daily'; // default manual
+}
+```
+
+Result (stored per user and widget in `ui_widget_results(user_id, dashboard_id, widget_id, doc, state, run_at, duration_ms)`, last result only plus a 5 row history, doc capped at 8 KB):
+
+```ts
+type AgentWidgetResult =
+  | { kind: 'text'; text: string }                                     // <= 1200 chars, plain
+  | { kind: 'stat'; value: string; label: string; delta?: string }
+  | { kind: 'list'; rows: { title: string; subtitle?: string; status?: string; action?: WidgetAction }[] }; // <= 10 rows
+type WidgetAction =
+  | { type: 'open'; route: string }                                    // in-app route from the allowlist only
+  | { type: 'send'; botId: string; text: string }                      // opens the chat with text prefilled, never sends by itself
+  | { type: 'approve'; itemId: string };                               // resolves a needs-input item the user owns, after an explicit confirm
+```
+
+Rules:
+- The agent run is READ ONLY. The runner offers the Bot a fixed read-tool allowlist over the SAME data sources as section 9 plus the new sources below (never raw SQL, never other users, never files outside the user's, never network, no mutating tool, no ui config tools). Output must validate against `AgentWidgetResult`; anything else is stored as an error state ("Could not read the answer. Try again.") and never rendered as HTML.
+- Actions are validated again on the server: `open` routes come from the navigation allowlist, `send.botId` and `approve.itemId` must belong to the user. `approve` needs an explicit confirm dialog in the UI and calls the existing approval flow, and the audit row records widget id.
+- Runs: `POST /api/ui/widgets/:dashboardId/:widgetId/run` (on demand, 202 then poll or SSE `ui_widget`), `GET /api/ui/widgets/:dashboardId/:widgetId/result`. Scheduled runs come from one in-process scheduler tick (60 s) that runs due widgets of users who were active in the last 7 days. Limits per user: 1 concurrent run, 20 runs per hour, 100 per day, 30 s timeout per run, 12 agent widgets per dashboard, flag `ui_agent_widgets` (default on) and an account cost cap that reuses the existing usage cap check. The result records tokens and estimated cost, and a "Usage" source can show it.
+- The widget never shows stale data as fresh: it shows "Updated 5 min ago" and a refresh button, an inline running state, and a clean empty state ("No answer yet" plus a Run button) before the first run.
+- Tests and demos use the scripted mock provider so answers are deterministic, but the data in the answer must come from the seeded database through the read tools (live data), not from literals in the provider.
+
+### 27.3 New data sources (read only, per user, same rules as section 9)
+
+`handoffs.list` (id, title, fromBot, toBot, state, updatedAt), `loops.list` (id, name, state, round, updatedAt), `outputs.recent` (id, title, botName, kind, createdAt), `connectors.status` (id, label, connected), and, only for connectors that are connected and expose a safe read, `email.recent`, `calendar.upcoming`, `crm.deals` (small allowlisted fields, 10 rows, cached 60 s). If a connector is not connected the source returns `available: false` and the widget shows one line and a Connect button that opens Settings, never an error. New widget types may reuse `list`, `stat`, `table`; add no new visual type unless needed.
+
+### 27.4 Dashboard management
+
+- Tools: `list_dashboards`, `create_dashboard` (templates: blank, overview, tasks, usage, bot, plus `needs_you`, `handoffs`, `pipeline`), `duplicate_dashboard {dashboardId, name?}`, `rename_dashboard`, `delete_dashboard`, `reorder_dashboards`, `add_agent_widget {dashboardId, prompt, botId?, display?, schedule?, title?, span?, rows?}`. All build patches through `previewPatch` as before, preview then apply.
+- REST and UI: a Dashboards screen (`#dashboards`) lists the user's dashboards with Create, Duplicate, Rename, Delete (confirm) and open. The dashboard screen has a switcher in its header area (one title per screen, one Back on phone). Max dashboards stays at the schema limit; hitting it shows one line, not an error.
+- A user can say "make me a dashboard for my sales pipeline with deals stuck for more than 7 days and my open handoffs", the agent previews it with agent widgets and sources, the user applies, the dashboard opens.
+
+### 27.5 Acceptance (binding)
+
+1. Create a dashboard by chat (preview, apply, it opens) at 390 and 1280. Two users build visibly different dashboards. Duplicate, rename, delete and switch work by chat and by UI.
+2. An agent widget answers a prompt with live data from the seeded database, refreshes on demand, shows its updated time, and persists across reload. Its schedule fires in a test with a fake clock.
+3. An inline action works for each type: open navigates, send prefills the chat and does not send, approve asks to confirm and then resolves the item.
+4. Security: read only run (a prompt that asks for a mutation produces no mutation), cross-user isolation of results, actions validated server side, taint rule intact, quotas and timeouts enforced.
+5. The nav, tabs and home are identical for two users with different requirement profiles. The requirements chat only yields an optional dashboard suggestion.
+6. UI quality gate (BUILD-SPEC 0b, 0c, 0d) holds for every new screen at 320, 390, 500 and 1280, routes are in tests/layout-alignment-ui.mjs, no forbidden visible text.
