@@ -92,7 +92,7 @@ async function paperMatrix({ page, width, server, check, screenshots, evidence }
       const nav = page.getByRole('navigation', { name: 'Settings sections', exact: true });
       await nav.waitFor();
       assert.deepEqual(await nav.locator('.layout-section__header h2').allTextContents(), ['Workspace', 'Connections']);
-      assert.equal(await nav.locator('.settings-nav__item').count(), 13);
+      assert.equal(await nav.locator('.settings-nav__item').count(), 14);
       const agents = nav.getByRole('button', { name: 'Agents', exact: true });
       assert.equal(await agents.count(), 1);
       assert.equal(await agents.locator('svg.lucide-users').count(), 1);
@@ -105,7 +105,7 @@ async function paperMatrix({ page, width, server, check, screenshots, evidence }
         await back.click(); await nav.waitFor();
         await agents.click(); await page.getByLabel('Agent handoffs', { exact: true }).waitFor();
       }
-      check(`Settings navigation has thirteen sections in two groups at ${testedWidth} ${theme}`);
+      check(`Settings navigation has fourteen sections in two groups at ${testedWidth} ${theme}`);
     }
   }
   await page.setViewportSize({ width, height: 1000 }); await setTheme(page, 'light');
@@ -222,7 +222,9 @@ await runIntegrationDemo({ outputFlow: async args => {
 
   await pickSettings('Layout');
   await page.getByRole('region', { name: 'Dashboards', exact: true }).waitFor();
-  assert.equal(await page.getByRole('button', { name: 'New dashboard', exact: true }).count(), 1);
+  const createDashboard = page.getByRole('region', { name: 'Dashboards', exact: true }).getByRole('button').filter({ hasText: /^Create$/ });
+  await createDashboard.waitFor();
+  assert.equal(await createDashboard.count(), 1);
   await pickSettings('Agents'); await policy.waitFor(); await alignment();
   await page.reload(); await policy.waitFor(); await alignment();
   assert.equal(new URL(page.url()).hash, '#settings/agents');

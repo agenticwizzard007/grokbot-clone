@@ -8,6 +8,7 @@ import { navigation, openConversation, useConfigUI } from '../../configStore';
 import { MembersCard } from '../MembersCard';
 import { VoiceSettings } from '../VoiceSettings';
 import { fmtHours } from './BotAnalyticsTab';
+import { HandoffList } from '../../handoffs/HandoffList';
 
 export function BotActivity({ bot }: { bot: Bot }) {
   const tasks = useTasks(bot.id);
@@ -40,6 +41,7 @@ export function BotActivity({ bot }: { bot: Bot }) {
       {!tasks.error && !attention.error && (tasks.tasks === null || attention.items === null) && <p role="status">Loading activity...</p>}
       {!tasks.error && !attention.error && tasks.tasks !== null && attention.items !== null && !tasks.tasks.length && !attention.items.length && <p>No activity yet.</p>}
     </Section>
+    {bot.kind !== 'room' && <HandoffList key={bot.id} botId={bot.id} />}
     {bot.kind === 'room' ? <Section title="Members"><MembersCard room={bot} /></Section> : <details className="pb-disclosure"><summary>More</summary>
       <Row title="Routines" trailing={<button className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openBotSettings(bot.id, 'routines')}>Manage routines</button>} />
       <Row title="Computer" trailing={<button className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Computer settings</button>} />

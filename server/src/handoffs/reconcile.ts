@@ -5,6 +5,7 @@ import { driveLoop } from './loop-runner.js';
 import { drainInternalRequests, pendingDecision } from '../coordination/requests.js';
 import { hub } from '../lib/hub.js';
 import type { Handoff, HandoffStatus } from './contracts.js';
+import { recoverHandoffProjections } from './projections.js';
 let reconciling = false;
 const subscriptions = new Map<string, () => void>();
 const pending = new Set<string>();
@@ -94,6 +95,7 @@ export function reconcileHandoffs(userId?: string) {
         return;
     reconciling = true;
     try {
+        recoverHandoffProjections(userId);
         const rows = db.prepare(`SELECT * FROM handoffs WHERE status IN ('queued','delivered','running') ${userId ? 'AND user_id=?' : ''} ORDER BY created_at,id`).all(...(userId ? [userId] : [])) as any[];
         for (const row of rows) {
             if (!enabled(row.user_id))
