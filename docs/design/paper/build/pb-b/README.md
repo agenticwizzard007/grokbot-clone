@@ -21,17 +21,17 @@ All browser checks use local production bundles and synthetic fixtures. No live 
 - `settings-simplify.test.mts` and `settings-simplify-ui.mjs`: approved section order, distinct icons, all eleven sections, reloads, resizing with an unsaved draft, keyboard access, rail and immediate menu reopen. The provider model row keeps its existing reserved icon slot.
 - `paper-shell-copy.mjs`: reproducible before/after word measurement; asserts the v2 General and Settings-home budgets.
 
-Full local suite: 2,850 pass, 70 fail, 24 existing skips, 0 cancelled, 2,944 total. Untouched origin/main at `801496e21b64b88931b1018d7a306441b34a4f30` has exactly the same counts and the same 70 failure names. New failures: 0. No tests were disabled or newly skipped. See `test-comparison.json`. Targeted tests: 168 pass, 0 fail. Server and web typecheck and web production build pass. The final route sweep passes 126 checks plus both roster-failure cases. The ten visual cases, four keyboard cases, ten account-menu cases and 53 Settings layout checks pass.
+Full suite comparison before the PB-A rebase: 2,850 pass, 70 fail, 24 existing skips, 0 cancelled, 2,944 total. Untouched origin/main at `801496e21b64b88931b1018d7a306441b34a4f30` has exactly the same counts and the same 70 failure names. New failures: 0. No tests were disabled or newly skipped. See `test-comparison.json`. After rebasing onto PB-A at `b73ab708b65416964759c982ddd02aba839e3394`, the same 178 targeted tests pass on both the untouched latest main worktree and this branch, with 0 failures. This includes the added Paper token and changed composer label tests. The ten PB-A foundation browser cases also pass with the PB-B shell. Server and web typecheck and web production build pass. The final route sweep passes 126 checks plus both roster-failure cases. The ten visual cases, four keyboard cases, ten account-menu cases and 53 Settings layout checks pass.
 
 ## Visible words
 
-Measured with identical local fixtures at 1280 x 900 and 390 x 844. Counts use body innerText excluding the app sidebar, phone tabs and visually hidden accessibility text. The old Settings nav is added back when mounted in the sidebar. Whole-word whitespace tokens include labels and fixture content. Search previously counted its visible background page. Phone Bots previously used only the sidebar, so its main-region baseline is zero.
+Measured against untouched main `b73ab708b65416964759c982ddd02aba839e3394` with identical local fixtures at 1280 x 900 and 390 x 844. Counts use body innerText excluding the app sidebar, phone tabs and visually hidden accessibility text. The old Settings nav is added back when mounted in the sidebar. Whole-word whitespace tokens include labels and fixture content. Search previously counted its visible background page. Phone Bots previously used only the sidebar, so its main-region baseline is zero.
 
 Only General content and the surrounding frame are redesigned in PB-B. Other Settings contents, chat, Bots and Tasks bodies belong to other streams and remain intact. Their full-page counts below document the effect of the new shell, including the required Back label. Sidebar and account-menu counts are separate component measurements.
 
 | Screen | 1280 before | 1280 after | 390 before | 390 after |
 |---|---:|---:|---:|---:|
-| Chat | 29 | 28 | 25 | 22 |
+| Chat | 31 | 30 | 28 | 25 |
 | Sidebar | 28 | 30 | n/a | n/a |
 | Account menu | 11 | 10 | n/a | n/a |
 | Bots | 29 | 33 | 0 | 31 |
@@ -124,7 +124,7 @@ Every row passes at both widths. Home tap counts include Back when used, then th
 
 ## Screenshots and comparison
 
-Compared with rendered v2 `chat-rest`, `nav`, `bots` and `settings` artboards in both themes. Screenshots omit the artboards' simulated phone status/home bars; real safe-area insets are supported. Bot names, avatars, counts and messages come from fixtures. General preserves current preference values. Shared token/composer changes belong to PB-A and other screen bodies belong to their respective streams.
+Compared with rendered v2 `chat-rest`, `nav`, `bots` and `settings` artboards in both themes. Screenshots omit the artboards' simulated phone status/home bars; real safe-area insets are supported. Bot names, avatars, counts and messages come from fixtures. General preserves current preference values. Screenshots include the merged PB-A tokens, provider marks and composer. Other screen bodies belong to their respective streams.
 
 - `chat-sidebar-{320,390,1280}-{light,dark}.png`
 - `bots-tab-{320,390,1280}-{light,dark}.png`

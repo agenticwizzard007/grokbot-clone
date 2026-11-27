@@ -162,5 +162,22 @@
     ]
   },
   "newFailures": [],
-  "baselineOnly": []
+  "baselineOnly": [],
+  "fullSuiteBaseRevision": "801496e21b64b88931b1018d7a306441b34a4f30",
+  "postRebase": {
+    "baseRevision": "b73ab708b65416964759c982ddd02aba839e3394",
+    "baselineTargeted": {
+      "pass": 178,
+      "fail": 0
+    },
+    "branchTargeted": {
+      "pass": 178,
+      "fail": 0
+    },
+    "shellBrowserCases": 10,
+    "foundationBrowserCases": 10,
+    "routeChecks": 126,
+    "keyboardCases": 4,
+    "rosterFailureCases": 2
+  }
 }

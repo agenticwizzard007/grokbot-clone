@@ -1,9 +1,10 @@
 {
+  "baseRevision": "b73ab708b65416964759c982ddd02aba839e3394",
   "before": [
     {
       "screen": "Chat",
       "width": 1280,
-      "words": 29
+      "words": 31
     },
     {
       "screen": "Sidebar",
@@ -93,7 +94,7 @@
     {
       "screen": "Chat",
       "width": 390,
-      "words": 25
+      "words": 28
     },
     {
       "screen": "Bots",
@@ -175,7 +176,7 @@
     {
       "screen": "Chat",
       "width": 1280,
-      "words": 28
+      "words": 30
     },
     {
       "screen": "Sidebar",
@@ -265,7 +266,7 @@
     {
       "screen": "Chat",
       "width": 390,
-      "words": 22
+      "words": 25
     },
     {
       "screen": "Bots",
