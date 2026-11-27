@@ -1,0 +1,362 @@
+[
+  {
+    "name": "bots",
+    "hash": "#bots",
+    "owner": "PB-D",
+    "enforce": true,
+    "width": 320,
+    "theme": "light",
+    "words": 22,
+    "issues": [
+      "Section action text not centered: header.layout-section__header Rooms New room (9.00px)"
+    ]
+  },
+  {
+    "name": "settings-general",
+    "hash": "#settings/general",
+    "owner": "PB-C",
+    "enforce": true,
+    "width": 320,
+    "theme": "light",
+    "words": 17,
+    "issues": [
+      "Diagnostics text left edge: 6.00px inset"
+    ]
+  },
+  {
+    "name": "tasks",
+    "hash": "#tasks",
+    "owner": "PB-E",
+    "enforce": true,
+    "width": 320,
+    "theme": "light",
+    "words": 33,
+    "issues": [
+      "Tasks needs-input banner missing for 1 waiting task"
+    ]
+  },
+  {
+    "name": "bots",
+    "hash": "#bots",
+    "owner": "PB-D",
+    "enforce": true,
+    "width": 320,
+    "theme": "dark",
+    "words": 22,
+    "issues": [
+      "Section action text not centered: header.layout-section__header Rooms New room (9.00px)"
+    ]
+  },
+  {
+    "name": "settings-general",
+    "hash": "#settings/general",
+    "owner": "PB-C",
+    "enforce": true,
+    "width": 320,
+    "theme": "dark",
+    "words": 17,
+    "issues": [
+      "Diagnostics text left edge: 6.00px inset"
+    ]
+  },
+  {
+    "name": "tasks",
+    "hash": "#tasks",
+    "owner": "PB-E",
+    "enforce": true,
+    "width": 320,
+    "theme": "dark",
+    "words": 33,
+    "issues": [
+      "Tasks needs-input banner missing for 1 waiting task"
+    ]
+  },
+  {
+    "name": "bots",
+    "hash": "#bots",
+    "owner": "PB-D",
+    "enforce": true,
+    "width": 390,
+    "theme": "light",
+    "words": 22,
+    "issues": [
+      "Section action text not centered: header.layout-section__header Rooms New room (9.00px)"
+    ]
+  },
+  {
+    "name": "settings-general",
+    "hash": "#settings/general",
+    "owner": "PB-C",
+    "enforce": true,
+    "width": 390,
+    "theme": "light",
+    "words": 17,
+    "issues": [
+      "Diagnostics text left edge: 6.00px inset"
+    ]
+  },
+  {
+    "name": "tasks",
+    "hash": "#tasks",
+    "owner": "PB-E",
+    "enforce": true,
+    "width": 390,
+    "theme": "light",
+    "words": 33,
+    "issues": [
+      "Tasks needs-input banner missing for 1 waiting task"
+    ]
+  },
+  {
+    "name": "bots",
+    "hash": "#bots",
+    "owner": "PB-D",
+    "enforce": true,
+    "width": 390,
+    "theme": "dark",
+    "words": 22,
+    "issues": [
+      "Section action text not centered: header.layout-section__header Rooms New room (9.00px)"
+    ]
+  },
+  {
+    "name": "settings-general",
+    "hash": "#settings/general",
+    "owner": "PB-C",
+    "enforce": true,
+    "width": 390,
+    "theme": "dark",
+    "words": 17,
+    "issues": [
+      "Diagnostics text left edge: 6.00px inset"
+    ]
+  },
+  {
+    "name": "tasks",
+    "hash": "#tasks",
+    "owner": "PB-E",
+    "enforce": true,
+    "width": 390,
+    "theme": "dark",
+    "words": 33,
+    "issues": [
+      "Tasks needs-input banner missing for 1 waiting task"
+    ]
+  },
+  {
+    "name": "bots",
+    "hash": "#bots",
+    "owner": "PB-D",
+    "enforce": true,
+    "width": 500,
+    "theme": "light",
+    "words": 22,
+    "issues": [
+      "Section action text not centered: header.layout-section__header Rooms New room (9.00px)"
+    ]
+  },
+  {
+    "name": "settings-general",
+    "hash": "#settings/general",
+    "owner": "PB-C",
+    "enforce": true,
+    "width": 500,
+    "theme": "light",
+    "words": 17,
+    "issues": [
+      "Diagnostics text left edge: 6.00px inset"
+    ]
+  },
+  {
+    "name": "tasks",
+    "hash": "#tasks",
+    "owner": "PB-E",
+    "enforce": true,
+    "width": 500,
+    "theme": "light",
+    "words": 33,
+    "issues": [
+      "Tasks needs-input banner missing for 1 waiting task"
+    ]
+  },
+  {
+    "name": "bots",
+    "hash": "#bots",
+    "owner": "PB-D",
+    "enforce": true,
+    "width": 500,
+    "theme": "dark",
+    "words": 22,
+    "issues": [
+      "Section action text not centered: header.layout-section__header Rooms New room (9.00px)"
+    ]
+  },
+  {
+    "name": "settings-general",
+    "hash": "#settings/general",
+    "owner": "PB-C",
+    "enforce": true,
+    "width": 500,
+    "theme": "dark",
+    "words": 17,
+    "issues": [
+      "Diagnostics text left edge: 6.00px inset"
+    ]
+  },
+  {
+    "name": "tasks",
+    "hash": "#tasks",
+    "owner": "PB-E",
+    "enforce": true,
+    "width": 500,
+    "theme": "dark",
+    "words": 33,
+    "issues": [
+      "Tasks needs-input banner missing for 1 waiting task"
+    ]
+  },
+  {
+    "name": "bots",
+    "hash": "#bots",
+    "owner": "PB-D",
+    "enforce": true,
+    "width": 768,
+    "theme": "light",
+    "words": 23,
+    "issues": []
+  },
+  {
+    "name": "settings-general",
+    "hash": "#settings/general",
+    "owner": "PB-C",
+    "enforce": true,
+    "width": 768,
+    "theme": "light",
+    "words": 38,
+    "issues": [
+      "Unequal segmented cells: div.cfg-seg Light Dark Auto (51.13, 49.48, 49.14)",
+      "Diagnostics text left edge: 6.00px inset"
+    ]
+  },
+  {
+    "name": "tasks",
+    "hash": "#tasks",
+    "owner": "PB-E",
+    "enforce": true,
+    "width": 768,
+    "theme": "light",
+    "words": 39,
+    "issues": [
+      "Unequal segmented cells: div.task-filters Open Done All 2 (52.28, 51.50, 68.88)",
+      "Tasks needs-input banner missing for 1 waiting task"
+    ]
+  },
+  {
+    "name": "bots",
+    "hash": "#bots",
+    "owner": "PB-D",
+    "enforce": true,
+    "width": 768,
+    "theme": "dark",
+    "words": 23,
+    "issues": []
+  },
+  {
+    "name": "settings-general",
+    "hash": "#settings/general",
+    "owner": "PB-C",
+    "enforce": true,
+    "width": 768,
+    "theme": "dark",
+    "words": 38,
+    "issues": [
+      "Unequal segmented cells: div.cfg-seg Light Dark Auto (51.13, 49.48, 49.14)",
+      "Diagnostics text left edge: 6.00px inset"
+    ]
+  },
+  {
+    "name": "tasks",
+    "hash": "#tasks",
+    "owner": "PB-E",
+    "enforce": true,
+    "width": 768,
+    "theme": "dark",
+    "words": 39,
+    "issues": [
+      "Unequal segmented cells: div.task-filters Open Done All 2 (52.28, 51.50, 68.88)",
+      "Tasks needs-input banner missing for 1 waiting task"
+    ]
+  },
+  {
+    "name": "bots",
+    "hash": "#bots",
+    "owner": "PB-D",
+    "enforce": true,
+    "width": 1280,
+    "theme": "light",
+    "words": 23,
+    "issues": []
+  },
+  {
+    "name": "settings-general",
+    "hash": "#settings/general",
+    "owner": "PB-C",
+    "enforce": true,
+    "width": 1280,
+    "theme": "light",
+    "words": 38,
+    "issues": [
+      "Unequal segmented cells: div.cfg-seg Light Dark Auto (51.13, 49.48, 49.14)",
+      "Diagnostics text left edge: 6.00px inset"
+    ]
+  },
+  {
+    "name": "tasks",
+    "hash": "#tasks",
+    "owner": "PB-E",
+    "enforce": true,
+    "width": 1280,
+    "theme": "light",
+    "words": 39,
+    "issues": [
+      "Unequal segmented cells: div.task-filters Open Done All 2 (52.28, 51.50, 68.88)",
+      "Tasks needs-input banner missing for 1 waiting task"
+    ]
+  },
+  {
+    "name": "bots",
+    "hash": "#bots",
+    "owner": "PB-D",
+    "enforce": true,
+    "width": 1280,
+    "theme": "dark",
+    "words": 23,
+    "issues": []
+  },
+  {
+    "name": "settings-general",
+    "hash": "#settings/general",
+    "owner": "PB-C",
+    "enforce": true,
+    "width": 1280,
+    "theme": "dark",
+    "words": 38,
+    "issues": [
+      "Unequal segmented cells: div.cfg-seg Light Dark Auto (51.13, 49.48, 49.14)",
+      "Diagnostics text left edge: 6.00px inset"
+    ]
+  },
+  {
+    "name": "tasks",
+    "hash": "#tasks",
+    "owner": "PB-E",
+    "enforce": true,
+    "width": 1280,
+    "theme": "dark",
+    "words": 39,
+    "issues": [
+      "Unequal segmented cells: div.task-filters Open Done All 2 (52.28, 51.50, 68.88)",
+      "Tasks needs-input banner missing for 1 waiting task"
+    ]
+  }
+]

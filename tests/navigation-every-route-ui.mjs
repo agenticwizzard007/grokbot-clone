@@ -210,6 +210,25 @@ try {
   }
   await historyFlows();
   await dismissals();
+  const originalRespond = fixture.respond;
+  fixture.respond = request => {
+   if (request.path.endsWith('/tasks')) return { json: { tasks: [{ id: 'waiting-task', botId: 'coordinator', title: 'Review the launch plan', state: 'needs_input', updatedAt: Date.now() }] } };
+   if (request.path === '/api/needs-you') return { json: { items: [{ id: 'waiting-approval', botId: 'coordinator', type: 'approval', title: 'Review the draft email', createdAt: Date.now(), seq: 1 }] } };
+   return originalRespond(request);
+  };
+  await cold('#tasks');
+  const notice = page.getByTestId('tasks-needs-input');
+  await notice.getByText('2 tasks need your input', { exact: true }).waitFor();
+  await page.locator('.task-filters .is-done').click();
+  await notice.getByRole('button', { name: 'Review', exact: true }).click();
+  for (const title of ['Review the launch plan', 'Review the draft email']) {
+   await page.locator('.task-card').filter({ hasText: title }).click();
+   await hashIs(canonical('#bot/coordinator'));
+   await page.locator('.shell-back').click();
+   await hashIs('#tasks');
+  }
+  fixture.respond = originalRespond;
+  results.push({ route: 'Tasks waiting notice, task chat and approval chat', width, theme, back: 'pass' });
   await cold('#settings/subscriptions');
   await page.locator('.subscription-settings [data-layout="row"][data-provider="claude"]').getByRole('button',{name:'Connect',exact:true}).click();
   const sheet = page.getByRole('dialog',{name:'Connect Claude',exact:true}); await sheet.waitFor();

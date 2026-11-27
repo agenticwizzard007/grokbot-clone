@@ -19,8 +19,11 @@
 .layout-section__header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 24px; }
 .layout-section__header h2 { margin: 0; font: 600 13px/18px var(--font-stack); color: var(--color-text-2); }
 .layout-section__content { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.layout-section__footer { display: flex; align-items: center; }
+.layout-section__header > .link-btn, .layout-section__footer > .link-btn { align-items: center; padding-inline: 0; }
 .layout-card { box-sizing: border-box; width: 100%; min-width: 0; align-self: stretch; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-elevated); }
 .layout-card--list { padding: 0 var(--space-3); }
+.layout-card--warning { color: var(--color-warn-text); background: var(--color-warn-bg); }
 .layout-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; min-height: var(--control-h); padding-block: var(--space-2); border-bottom: 1px solid var(--color-border); }
 .layout-row:last-child { border-bottom: 0; }
 .layout-row__leading { display: flex; align-items: center; justify-content: center; width: 20px; flex: 0 0 20px; }

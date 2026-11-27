@@ -1,0 +1,4 @@
+FAIL settings-general 390 light: Diagnostics text left edge: 6.00px inset
+FAIL bots 390 light: Section action text not centered: header.layout-section__header Rooms New room (9.00px)
+FAIL tasks 1280 light: Tasks needs-input banner missing for 1 waiting task
+FAIL tasks 1280 light: Unequal segmented cells: div.task-filters Open Done All 2 (52.28, 51.50, 68.88)

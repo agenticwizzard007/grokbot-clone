@@ -262,7 +262,7 @@
 .paper-shell .settings-general .cfg-seg { padding: 4px; gap: 0; background: var(--color-bg-tertiary); border-radius: 12px; }
 .paper-shell .settings-general .cfg-seg button { padding: 0 10px; border-radius: 8px; }
 .paper-shell .settings-general .cfg-btn { flex: 0 0 auto; padding: 0 16px; border: 1px solid var(--color-border-secondary); border-radius: 10px; background: var(--color-bg-elevated); }
-.paper-shell .settings-general .settings-diagnostics { margin-top: 16px; font-size: 12px; color: var(--color-text-tertiary); }
+.paper-shell .settings-general .settings-diagnostics { font-size: 12px; color: var(--color-text-tertiary); }
 .settings-account { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--color-border-secondary); border-radius: 16px; text-align: left; }
 .settings-account > span:nth-child(2) { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
 .settings-account strong { font-size: 15px; line-height: 22px; font-weight: 600; }

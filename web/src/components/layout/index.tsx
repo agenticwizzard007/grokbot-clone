@@ -16,15 +16,16 @@ export function Page({ type = 'form', title, helper, children, className, ...pro
   </div>;
 }
 
-export function Section({ title, action, children, className, ...props }: Omit<Props, 'title'> & { title?: ReactNode; action?: ReactNode }) {
+export function Section({ title, action, footer, children, className, ...props }: Omit<Props, 'title'> & { title?: ReactNode; action?: ReactNode; footer?: ReactNode }) {
   return <section {...props} data-layout="section" className={classes('layout-section', className)}>
     {(title || action) && <header className="layout-section__header">{title && <h2>{title}</h2>}{action}</header>}
     <div className="layout-section__content">{children}</div>
+    {footer && <footer className="layout-section__footer">{footer}</footer>}
   </section>;
 }
 
-export function Card({ variant, children, className, ...props }: Props & { variant?: 'list' }) {
-  return <div {...props} data-layout="card" className={classes('layout-card', variant === 'list' && 'layout-card--list', className)}>{children}</div>;
+export function Card({ variant, tone, children, className, ...props }: Props & { variant?: 'list'; tone?: 'warning' }) {
+  return <div {...props} data-layout="card" className={classes('layout-card', variant === 'list' && 'layout-card--list', tone && `layout-card--${tone}`, className)}>{children}</div>;
 }
 
 export function Row({ leading, title, subtitle, trailing, children, className, ...props }: Omit<Props, 'title'> & {
