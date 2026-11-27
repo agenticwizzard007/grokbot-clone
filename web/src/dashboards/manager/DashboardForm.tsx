@@ -15,7 +15,7 @@ export function DashboardForm({ state, doc, busy, error, patch, close, ask, canA
     if (await patch(ops, state.kind === 'create' || state.kind === 'duplicate')) close();
   }}><Section>{state.kind === 'delete' ? <p>Delete {state.dashboard.name} and its {state.dashboard.widgets.length} {state.dashboard.widgets.length === 1 ? 'widget' : 'widgets'}?</p> : <label className="dashboard-field">Name<input autoFocus required maxLength={40} value={name} onChange={event => setName(event.target.value)} /></label>}
     {error && <p role="alert">{error}</p>}
-    <ButtonGroup><button type="button" className="btn" disabled={busy} onClick={close}>Cancel</button><button type="submit" className={`btn ${state.kind === 'delete' ? 'btn--danger' : 'btn--primary'}`} disabled={busy || (state.kind !== 'delete' && !name.trim())}>{state.kind === 'delete' ? 'Delete' : state.kind === 'create' ? 'Create' : state.kind === 'duplicate' ? 'Duplicate' : 'Save'}</button></ButtonGroup>
-    {state.kind === 'create' && <button type="button" className="btn" disabled={busy || !canAsk} onClick={ask}>Ask your agent</button>}
+    <ButtonGroup><button type="button" className="btn btn--secondary" disabled={busy} onClick={close}>Cancel</button><button type="submit" className={`btn ${state.kind === 'delete' ? 'btn--danger' : 'btn--primary'}`} disabled={busy || (state.kind !== 'delete' && !name.trim())}>{state.kind === 'delete' ? 'Delete' : state.kind === 'create' ? 'Create' : state.kind === 'duplicate' ? 'Duplicate' : 'Save'}</button></ButtonGroup>
+    {state.kind === 'create' && <button type="button" className="btn btn--secondary" disabled={busy || !canAsk} onClick={ask}>Ask your agent</button>}
   </Section></form></DashboardDialog>;
 }

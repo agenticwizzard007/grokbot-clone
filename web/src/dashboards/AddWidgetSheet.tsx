@@ -18,9 +18,9 @@ export function AddWidgetSheet({ add, close, error }: { add(widget: Widget): Pro
   const [busy, setBusy] = useState(false), [agent, setAgent] = useState<Widget>();
   const save = async (widget: Widget) => { setBusy(true); try { if (await add(widget)) close(); } finally { setBusy(false); } };
   if (agent) return <WidgetSettings widget={agent} title="Ask your agent" submitLabel="Add widget" error={error} close={() => setAgent(undefined)} save={async widget => { const saved = await add(widget); if (saved) close(); return saved; }} />;
-  return <DashboardDialog title="Add widget" close={close}><Section><div className="dashboard-library">{WIDGETS.map(widget => { const Icon = icons[widget.id]; return <button type="button" className="btn dashboard-library-item" key={widget.id} disabled={busy} onClick={() => {
+  return <DashboardDialog title="Add widget" close={close}><Section><div className="dashboard-library">{WIDGETS.map(widget => { const Icon = icons[widget.id]; return <button type="button" className="btn btn--secondary dashboard-library-item" key={widget.id} disabled={busy} onClick={() => {
     if (widget.id === 'agent') setAgent({ ...defaultWidget('agent'), options: { prompt: '', display: 'text', schedule: 'manual' } }); else void save(defaultWidget(widget.id));
   }}><Icon size={20} aria-hidden="true" /><strong>{widget.id === 'agent' ? 'Ask your agent' : widget.label}</strong><span>{descriptions[widget.id]}</span></button>; })}
-    {sources.map(([id, title, description, Icon]) => <button type="button" className="btn dashboard-library-item" key={id} disabled={busy} onClick={() => void save(sourceWidget(id, title))}><Icon size={20} aria-hidden /><strong>{title}</strong><span>{description}</span></button>)}
-  </div>{error && <p role="alert">{error}</p>}<ButtonGroup><button className="btn" type="button" onClick={close}>Cancel</button></ButtonGroup></Section></DashboardDialog>;
+    {sources.map(([id, title, description, Icon]) => <button type="button" className="btn btn--secondary dashboard-library-item" key={id} disabled={busy} onClick={() => void save(sourceWidget(id, title))}><Icon size={20} aria-hidden /><strong>{title}</strong><span>{description}</span></button>)}
+  </div>{error && <p role="alert">{error}</p>}<ButtonGroup><button className="btn btn--secondary" type="button" onClick={close}>Cancel</button></ButtonGroup></Section></DashboardDialog>;
 }

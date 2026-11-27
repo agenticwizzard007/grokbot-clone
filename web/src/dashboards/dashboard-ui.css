@@ -35,10 +35,14 @@
 .dashboard-agent-answer { white-space: pre-wrap; overflow-wrap: anywhere; }
 .dashboard-agent-stat { font: 600 32px/40px var(--font-heading); }
 @media (max-width: 760px) {
-  .dashboard-dialog { width: 100%; max-width: 100%; max-height: calc(100dvh - 16px); margin: auto 0 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .dashboard-dialog.dashboard-dialog { width: 100%; max-width: 100%; max-height: calc(100dvh - 16px); margin: auto 0 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .dashboard-manager-row { flex-wrap: nowrap !important; }
   .dashboard-manager-row .layout-row__trailing { width: auto !important; }
   .dashboard-drag { display: none; }
   .dashboard-heading { flex-direction: column; }
   .dashboard-actions { max-width: none; flex-basis: auto; width: 100%; }
 }
+
+.dashboard-agent-header h2 { margin: 0; font: 600 calc(14px * var(--font-scale))/calc(20px * var(--font-scale)) var(--font-stack); color: var(--color-text-primary); }
+.dashboard-page .btn--secondary, .dashboard-dialog .btn--secondary { box-shadow: var(--color-border-secondary) 0 0 0 0.5px inset; }
+.dashboard-page .btn--danger, .dashboard-dialog .btn--danger { background: var(--color-danger-bg); color: var(--color-danger-text); }

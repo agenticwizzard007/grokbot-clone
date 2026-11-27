@@ -30,9 +30,9 @@ export function WidgetSettings({ widget, save, close, error: serverError, title 
   const items = (draft.options.items ?? []) as { label: string; target: string }[];
   const setItem = (index: number, patch: Partial<{ label: string; target: string }>) => option('items', items.map((item, n) => n === index ? { ...item, ...patch } : item));
   return <DashboardDialog title={title} close={close}><form className="dashboard-settings" onSubmit={async event => {
-    event.preventDefault(); const parsed = widgetSchema.safeParse(draft);
+    event.preventDefault(); const parsed = widgetSchema.safeParse({ ...draft, id: draft.id.startsWith('$new') ? 'w_00000000' : draft.id });
     if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? 'Check the widget settings.'); return; }
-    setError(''); setBusy(true); try { if (await save(parsed.data)) close(); } finally { setBusy(false); }
+    setError(''); setBusy(true); try { if (await save({ ...parsed.data, id: draft.id })) close(); } finally { setBusy(false); }
   }}><Section><Card><label className="dashboard-field">Title<input value={draft.title ?? ''} maxLength={60} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
     {draft.type === 'agent' && <AgentFields options={draft.options as AgentWidgetOptions} change={options => setDraft({ ...draft, options })} />}
     {source && <label className="dashboard-field">Data<select value={source.id} onChange={event => {
@@ -65,10 +65,10 @@ export function WidgetSettings({ widget, save, close, error: serverError, title 
           <option value="bots">Bots</option><option value="tasks">Tasks</option><option value="settings">Settings</option>{dashboards.map(dashboard => <option key={dashboard.id} value={`dashboard:${dashboard.id}`}>{dashboard.name}</option>)}
           {bots.flatMap(bot => [<option key={bot.id} value={`bot:${bot.id}`}>{bot.name}</option>, <option key={`ask-${bot.id}`} value={`ask:${bot.id}`}>Ask {bot.name}</option>])}</select></label>
         {ask && <label className="dashboard-field">Draft message<textarea maxLength={200} value={ask[2]} onChange={event => setItem(index, { target: `ask:${ask[1]}:${event.target.value}` })} /></label>}
-        <button type="button" className="btn" onClick={() => option('items', items.filter((_, n) => n !== index))}>Remove shortcut</button>
+        <button type="button" className="btn btn--secondary" onClick={() => option('items', items.filter((_, n) => n !== index))}>Remove shortcut</button>
       </Card>;
-    })}<button type="button" className="btn" disabled={items.length >= 6} onClick={() => option('items', [...items, { label: 'Tasks', target: 'tasks' }])}>Add shortcut</button></Section>}
+    })}<button type="button" className="btn btn--secondary" disabled={items.length >= 6} onClick={() => option('items', [...items, { label: 'Tasks', target: 'tasks' }])}>Add shortcut</button></Section>}
     {(error || serverError) && <p role="alert">{error || serverError}</p>}
-    <ButtonGroup><button type="button" className="btn" onClick={close} disabled={busy}>Cancel</button><button type="submit" className="btn btn--primary" disabled={busy}>{submitLabel}</button></ButtonGroup>
+    <ButtonGroup><button type="button" className="btn btn--secondary" onClick={close} disabled={busy}>Cancel</button><button type="submit" className="btn btn--primary" disabled={busy}>{submitLabel}</button></ButtonGroup>
   </form></DashboardDialog>;
 }

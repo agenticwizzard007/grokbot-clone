@@ -116,8 +116,7 @@ export function parentScreen(screen: Screen): Screen | null {
     case 'loops': return { kind: 'work', route: { tab: 'Tasks' } };
     case 'loop': return { kind: 'loops' };
     case 'handoff': case 'output': return { kind: 'bots' };
-    case 'dash': return { kind: 'dashboards' };
-    case 'first-run': case 'chat': case 'create': case 'dashboards': return { kind: 'bots' };
+    case 'first-run': case 'chat': case 'create': case 'dash': case 'dashboards': return { kind: 'bots' };
     case 'group': return { kind: 'create' };
     case 'details':
       if (screen.flow && screen.link) return { ...screen, link: undefined };

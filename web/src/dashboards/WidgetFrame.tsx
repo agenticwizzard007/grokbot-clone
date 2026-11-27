@@ -23,8 +23,8 @@ export function WidgetFrame({ dashboardId, widget, state, observe, retry, toolba
     <Card className={`dashboard-widget dashboard-widget--${widget.type}`} role="region" aria-labelledby={`title-${widget.id}`} aria-busy={current.status === 'loading' || current.refreshing || undefined}>
       <h2 id={`title-${widget.id}`} tabIndex={-1}>{title}</h2>
       <div className={`dashboard-widget-body${['list', 'table'].includes(widget.type) ? ' dashboard-widget-body--scroll' : ''}`}>
-        {current.data?.available === false && ['connectors.status', 'email.recent', 'calendar.upcoming', 'crm.deals'].includes(widget.source?.id ?? '') ? <div className="dashboard-empty-data"><p>Connect an app to see your data.</p><a className="btn" href="#settings/apps">Connect</a></div> : current.status === 'loading' ? <div className="dashboard-skeleton" role="status" aria-label={`Loading ${title}`}><i /><i /><i /></div>
-          : <>{current.status === 'error' && <div className="dashboard-widget-error"><p role="status">{current.error ?? 'Data is unavailable.'}</p><button type="button" className="btn" onClick={retry} aria-label={`Retry ${title}`}>Retry</button></div>}
+        {current.data?.available === false && ['connectors.status', 'email.recent', 'calendar.upcoming', 'crm.deals'].includes(widget.source?.id ?? '') ? <div className="dashboard-empty-data"><p>Connect an app to see your data.</p><a className="btn btn--secondary" href="#settings/apps">Connect</a></div> : current.status === 'loading' ? <div className="dashboard-skeleton" role="status" aria-label={`Loading ${title}`}><i /><i /><i /></div>
+          : <>{current.status === 'error' && <div className="dashboard-widget-error"><p role="status">{current.error ?? 'Data is unavailable.'}</p><button type="button" className="btn btn--secondary" onClick={retry} aria-label={`Retry ${title}`}>Retry</button></div>}
             {(current.status !== 'error' || current.data) && <Renderer widget={widget} data={current.data} />}</>}
       </div>
     </Card>
