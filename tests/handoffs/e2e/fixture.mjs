@@ -51,12 +51,12 @@ export async function fixture(evidence, { extraSeed } = {}) {
 
 export async function browserSession(server, width, { theme = 'light' } = {}) {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-  const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
+  const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce', colorScheme: theme });
   await context.addCookies([{ name: 'swarm_session', value: server.token, url: server.base }]);
   await context.route('**/*', route => new URL(route.request().url()).origin === new URL(server.base).origin ? route.continue() : route.abort());
   const page = await context.newPage(); page.setDefaultTimeout(20000);
   const errors = []; page.on('pageerror', error => errors.push(error.message));
-  await page.addInitScript(theme => { localStorage.setItem('swarm.theme', theme); window.handoffEvents = []; window.addEventListener('swarm:event', event => window.handoffEvents.push({ at: performance.now(), ...event.detail })); }, theme);
+  await page.addInitScript(theme => { window.handoffTheme = theme; localStorage.setItem('swarm.theme', theme); window.handoffEvents = []; window.addEventListener('swarm:event', event => window.handoffEvents.push({ at: performance.now(), ...event.detail })); }, theme);
   return { browser, context, page, errors, close: () => browser.close() };
 }
 
@@ -70,6 +70,7 @@ export async function poll(fn, predicate, message, timeout = 60000) {
   throw new Error(`${message}: ${JSON.stringify(value).slice(0, 2000)}`);
 }
 export async function screenshot(page, evidence, name, width) {
+  await page.waitForFunction(() => document.documentElement.dataset.theme === window.handoffTheme);
   const theme = await page.evaluate(() => document.documentElement.dataset.theme || 'light');
   const file = path.join(evidence, `${name}-${width}-${theme}.png`);
   // The application scrolls inside its shell. Expand only the screenshot height.

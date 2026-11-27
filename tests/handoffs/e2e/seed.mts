@@ -31,6 +31,7 @@ const other = createBot('hoh-other', { name: 'Other account agent' });
 const foreignOutput = saveOutput({ userId: 'hoh-other', botId: other.id, source: 'message', body: 'Other account private test output.', final: true });
 replaceLinks(userId, maker, [{ toBotId: checker, mode: 'suggest', trigger: 'any_run', template: 'Review {title}.', autoApproveLoops: false }]);
 replaceLinks(userId, checker, [{ toBotId: maker, mode: 'suggest', trigger: 'any_run', template: 'Review {title}.', autoApproveLoops: false }]);
+appendRow(maker, 'message', { type: 'message', role: 'assistant', text: 'The release outline is ready for a closer review.' });
 appendRow(f.room, 'message', { type: 'message', role: 'assistant', text: 'The release draft is ready for review.', from: { kind: 'bot', id: maker, name: 'Maker' } });
 fs.writeFileSync(file, JSON.stringify({ ...f, maker, checker, empty: empty.id, suggested: suggested.id, mcp: mcp.id, foreignOutput: foreignOutput.id, securityMaker: securityMaker.id, securityChecker: securityChecker.id }));
 db.close();

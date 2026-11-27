@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fixture, browserSession, api, screenshot } from '../tests/handoffs/e2e/fixture.mjs';
 import { runUiQuality, assertVisibleCopy } from '../tests/handoffs/e2e/visual-quality.mjs';
 import { recordLoop, sendHandoff } from '../tests/handoffs/e2e/loop-journey.mjs';
+import { runQuality } from '../tests/handoffs/ui-quality.mjs';
 
 const evidence = path.resolve(process.env.HANDOFFS_EVIDENCE || '.context/handoffs/demo-h');
 fs.mkdirSync(evidence, { recursive: true });
@@ -12,7 +13,6 @@ if (remote) for (const key of ['HANDOFFS_TEST_SESSION', 'HANDOFFS_TEST_USER_ID',
 if (remote) assert.equal(process.env.HANDOFFS_TEST_PROVIDER, 'scripted', 'Deployed test account must use the handoff scripted mock provider');
 const server = remote ? { base: remote, token: process.env.HANDOFFS_TEST_SESSION,
   data: { maker: process.env.HANDOFFS_TEST_MAKER, checker: process.env.HANDOFFS_TEST_CHECKER }, close: async () => {} } : await fixture(evidence);
-const { runQuality } = fs.existsSync('tests/handoffs/ui-quality.mjs') ? await import('../tests/handoffs/ui-quality.mjs') : {};
 const uiQuality = await runUiQuality(evidence, runQuality);
 const report = { uiQuality, passed: 0, failed: 0, mode: remote ? 'deployed test account' : 'seeded local', runs: [], handoffs: [], screenshots: [], failures: [] };
 try {

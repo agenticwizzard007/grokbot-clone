@@ -42,14 +42,14 @@ Use the Flow link editor or **Settings > Agents** to offer future handoffs or se
 Every new screen must follow [Paper BUILD-SPEC sections 0b, 0c and 0d](design/paper/BUILD-SPEC.md). Passing route geometry alone is insufficient.
 
 - Use Page, Section, Card, Row and ButtonGroup. Keep centered columns, equal side padding, aligned labels and equal card widths.
-- Use readable text of at least 13px in handoff and Flow surfaces. Avoid faint, cramped timeline metadata. Use tokens for both light and dark modes.
+- Follow the merged HO-P type scale: body text at least 14px, metadata at least 13px, and compact status chips at 12px with 16px line height in a 20px pill. Avoid faint, cramped timeline metadata. Use tokens for both light and dark modes.
 - Rows and controls have a minimum 44px hit area. Spacing follows 8px steps, with 4px only inside a control. Cards use 16px padding, 16px between cards and 24px between sections.
 - Grouped buttons have equal widths or stack at full width. Keep actions aligned with their row; do not leave View floating between rows. Loop navigation is a deliberate control, not a raw underlined link.
 - Labels wrap without truncation. Do not repeat an output's title as its summary. Use one short heading and at most one short helper line. Put extra explanation behind details or an info control.
 - Phone screens have one Back control. Escape closes a sheet and returns focus. Keyboard order follows reading order. Status has a text label and appropriate live announcements.
 - Finished messages have no leftover typing indicator. No visible `mock:` directives, harness markers, `undefined`, internal identifiers or secrets. No em or en dashes in UI copy.
 - Inspect receipt, running and finished Timeline, Graph, Flow and capped result at 320, 390, 500 and 1280 in both light and dark modes. Record main-region word counts and review copy against section 0b.
-- Run `node tests/handoffs/ui-quality.mjs` when supplied by HO-P. The HO-H demo and e2e call it automatically when present, otherwise print a clear skip. A skip means that visual acceptance is still pending.
+- Run `node tests/handoffs/ui-quality.mjs`. The HO-H demo and e2e import and run the merged checker as a mandatory gate. There is no missing-checker skip path. The same inspector checks every real journey capture.
 
 The demo saves a quality record beside each screenshot. Automated checks do not replace inspecting screenshots for hierarchy, spacing, duplicate copy and action placement.
 

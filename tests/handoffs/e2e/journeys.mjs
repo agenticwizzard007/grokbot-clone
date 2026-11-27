@@ -78,10 +78,11 @@ try {
       await page.waitForURL(/#loop\/lp_/); loopId = new URL(page.url()).hash.slice(6);
       details.push(await recordExistingLoop(page, loopId, 'converge', evidence, width));
       await page.getByRole('button', { name: 'Use this', exact: true }).click();
-      await page.waitForURL(/#output\/out_/); await page.getByRole('heading', { name: 'Summary', exact: true }).waitFor();
+      await page.waitForURL(/#output\/out_/); await page.getByRole('heading', { name: 'Parts', exact: true }).waitFor();
     });
     await check(4, 'Cap at 3, Continue 2 more passes, then Stop', async () => {
       const run = await recordLoop(page, f, 'cap', evidence, width); loopId = run.id; details.push(run);
+      await page.getByText('More options', { exact: true }).click();
       await page.getByRole('button', { name: 'Continue 2 more passes', exact: true }).click();
       await page.getByRole('button', { name: 'Stop', exact: true }).click();
       await page.getByText('Stopped by you.', { exact: true }).waitFor();
@@ -134,8 +135,12 @@ try {
     });
     await check(8, 'Standing suggest link, Flow link editor and Settings automation controls', async () => {
       const card = await finishedChat(page, f, width);
-      await card.getByRole('button', { name: 'Send to Checker', exact: true }).click();
-      await page.getByRole('dialog', { name: 'Send to agent' }).waitFor(); await page.keyboard.press('Escape');
+      await card.getByRole('button', { name: 'Send to agent', exact: true }).click();
+      const send = page.getByRole('dialog', { name: 'Send to agent' });
+      const suggested = send.getByRole('button', { name: /^Checker/ });
+      await suggested.getByText('Suggested', { exact: true }).waitFor(); await suggested.click();
+      assert.match(await send.getByLabel('Ask', { exact: true }).inputValue(), /^Review /);
+      await page.keyboard.press('Escape');
       await go(page, `#bot/${f.maker}/details/flow`); await page.locator('.flow-chart').waitFor();
       await page.locator('[data-kind="handoff_to"]').first().click();
       const sheet = page.getByRole('dialog', { name: 'Handoff links' });

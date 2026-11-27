@@ -1,6 +1,6 @@
 # Quality gate integration requests
 
-These requests are reproduced against main `3cf57e0`. HO-H owns tests and documentation only. A failing quality gate must remain failing until the production owner fixes the behavior.
+These requests are reproduced against integrated main. HO-H owns tests and documentation only. A failing quality gate must remain failing until the production owner fixes the behavior.
 
 ## Runtime tool call context
 
@@ -26,7 +26,7 @@ The component exists in `web/src/handoffs/HandoffList.tsx`; the baseline Bot Act
 
 ## UI polish and Settings dependencies
 
-HO-P owns handoff and Flow visual fixes and `tests/handoffs/ui-quality.mjs`. HO-H calls that test if present and reports a clear skip otherwise. Skipping it is not visual acceptance. The demo asserts clean visible copy and captures four widths in both themes, with typography evidence beside the images. Production fixes belong in the HO-P branch.
+HO-P is merged in main `56e65ba`. Its checker is a mandatory import in the demo and e2e, with no skip path. The demo asserts clean visible copy and captures four widths in both themes, with the same quality inspector beside every image. The merged type scale permits 12px status chips, with body text at least 14px and metadata at least 13px.
 
 HO-I stage 2 is merged. Settings Agents is mandatory in the route audit, standing-link journey and four-width demo. The standing-link journey verifies automatic mode and pair approval through the real controls and restores suggestion mode afterward.
 
@@ -36,7 +36,7 @@ The current quality gate is blocked. Do not treat passing component fixtures or 
 
 - `.context/handoffs/demo-h/report.json` contains the actual loop records, events, screenshot quality records and explicit failures. The scripted drafts use realistic release notes, and each handoff selects the output from its newly completed job.
 - `.context/handoffs/demo-h/inspection.json` records the rejected receipt, running and finished timeline, Graph, Flow and cap-scenario views at 320, 390, 500 and 1280 in both themes. The cap scenario fails before the limit; these images are failure evidence, not a capped success substitute.
-- `.context/handoffs/e2e-refresh/report.json` contains the latest full journey matrix at both required widths; the earlier `e2e-h` and focused `e2e-settings-refresh` runs remain available. The absent HO-P gate is an explicit skip until its merge.
+- `.context/handoffs/e2e-h/report.json` contains the full journey matrix at both required widths. Earlier pre-polish runs are retained under `.context/handoffs/pre-polish/` and `e2e-refresh/`.
 - `.context/handoffs/baseline-refresh/` preserves main's regression results. Existing tests are compared separately from the new acceptance failures.
 
 The deployed `BASE_URL` mode is implemented and documented, but has not been exercised without an isolated deployed test account configured for the scripted provider. The bundle comparison measures HO-H additions against the integrated main baseline; a historical pre-feature bundle comparison remains separate.

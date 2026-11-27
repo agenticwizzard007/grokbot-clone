@@ -2,15 +2,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { inspectAlignment } from '../../layout-alignment-ui.mjs';
+import { inspectQuality, runQuality as checkUiQuality } from '../ui-quality.mjs';
 
-export async function runUiQuality(evidence, runQuality) {
-  const script = path.resolve('tests/handoffs/ui-quality.mjs');
-  if (!fs.existsSync(script)) {
-    const reason = 'HO-P UI quality checker is absent; waiting for ho-p-polish to merge.';
-    console.log(`SKIP UI quality: ${reason}`); return { status: 'skip', reason };
-  }
+export async function runUiQuality(evidence, runQuality = checkUiQuality) {
   let error;
-  try { await (runQuality ?? (await import('../ui-quality.mjs')).runQuality)(); }
+  try { await runQuality(); }
   catch (reason) { error = reason.stack || String(reason); }
   const source = path.resolve('.context/ho-p/quality/report.json');
   const checks = fs.existsSync(source) ? JSON.parse(fs.readFileSync(source, 'utf8')) : [];
@@ -43,24 +39,13 @@ export async function visualEvidence(page, { finished = false } = {}) {
       }
     }
     const words = text.join(' ').split(/\s+/).filter(Boolean).length;
-    const issues = [];
-    for (const root of document.querySelectorAll('.ho-receipt, .ho-output-card, .ho-loops, .flow-chart, .agents-settings')) {
-      for (const el of root.querySelectorAll('*')) {
-        if (!el.checkVisibility() || el.closest('.flow-sr, .sr-only, [aria-hidden="true"]')) continue;
-        if ([...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim()) && parseFloat(getComputedStyle(el).fontSize) < 13) issues.push(`Text under 13px: ${el.textContent.trim().slice(0, 60)}`);
-      }
-    }
-    return { words, countedRegion: main?.className || main?.tagName || null, issues: [...new Set(issues)], standard: 'BUILD-SPEC 0b/0c/0d plus HO-P visual quality gate' };
+    return { words, countedRegion: main?.className || main?.tagName || null, standard: 'BUILD-SPEC 0b/0c/0d plus merged HO-P visual quality gate' };
   });
   if (page.viewportSize().width <= 760 && !await page.getByRole('dialog').count()) {
     const count = await page.getByRole('button', { name: 'Back', exact: true }).count();
     if (count !== 1) alignment.push(`Expected one phone Back, found ${count}`);
   }
-  let quality = { status: 'skip', reason: 'HO-P UI quality checker has not merged.', issues: [] };
-  if (fs.existsSync('tests/handoffs/ui-quality.mjs')) {
-    const { inspectQuality } = await import('../ui-quality.mjs');
-    const surface = await page.locator('dialog[open]').count() ? 'dialog[open]' : '.ho-route, .flow-tab, .agents-settings, .ho-receipt, .ho-output-card';
-    quality = { status: 'checked', ...await page.evaluate(inspectQuality, { selector: surface, finished }) };
-  }
-  return { ...result, quality, issues: [...result.issues, ...alignment, ...quality.issues] };
+  const surface = await page.locator('dialog[open]').count() ? 'dialog[open]' : '.ho-route, .flow-tab, .agents-settings, .ho-receipt, .ho-output-card';
+  const quality = await page.evaluate(inspectQuality, { selector: surface, finished });
+  return { ...result, quality, issues: [...alignment, ...quality.issues] };
 }
