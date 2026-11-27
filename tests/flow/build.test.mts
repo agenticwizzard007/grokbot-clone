@@ -20,11 +20,11 @@ test('100 shuffled row orders produce byte identical models', () => {
     assert.equal(JSON.stringify(buildFlowModel(input)), expected);
   }
 });
-test('every input class changes the hash; output count buckets absorb noise', () => {
+test('every input class changes the hash; exact output counts invalidate cached copy', () => {
   const base = fixtures.rich, hash = flowInputsHash(base);
-  const mutations: ((i: FlowInputs) => void)[] = [i => i.bot.instructions += '\n4. Send results', i => i.bot.name += ' updated', i => i.bot.avatar += 'green', i => i.skills[0].body += ' Updated', i => i.skills[0].name += ' Updated', i => i.routines[0].schedule = 'Daily', i => i.routines[0].enabled = false, i => i.apps[0].attention = true, i => i.mcp[0].enabled = false, i => i.suggestions.pop(), i => i.links[0].mode = 'auto', i => i.loops.pop(), i => i.knowledge = 0, i => i.outputs.channels.push('SMS'), i => i.outputs.files = 6, i => i.outputs.purpose = 'A report'];
+  const mutations: ((i: FlowInputs) => void)[] = [i => i.bot.instructions += '\n4. Send results', i => i.bot.name += ' updated', i => i.bot.avatar += 'green', i => i.skills[0].body += ' Updated', i => i.skills[0].name += ' Updated', i => i.routines[0].schedule = 'Daily', i => i.routines[0].enabled = false, i => i.apps[0].attention = true, i => i.mcp[0].enabled = false, i => i.suggestions.pop(), i => i.links[0].mode = 'auto', i => i.loops.pop(), i => i.knowledge = 0, i => i.outputs.channels.push('SMS'), i => i.outputs.files = 5, i => i.outputs.reports = 2, i => i.outputs.tasks = 4, i => i.outputs.purpose = 'A report'];
   for (const mutate of mutations) { const input = structuredClone(base); mutate(input); assert.notEqual(flowInputsHash(input), hash); }
-  const noise = structuredClone(base); noise.outputs.files = 5; noise.outputs.tasks = 4; noise.knowledge = 5;
+  const noise = structuredClone(base); noise.knowledge = 5;
   assert.equal(flowInputsHash(noise), hash); assert.deepEqual(buildFlowModel(noise), buildFlowModel(base));
 });
 test('agent summary expires only when instructions or skills change', () => {
@@ -58,4 +58,14 @@ test('routine schedules use plain deterministic labels', () => {
   assert.equal(scheduleLabel('0 8 * * 1-5'), 'Weekdays 08:00');
   assert.equal(scheduleLabel('30 9 * * 1'), 'Mondays 09:30');
   assert.equal(scheduleLabel('event:GITHUB_NEW_ISSUE'), 'When github new issue');
+});
+
+// HO-Q: count copy is exact and singular-aware. Goldens include new copy hashes.
+test('Outputs use true counts and correct singulars', () => {
+  for (const count of [1, 2, 5, 8]) {
+    const input = structuredClone(fixtures.rich);
+    input.outputs = { files: count, reports: count, tasks: count, channels: [], purpose: '' };
+    const nodes = buildFlowModel(input).lanes.find(lane => lane.id === 'outputs')!.nodes;
+    assert.deepEqual(nodes.map(node => node.detail), ['report', 'file', 'task'].map(noun => `${count} ${noun}${count === 1 ? '' : 's'}`));
+  }
 });

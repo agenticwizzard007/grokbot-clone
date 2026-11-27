@@ -47,11 +47,20 @@
 }
 @media (prefers-reduced-motion: reduce) { .ho *, .ho *::before, .ho *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 
-.ho-receipt-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.ho-receipt-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); margin-top: 4px; color: var(--color-text-2); font: 400 var(--text-sm)/calc(18px * var(--font-scale)) var(--font-stack); }
+.ho-receipt-meta:has(.ho-chip-link) { margin-top: 0; }
+.ho.ho-receipt { padding-block: 8px; min-height: 64px; }
+.ho-receipt-description { min-width: 0; }
+.ho-receipt :is(.ho-button, .ho-receipt-expand) { min-width: 44px; min-height: 44px; }
+.ho-receipt .layout-row__trailing { gap: 0; }
+.ho-receipt-expand { width: 44px; padding: 0; }
+.ho-receipt-passes:not([hidden]) { display: flex; flex-direction: column; gap: 16px; padding-left: 8px; margin-top: 16px; }
+/* The transcript uses a larger section gap. Adjacent receipts use 16px. */
+.app.paper-shell .transcript__col > .ho-receipt-wrap + .ho-receipt-wrap { margin-top: calc(16px - var(--space-4)); }
 .ho-chip-link { display: inline-flex; align-items: center; min-height: var(--control-h); text-decoration: none; }
 .ho .ho-status { font: 500 var(--text-xs)/var(--line-caption) var(--font-stack); }
 .ho-part-text { font-size: var(--text-base); }
-.ho-message-actions { display: flex; margin-left: auto; }
+.ho-message-actions { display: flex; margin-left: auto; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; }
 .ho-more summary { min-height: var(--control-h); padding-block: var(--space-2); color: var(--color-primary); cursor: pointer; }
 .ho-receipt-wrap { width: 100%; }
 /* Preserve Paper output styling when mounted through the shared Cards entry. */

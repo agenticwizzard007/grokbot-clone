@@ -12,13 +12,15 @@ export interface HandoffRowBody {
   handoffId: string; direction: 'sent' | 'received'; otherBotId: string; status: HandoffStatus;
   title: string; loopId?: string; iteration?: number;
 }
-export function HandoffRow({ body, otherBotName = 'Agent' }: { body: HandoffRowBody; otherBotName?: string }) {
+export function HandoffRow({ body, otherBotName = 'Agent', inLoopGroup = false }: { body: HandoffRowBody; otherBotName?: string; inLoopGroup?: boolean }) {
   const Direction = body.direction === 'sent' ? ArrowUpRight : ArrowDownLeft;
+  const loopChip = <span className="ho-chip">{inLoopGroup && body.iteration ? `Pass ${body.iteration}` : `Loop${body.iteration ? `, pass ${body.iteration}` : ''}`}</span>;
   return <Row className="ho ho-receipt" leading={<Direction size={20} aria-hidden="true" />}
     title={`${body.direction === 'sent' ? 'Sent to' : 'Handed off from'} ${handoffText(otherBotName)}`}
-    subtitle={handoffText(body.title)} trailing={<a className="ho-button ho-button--quiet" href={handoffHref(body.handoffId)} aria-label={`View handoff ${handoffText(body.title)}`}>View</a>}>
-    <div className="ho-receipt-meta"><span className="ho-status" role="status"><span className="ho-dot" aria-hidden="true" />{handoffStatus[body.status]}</span>
-    {body.loopId && <a className="ho-chip-link" href={`#loop/${encodeURIComponent(body.loopId)}`}><span className="ho-chip">Loop{body.iteration ? `, pass ${body.iteration}` : ''}</span></a>}</div>
+    trailing={<a className="ho-button ho-button--quiet" href={handoffHref(body.handoffId)} aria-label={`View handoff ${handoffText(body.title)}`}>View</a>}>
+    <div className="ho-receipt-meta">{!inLoopGroup && <span className="ho-receipt-description">{handoffText(body.title)}</span>}
+    <span className="ho-status" role="status">{handoffStatus[body.status]}</span>
+    {body.loopId && (inLoopGroup ? loopChip : <a className="ho-chip-link" href={`#loop/${encodeURIComponent(body.loopId)}`}>{loopChip}</a>)}</div>
   </Row>;
 }
 
