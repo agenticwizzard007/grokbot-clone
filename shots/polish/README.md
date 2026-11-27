@@ -1,48 +1,71 @@
-# Dashboard polish evidence
+# Dashboard and Appearance polish
 
-Scope: dashboards, their editor and sheets, Appearance, and the compact About you section. App-wide adaptation polish is removed from this branch.
+Rebased onto main `3cf57e0e43b0b4866d2aec33ba06f165dfaab12e`. Scope: dashboard view, editor, widget sheets, Appearance, and compact About you. No retired adaptation screens, data-model changes, API changes, patch-engine changes, or new theme/font/color choices.
 
-About you has one action, **Tell your agent**. It opens an unsent draft. It does not write the profile or change the layout.
+About you shows the saved role and goals with one **Tell your agent** action. It opens an unsent draft. Profile updates and dashboard suggestions remain available through chat. The suggestion journey verifies the real agent tools, preview, Apply, persistence, unchanged navigation, and profile reset/Undo contracts.
 
-Dashboard file structure, data contracts and patch semantics are unchanged. UC-X2 can add its manager, switcher and agent widget independently.
+The dashboard folder keeps its structure. The diff touches ten existing files: `AddWidgetSheet.tsx`, `DashboardEditor.tsx`, `DashboardView.tsx`, `Dialog.tsx`, `WidgetFrame.tsx`, `WidgetSettings.tsx`, and `widgets/{Chart,Empty,Shortcuts,Table}.tsx`. UC-X1's agent placeholder and disconnected-provider handling remain intact. UC-X2 owns the manager, switcher, and agent renderer.
 
-## Verification
+## Local verification
 
-| Check | Passed |
-|---|---:|
-| Server and web typecheck | 2 |
-| Dashboard model and Appearance units | 106 |
-| Dashboard data | 15 |
-| Dashboard editor | 32 |
-| Dashboard states | 215 |
-| Dashboard live widgets | 46 |
-| Dashboard chat | 5 |
-| Appearance | 27 |
-| Demo F | 12 |
-| Demo G | 68 |
-| Demo P | 144 + 18 |
-| About you | 18 |
-| Existing alignment routes | 208, zero issues |
-| Client defaults | 208 matched, zero reviewed differences |
+All suites were run serially, against local seeded servers and the local scripted provider. No real user data or provider calls. Results below are the final runs; earlier failure logs are retained for diagnosis.
 
-The About you test covers empty and saved profiles, one action, readable type, card geometry, complete labels, keyboard use, and zero layout/profile/message writes. The retired UC-I journeys are outside the revised scope and must be removed or replaced by UC-Y.
+| Command | Result |
+|---|---|
+| `npm run typecheck` | Server and web pass |
+| `node --import tsx --test tests/ui-custom/dashboard-model.test.mts tests/ui-custom/unit/appearance.test.mts tests/ui-custom/unit/appearance-runtime.test.mts` | 107 pass |
+| `node tests/ui-custom/dashboard-data-ui.mjs` | 15 pass |
+| `node tests/ui-custom/dashboard-editor-ui.mjs` | 37 pass |
+| `node tests/ui-custom/dashboard-states-ui.mjs` | 215 pass |
+| `node tests/ui-custom/dashboard-live-widgets-ui.mjs` | 46 pass |
+| `node tests/ui-custom/dashboard-chat-ui.mjs` | 5 pass |
+| `node --import tsx --test tests/ui-custom/adapt-chat.test.mts` | 6 pass |
+| `node tests/ui-custom/appearance-ui.mjs` | 27 pass |
+| `node tests/ui-custom/demo-f.mjs` | 12 pass |
+| `node tests/ui-custom/demo-g.mjs` | 68 pass |
+| `node tests/ui-custom/demo-p.mjs` | 144 polish checks plus 24 About you checks pass |
+| `node tests/ui-custom/about-you-ui.mjs` | 24 pass after the standalone spacing correction |
+| `node tests/ui-custom/e2e/suggest-dashboard-ui.mjs` | 42 pass |
+| `node tests/ui-custom/unit/client-defaults-ui.mjs` | Default snapshots: 208/208 passed (182 matched, 26 reviewed) |
+| `node tests/layout-alignment-ui.mjs` | 208 original route views, zero issues; 42 suggestion checks pass |
+| `node tests/tasks-layout.mjs` | 10 width/theme cases pass |
+| `node --import tsx tests/navigation-every-route-ui.mjs` | PASS navigation: 870 route/size/theme cases in 325.5s |
+| `npm run build -w web` | Pass |
 
-## Remaining integration
+Logs: `.context/ui-custom/polish-rebased-checks/`. Demo reports: [after/results.json](after/results.json), [after/about-you-results.json](after/about-you-results.json).
 
-1. UC-Y: remove the old route heading and adaptation flag/API behavior; retain the read-only profile endpoint used by About you.
-2. UC-H: route integration remains gated on the explicit #269 merge notice.
-3. Verify the combined UC-Y/UC-X2 changes before the final PR handoff.
+Main's Add widget sheet crashes because the new Agent registry entry has no matching icon. The initial rebased editor run reproduced it; adding the missing icon and description fixes it. Before screenshots retain that broken state. The final editor run passes. No new failures versus main.
 
-## Main-region words
+## Acceptance checklist
+
+- [x] One dashboard title; standard equal-width, 44px header actions. Evidence: `demo-p.mjs`, 144 checks; dashboard screenshots.
+- [x] Four named keyboard/touch toolbar actions inside each card; Size segmented control in settings. Evidence: `dashboard-editor-ui.mjs`, 37 checks, including descriptions retained at four widths.
+- [x] Readable list titles and secondary text, 44px targets, full-width separators, status pills. Evidence: `demo-p.mjs` typography, contrast, row-target and label-fit assertions.
+- [x] Chart bars proportional to seeded values; readable values/dates and phone height. Evidence: `demo-p.mjs` bar-to-data ratio assertions; widget-chart screenshots.
+- [x] Consistent empty-state text and standard action. Evidence: `dashboard-states-ui.mjs`, 215 checks; empty-dashboard and widget-meter screenshots.
+- [x] Add/settings sheets have Close, phone Back, scrollable content, and usable footers at 320px. Evidence: `demo-p.mjs` geometry, label-fit and target checks; add-widget and widget-settings screenshots.
+- [x] Appearance uses existing primitives/Switch; equal button pairs; named 44px order actions; compact About you. Evidence: `appearance-ui.mjs` 27, `demo-g.mjs` 68, About you 24 checks.
+- [x] Realistic placeholder seed names; forbidden visible text rejected. Evidence: `dashboard-fixture.mjs`, `demo-p.mjs`, `about-you-ui.mjs`. PRIVATE markers remain only in hidden leak-test fields.
+- [x] Empty/seeded dashboard, all ten original widget types, edit mode, both sheets, delete confirmation, Appearance and its dashboard menu captured at light 320/390/500/1280 and dark 390/1280. Evidence: 144 polish captures plus 18 About you captures in each phase; no after-state overflow or clipped labels.
+
+## Main-region word counts
+
+`innerText` excludes the sidebar, phone tabs and visually hidden chart/table content. Placeholder content is identical in both phases.
 
 | Screen | 1280 before / after | 390 before / after |
-|---|---|---|
-| dashboard | 241 / 238 | 239 / 248 |
-| appearance | 261 / 257 | 239 / 235 |
+|---|---:|---:|
+| Dashboard | 239 / 238 | 237 / 248 |
+| Appearance | 254 / 250 | 231 / 227 |
 
-The phone dashboard includes explicit table field labels. These counts use identical placeholder content and exclude sidebar and phone tabs.
+The phone dashboard adds complete table field labels. Counts include user content and the desktop Settings navigation.
 
-## Files changed
+## Integration requests and deviations
+
+UC-H #269 was still open during this handoff. Per the explicit ownership gate, this branch does not edit `tests/layout-alignment-ui.mjs`. UC-H should register the remaining polish state routes after #269 merges. The polish demo already uses its shared `inspectAlignment` assertions for every captured state; UC-Y's existing About you/suggestion route integration remains covered.
+
+About you intentionally replaces the old form with the requested compact section. Its only action opens chat; it does not submit a request automatically. The before capture is main 3cf57e0e; the Add widget crash is preserved as baseline evidence, not repaired in the baseline checkout.
+
+## Changed source and test files
 
 - `tests/ui-custom/about-you-ui.mjs`
 - `tests/ui-custom/appearance-fixture.mjs`
@@ -56,6 +79,7 @@ The phone dashboard includes explicit table field labels. These counts use ident
 - `tests/ui-custom/demo-f.mjs`
 - `tests/ui-custom/demo-g.mjs`
 - `tests/ui-custom/demo-p.mjs`
+- `tests/ui-custom/e2e/suggest-dashboard-ui.mjs`
 - `web/src/components/config/AppearanceSettings.tsx`
 - `web/src/components/config/appearance/Controls.tsx`
 - `web/src/components/config/appearance/Dashboards.tsx`
@@ -74,13 +98,12 @@ The phone dashboard includes explicit table field labels. These counts use ident
 - `web/src/dashboards/widgets/Table.tsx`
 - `web/src/styles/appearance.css`
 - `web/src/styles/dashboards.css`
-- `shots/polish/README.md`, comparison PNGs and result JSON files.
 
-## Screenshots
+## PNG inventory
 
-Light: 320, 390, 500 and 1280. Dark: 390 and 1280. Before images come from main `3842013`; FIX-2 has no UI changes. The About you before images show the former Requirements form.
+All paths below are relative to `shots/polish/`. Each directory contains the six required width/theme variants. The About you page is captured separately from its embedded Appearance section.
 
-### Before (150 PNGs)
+### Before
 
 - [about-you-1280-dark.png](before/about-you-1280-dark.png)
 - [about-you-1280-light.png](before/about-you-1280-light.png)
@@ -88,6 +111,18 @@ Light: 320, 390, 500 and 1280. Dark: 390 and 1280. Before images come from main 
 - [about-you-390-dark.png](before/about-you-390-dark.png)
 - [about-you-390-light.png](before/about-you-390-light.png)
 - [about-you-500-light.png](before/about-you-500-light.png)
+- [about-you-empty-1280-dark.png](before/about-you-empty-1280-dark.png)
+- [about-you-empty-1280-light.png](before/about-you-empty-1280-light.png)
+- [about-you-empty-320-light.png](before/about-you-empty-320-light.png)
+- [about-you-empty-390-dark.png](before/about-you-empty-390-dark.png)
+- [about-you-empty-390-light.png](before/about-you-empty-390-light.png)
+- [about-you-empty-500-light.png](before/about-you-empty-500-light.png)
+- [about-you-page-1280-dark.png](before/about-you-page-1280-dark.png)
+- [about-you-page-1280-light.png](before/about-you-page-1280-light.png)
+- [about-you-page-320-light.png](before/about-you-page-320-light.png)
+- [about-you-page-390-dark.png](before/about-you-page-390-dark.png)
+- [about-you-page-390-light.png](before/about-you-page-390-light.png)
+- [about-you-page-500-light.png](before/about-you-page-500-light.png)
 - [add-widget-1280-dark.png](before/add-widget-1280-dark.png)
 - [add-widget-1280-light.png](before/add-widget-1280-light.png)
 - [add-widget-320-light.png](before/add-widget-320-light.png)
@@ -232,8 +267,7 @@ Light: 320, 390, 500 and 1280. Dark: 390 and 1280. Before images come from main 
 - [widget-taskBoard-390-dark.png](before/widget-taskBoard-390-dark.png)
 - [widget-taskBoard-390-light.png](before/widget-taskBoard-390-light.png)
 - [widget-taskBoard-500-light.png](before/widget-taskBoard-500-light.png)
-
-### After (156 PNGs)
+### After
 
 - [about-you-1280-dark.png](after/about-you-1280-dark.png)
 - [about-you-1280-light.png](after/about-you-1280-light.png)
@@ -247,6 +281,12 @@ Light: 320, 390, 500 and 1280. Dark: 390 and 1280. Before images come from main 
 - [about-you-empty-390-dark.png](after/about-you-empty-390-dark.png)
 - [about-you-empty-390-light.png](after/about-you-empty-390-light.png)
 - [about-you-empty-500-light.png](after/about-you-empty-500-light.png)
+- [about-you-page-1280-dark.png](after/about-you-page-1280-dark.png)
+- [about-you-page-1280-light.png](after/about-you-page-1280-light.png)
+- [about-you-page-320-light.png](after/about-you-page-320-light.png)
+- [about-you-page-390-dark.png](after/about-you-page-390-dark.png)
+- [about-you-page-390-light.png](after/about-you-page-390-light.png)
+- [about-you-page-500-light.png](after/about-you-page-500-light.png)
 - [add-widget-1280-dark.png](after/add-widget-1280-dark.png)
 - [add-widget-1280-light.png](after/add-widget-1280-light.png)
 - [add-widget-320-light.png](after/add-widget-320-light.png)
