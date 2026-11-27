@@ -98,10 +98,13 @@ async function runPolishView({ before, output, view }) {
         assert.ok(fit, 'Whole list rows fit inside the card');
         assert.equal(await list.getByRole('link', { name: 'View all 8', exact: true }).getAttribute('href'), '#tasks');
         const bot = page.locator('[data-widget-type="botStatus"]'); assert.equal(await bot.locator('.bot-avatar svg').count(), 1);
+        assert.equal(await bot.locator('.dashboard-bot-name').evaluate(el => getComputedStyle(el).whiteSpace), 'nowrap');
         assert.equal(await bot.getByRole('link', { name: /Project assistant/ }).evaluate(el => getComputedStyle(el).textDecorationLine), 'none');
         assert.ok(await page.locator('[data-widget-type="meter"]').evaluate(el => el.getBoundingClientRect().height <= 136), 'Empty meter is compact');
         assert.equal(await page.getByRole('button', { name: 'Refresh dashboard', exact: true }).count(), 1);
         assert.equal(await page.getByRole('button', { name: 'Edit dashboard', exact: true }).count(), 1);
+        const headerActions = await page.locator('.dashboard-header-actions').evaluate(el => ({ inHeader: !!el.closest('.shell-header'), width: el.getBoundingClientRect().width, targets: [...el.querySelectorAll('button')].map(button => button.getBoundingClientRect().height) }));
+        assert.ok(headerActions.inHeader && headerActions.width <= 128 && headerActions.targets.every(height => height >= 44), 'Compact header controls retain 44px targets');
         await page.getByText('Updated 5 min ago', { exact: true }).waitFor();
         const actionWidths = await page.locator('.dashboard-agent-list .btn').evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().width));
         assert.ok(actionWidths.every(width => Math.abs(width - actionWidths[0]) <= 1), 'Inline action buttons have equal widths');

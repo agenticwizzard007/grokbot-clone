@@ -177,7 +177,7 @@ export async function runDashboards({ demo = false } = {}) {
     await page.getByRole('button', { name: 'Add widget', exact: true }).click(); await page.getByRole('button', { name: /Ask your agent Answers/ }).click(); await page.getByLabel('Prompt', { exact: true }).fill('Summarize my tasks.'); await page.getByRole('button', { name: 'Number', exact: true }).click(); await page.getByRole('button', { name: 'Hourly', exact: true }).click(); await quality(page, 'add agent'); await page.getByRole('dialog').getByRole('button', { name: 'Add widget', exact: true }).click(); await page.getByRole('dialog').waitFor({ state: 'hidden' }); pass('agent option form saves display and schedule');
     await page.getByRole('button', { name: 'Done', exact: true }).click();
     server.answers.set('Summarize my tasks.', { source: 'tasks_counts' });
-    const numberCard = page.getByRole('region', { name: 'Daily summary', exact: true });
+    const numberCard = page.getByRole('region', { name: 'Tasks', exact: true });
     await numberCard.getByRole('button', { name: 'Run', exact: true }).click(); await numberCard.locator('output').waitFor(); assert.equal(await numberCard.locator('output').innerText(), '12'); assert.doesNotMatch(await numberCard.innerText(), /Hourly/); pass('Number display renders live counts with schedule confined to settings');
     if (demo) for (const [width, theme] of [[320, 'light'], [390, 'light'], [500, 'light'], [1280, 'light'], [390, 'dark'], [1280, 'dark']]) {
       await page.setViewportSize({ width, height: width <= 760 ? 844 : 900 }); await page.emulateMedia({ colorScheme: theme });
