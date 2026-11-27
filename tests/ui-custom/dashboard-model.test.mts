@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseNote, parseInline, noteLink } from '../../web/src/dashboards/note-parser.js';
 import { tsImport } from 'tsx/esm/api';
-const { defaultWidget, widgetAction, columnSpan, sourceKey, findDashboard } = await tsImport('../../web/src/dashboards/model.ts', { parentURL: import.meta.url, tsconfig: 'web/tsconfig.json' });
+const { defaultWidget, widgetAction, columnSpan, sourceKey, widgetSource, findDashboard } = await tsImport('../../web/src/dashboards/model.ts', { parentURL: import.meta.url, tsconfig: 'web/tsconfig.json' });
 import { DEFAULT_CONFIG, widgetSchema } from '../../server/src/ui-config/schema.js';
 import { WIDGET_TYPES } from '../../server/src/ui-config/registry-widgets.js';
 import { previewPatch } from '../../server/src/ui-config/patch.js';
@@ -65,4 +65,13 @@ test('note links reject script, data, protocol-relative, file and remote asset i
     assert.doesNotMatch(JSON.stringify(nodes), /"kind":"(?:html|script|image|iframe)"/);
   }
   assert.equal(checkAccessibility(config).length, 0);
+});
+
+test('task board option scope and source scope share the same query and cache identity', () => {
+  const widget = defaultWidget('taskBoard');
+  const optionScope = { ...widget, options: { botId: 'fixture-bot' } };
+  const sourceScope = { ...widget, source: { ...widget.source!, params: { ...widget.source!.params, botId: 'fixture-bot' } } };
+  assert.deepEqual(widgetSource(optionScope), widgetSource(sourceScope));
+  assert.equal(sourceKey(optionScope), sourceKey(sourceScope));
+  assert.notEqual(sourceKey(widget), sourceKey(optionScope));
 });

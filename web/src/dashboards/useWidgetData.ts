@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
-import { sourceKey, type Widget, type WidgetData, type WidgetState } from './model';
+import { sourceKey, widgetSource, type Widget, type WidgetData, type WidgetState } from './model';
 
 const cache = new Map<string, { data: WidgetData; receivedAt: number }>();
 let account: string | undefined;
@@ -9,7 +9,7 @@ export function useWidgetData(widgets: Widget[]) {
   const [states, setStates] = useState<Record<string, WidgetState>>({});
   const nodes = useRef(new Map<string, HTMLElement>());
   const actions = useRef<{ observe(id: string, node: HTMLElement | null): void; refresh(id?: string): void }>();
-  const signature = JSON.stringify(widgets.map(widget => [widget.id, widget.source, widget.refreshSec]));
+  const signature = JSON.stringify(widgets.map(widget => [widget.id, widgetSource(widget), widget.refreshSec]));
   useEffect(() => {
     if (account !== userId) { cache.clear(); account = userId; }
     let stopped = false, timer: ReturnType<typeof setTimeout> | undefined, poll: ReturnType<typeof setTimeout> | undefined;
@@ -79,7 +79,7 @@ export function useWidgetData(widgets: Widget[]) {
       try {
         const response = await fetch('/api/ui/data', { method: 'POST', credentials: 'include', signal: controller.signal,
           headers: { 'Content-Type': 'application/json', ...(force ? { 'Cache-Control': 'no-cache' } : {}) },
-          body: JSON.stringify({ requests: entries.slice(0, 24).map(([widget], n) => ({ key: `w${n}`, source: widget.source!.id, params: widget.source!.params })) }) });
+          body: JSON.stringify({ requests: entries.slice(0, 24).map(([widget], n) => ({ key: `w${n}`, source: widget.source!.id, params: widgetSource(widget)!.params })) }) });
         if (response.status === 429) retryAt = Date.now() + Math.max(1, Number(response.headers.get('retry-after')) || 60) * 1000;
         if (!response.ok) throw new Error('Could not load data.');
         const body = await response.json(); if (!current()) return;
@@ -125,5 +125,5 @@ export function useWidgetData(widgets: Widget[]) {
     if (actions.current) actions.current.observe(id, node); else if (node) nodes.current.set(id, node); else nodes.current.delete(id);
   }, []);
   const refresh = useCallback((id?: string) => actions.current?.refresh(id), []);
-  return { states, observe, refresh };
+  return { states: account === userId ? states : {}, observe, refresh };
 }

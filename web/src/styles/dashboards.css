@@ -70,7 +70,7 @@
 .dashboard-link-domain { font-size: 12px; color: var(--color-text-secondary); }
 .dashboard-shortcuts { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,120px),1fr)); gap: 8px; }
 .dashboard-shortcuts .btn { min-height: 44px; }
-.dashboard-toolbar { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; }
+.dashboard-toolbar { display: grid; grid-template-columns: repeat(auto-fit,minmax(44px,1fr)); gap: 8px; }
 .dashboard-toolbar .btn { min-height: 44px; padding: 8px; }
 .dashboard-grid--editing { grid-auto-rows: minmax(88px,auto); }
 .dashboard-dialog { width: min(640px,calc(100% - 32px)); max-height: calc(100dvh - 32px); margin: auto; padding: 0; border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-bg-pane); color: var(--color-text-primary); overflow: auto; }

@@ -11,7 +11,12 @@ export const columnSpan = (span: number, width: number) => width <= 480 ? span <
 export function findDashboard(dashboards: Dashboard[], reference?: string) {
   return reference ? routeDashboard(reference, dashboards) : undefined;
 }
-export const sourceKey = (widget: Widget) => widget.source ? JSON.stringify([widget.source.id, Object.fromEntries(Object.entries(widget.source.params).sort(([a], [b]) => a.localeCompare(b)))]) : '';
+export function widgetSource(widget: Widget) {
+  const source = widget.source;
+  if (source && widget.type === 'taskBoard' && typeof widget.options.botId === 'string' && !source.params.botId) return { ...source, params: { ...source.params, botId: widget.options.botId } };
+  return source;
+}
+export const sourceKey = (widget: Widget) => { const source = widgetSource(widget); return source ? JSON.stringify([source.id, Object.fromEntries(Object.entries(source.params).sort(([a], [b]) => a.localeCompare(b)))]) : ''; };
 export function defaultWidget(type: WidgetType): Widget {
   const base = { id: '$new1', type, title: WIDGETS.find(entry => entry.id === type)!.label, span: 6, rows: 3, refreshSec: 60 as const };
   switch (type) {

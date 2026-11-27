@@ -55,8 +55,8 @@ try {
   await phone.waitForFunction(async () => (await import('/src/customization/store.ts')).useCustomization.getState().status === 'ready');
   await phone.evaluate(async () => (await import('/src/customization/store.ts')).refreshUiConfig());
   await patch(phone, [{ op: 'replace', path: '/dashboards/0/widgets', value: [
-    { id: '$new80', type: 'note', title: 'Fixture touch', span: 6, rows: 2, options: { text: 'Fixture note' } },
-    { id: '$new81', type: 'note', title: 'Fixture next', span: 6, rows: 2, options: { text: 'Fixture next note' } },
+    { id: '$new80', type: 'note', title: 'Fixture touch', span: 4, rows: 2, options: { text: 'Fixture note' } },
+    { id: '$new81', type: 'note', title: 'Fixture next', span: 4, rows: 2, options: { text: 'Fixture next note' } },
   ] }]);
   await phone.goto(`${server.base}/#dash/${dashboard.id}`); await phone.getByRole('button', { name: 'Edit', exact: true }).tap();
   for (const action of ['Wider', 'Narrower', 'Taller', 'Shorter', 'Move later', 'Move earlier', 'Settings', 'Remove']) {
