@@ -12,7 +12,7 @@ export const screens = [
   ...Object.keys(scenarios).filter(x => !['converged', 'gated'].includes(x)).map(x => `loop-${x}`),
   ...['loading', 'empty', 'error'].flatMap(x => [`output-${x}`, `handoffs-${x}`, `loops-${x}`, `flow-${x}`]),
   ...['loading','empty','error'].flatMap(x => [`handoff-${x}`, `viewer-${x}`, `send-${x}`]), 'handoff-approval', 'gate-cap', 'gate-manual',
-  'flow-suggestions', 'flow-long', 'link-edit', 'send-error', 'send-loop',
+  'flow-suggestions', 'flow-long', 'link-edit', 'send-loop',
 ];
 export async function polishFixture() {
   const root = path.resolve('.context/ho-p'); fs.mkdirSync(root, { recursive: true });
@@ -58,7 +58,8 @@ export async function polishFixture() {
         hash = `#handoff/${data.handoffs[0].id}`; selector = '.ho-route';
       } else if (name === 'output-viewer') { hash = `#output/${server.fixture.outputId}`; selector = '.ho-route'; }
       else if (name.startsWith('flow-') || name.startsWith('link-')) {
-        const input = structuredClone(fixtures[name === 'flow-long' ? 'long' : name === 'flow-suggestions' ? 'suggestions' : name === 'flow-empty' ? 'empty' : 'rich']); input.bot.id = botId;
+        const input = structuredClone(fixtures[name === 'flow-long' ? 'long' : name === 'flow-suggestions' ? 'suggestions' : name === 'flow-empty' ? 'empty' : 'rich']); const originalId = input.bot.id; input.bot.id = botId;
+        for (const link of input.links) { if (link.fromBotId === originalId) link.fromBotId = botId; if (link.toBotId === originalId) link.toBotId = botId; }
         const model = buildFlowModel(input);
         await page.route(/\/api\/bots\/[^/]+\/flow$/, route => name === 'flow-loading' ? new Promise(() => {}) : route.fulfill(name === 'flow-error' ? { status: 503, json: { error: 'Could not load flow. Try again.' } } : { json: model }));
         hash = `#bot/${botId}/details/${name === 'flow-compact' ? 'setup' : 'flow'}`; selector = name === 'flow-compact' ? '.flow-compact' : '.flow-tab';

@@ -44,6 +44,7 @@ export function inspectQuality({ selector, finished = false }) {
     if (el.matches(chip)) check('e.chip', css.textDecorationLine === 'none' && !el.closest('a')?.matches('.ho-inline-link'), el);
     if (el.matches('label,button,a,h1,h2,h3,.layout-row__title,.layout-row__subtitle,.flow-node__text')) check('e.label', el.scrollWidth <= el.clientWidth + 1 && css.textOverflow !== 'ellipsis' && !['hidden','clip'].includes(css.overflowY), el);
     check('e.overflow', r.left >= -1 && r.right <= innerWidth + 1, el);
+    if (el.matches('.ho-receipt') && el.closest('.transcript__col')) { const column = el.closest('.transcript__col').getBoundingClientRect(); check('d.receipt-column', close(r.width,column.width) && close(r.right,column.right),el); }
     if (el.matches('[data-layout="row"]')) {
       const leading = el.querySelector(':scope > .layout-row__leading'), title = el.querySelector(':scope > .layout-row__text > .layout-row__title');
       if (leading && title) { const icon = leading.getBoundingClientRect(), text = title.getBoundingClientRect(); check('j.icon', Math.abs(icon.top + icon.height/2 - text.top - parseFloat(getComputedStyle(title).lineHeight)/2) <= 2, el); }

@@ -53,3 +53,4 @@
 .ho-part-text { font-size: var(--text-base); }
 .ho-message-actions { display: flex; margin-left: auto; }
 .ho-more summary { min-height: var(--control-h); padding-block: var(--space-2); color: var(--color-primary); cursor: pointer; }
+.ho-receipt-wrap { width: 100%; }

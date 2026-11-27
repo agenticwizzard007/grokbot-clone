@@ -231,7 +231,7 @@ const SystemRow = memo(function SystemRow({ row }: { row: Row }) {
     } catch (error) { setRetryError((error as Error).message); }
     finally { setRetrying(false); }
   };
-  if (receipt) return <div data-row-seq={row.seq}><HandoffRow body={receipt} otherBotName={otherBotName} /></div>;
+  if (receipt) return <div className="ho-receipt-wrap" data-row-seq={row.seq}><HandoffRow body={receipt} otherBotName={otherBotName} /></div>;
   if (b.type === 'event') return <div className="system-event" data-row-seq={row.seq}>{clean(b.text)}{b.ref?.startsWith('#loop/') && <a href={b.ref.split('?')[0]}>View loop</a>}</div>;
   if (b.type === 'notice') return <Card className={`notice is-${b.tone ?? 'info'}`} data-row-seq={row.seq} data-recovery-job={b.recovery?.jobId}>
     <div>{b.text === 'Stopped.' ? 'Request interrupted. Send again to retry.' : clean(b.text)}</div>
