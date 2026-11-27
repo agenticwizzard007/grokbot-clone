@@ -18,7 +18,7 @@ Request to HO-B: invoke `projectHandoffEvent` for committed handoff and loop tra
 
 `server/src/handoffs/rooms.ts` exports `projectHandoffEvent`, which synchronizes room rows and task state. No production caller exists on this baseline. `server/src/handoffs/db.ts` records the event and emits SSE but does not project it. Real loop creation with a room ID produces no visible room progress.
 
-Reproduce: `HANDOFFS_JOURNEYS=9 node tests/handoffs/e2e/journeys.mjs`. After fixing runtime context, journey 5 must also verify the gate task and needs-input count.
+Reproduce: `HANDOFFS_JOURNEYS=9 node tests/handoffs/e2e/journeys.mjs`. After FIX-4, journey 5 passes the gate task, needs-input count, Approve and Decline checks at 390. The separate gate-task path in `loop-service.ts` does not resolve the missing room projection.
 
 An isolated journey 9 at both widths records `loop.created`, `loop.started` and `loop.finished` with `stopReason: "user_stopped"`, but zero corresponding room progress rows. It does not reach the Checker, so FIX-4 cannot resolve this failure. See `.context/handoffs/independent-integration/report.json`.
 
@@ -29,6 +29,12 @@ Request to the Bot-details integration owner: mount the existing `HandoffList` o
 The component exists in `web/src/handoffs/HandoffList.tsx`; the baseline Bot Activity surface does not mount it. Reproduce: `HANDOFFS_JOURNEYS=7 node tests/handoffs/e2e/journeys.mjs`.
 
 An isolated journey 7 at both widths verifies a completed handoff and a nonempty list API before the Activity filter lookup fails. This is independent of loop verdict submission. The same report above records the completed status and listed IDs.
+
+## Existing HO-I demo label
+
+Request to HO-I: update `tests/handoffs/demo-i.mjs:225` to wait for the dashboard manager's current `Create` button. It still asserts a button named `New dashboard`. The manager changed that label in UC-X2.
+
+`node tests/handoffs/demo-i.mjs` fails at this assertion at 1280 on both HO-H and main `bfe30f8`, after 67 passing checks. This is a shared baseline failure in a file owned by HO-I. Logs: `.context/handoffs/fix4-demos/i.log` and `.context/handoffs/main-polish-baseline/.context/handoffs/fix4-demos/i.log`.
 
 ## UI polish and Settings dependencies
 
