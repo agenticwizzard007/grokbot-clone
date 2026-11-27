@@ -9,8 +9,10 @@ const screens: Screen[] = [
   ...BOT_TABS.map(tab => ({ kind: 'bot-settings', bot: 'quinn', tab } as Screen)),
   ...(['Tasks', 'Team', 'Goals', 'Reports'] as const).flatMap(tab => [{ kind: 'work', route: { tab } }, { kind: 'work', route: { tab, botSlug: 'Quinn / encoded' } }] as Screen[]),
   ...(['activity', 'tasks', 'library', 'configuration'] as const).map(tab => ({ kind: 'details', bot: 'quinn', tab } as Screen)),
+  { kind: 'details', bot: 'fixture', tab: 'activity', flow: true },
   ...(['responsibilities', 'harness', 'files', 'history'] as const).map(setup => ({ kind: 'details', bot: 'quinn', tab: 'configuration', setup } as Screen)),
   { kind: 'details', bot: 'quinn', tab: 'library', reports: true },
+  { kind: 'details', bot: 'fixture', tab: 'activity', flow: true, link: 'link / encoded' },
   { kind: 'create' }, { kind: 'group' }, { kind: 'search' }, { kind: 'apps' },
 ];
 for (const screen of screens) test(`hash round trip: ${screenHash(screen)}`, () => assert.deepEqual(parseScreen(screenHash(screen)), screen));

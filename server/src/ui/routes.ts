@@ -1,8 +1,11 @@
+import { widgetRuntime } from './widget-runtime.js';
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { requireUser, type AuthVars } from '../lib/auth.js';
 import { REGISTRY, uiConfigSchema, type ErrorCode, type PatchOp, type Violation } from '../ui-config/index.js';
 import { dataApi } from './data-routes.js';
+import { RequirementsStore } from './requirements-store.js';
+import { createRequirementsApi } from './requirements-routes.js';
 import { resultHash, type SqliteUiConfigService } from './service.js';
 
 const empty = z.object({}).strict();
@@ -56,6 +59,9 @@ async function body<T>(c: Context<AuthVars>, schema: z.ZodType<T>): Promise<T> {
 
 export function createUiApi(service: SqliteUiConfigService) {
   const api = new Hono<AuthVars>();
+  const agentic = widgetRuntime(service);
+  if (process.env.SWARM_NO_SCHEDULER !== '1') agentic.scheduler.start();
+  api.route('/requirements', createRequirementsApi(new RequirementsStore(service)));
   const user = (c: Context<AuthVars>) => c.get('user').id;
   api.use('*', async (c, next) => {
     const response = await requireUser(c, next);
@@ -100,10 +106,11 @@ export function createUiApi(service: SqliteUiConfigService) {
     return c.json(result);
   };
   api.get('/config', c => {
+    agentic.widgets.touch(user(c));
     const current = service.get(user(c)); c.header('ETag', `"${current.revision}"`);
     if ((c.req.header('If-None-Match') ?? '').split(',').map(tag => tag.trim().replace(/^W\//, '')).includes(`"${current.revision}"`)) return c.body(null, 304);
     return c.json({ ...current, status: current.status ?? 'ready', effective: { preset: current.doc.preset, dashboardCount: current.doc.dashboards.length },
-      flags: { enabled: true, agentApplyMode: service.agentApplyMode(user(c)) } });
+      flags: { enabled: true, ui_agent_widgets: agentic.widgets.enabled(user(c)), agentApplyMode: service.agentApplyMode(user(c)) } });
   });
   api.patch('/config', async c => {
     const input = await body(c, patchBody), revision = expected(c);
@@ -175,6 +182,7 @@ export function createUiApi(service: SqliteUiConfigService) {
     return c.json({ version: 1, schema: z.toJSONSchema(uiConfigSchema, { io: 'input', unrepresentable: 'any' }), registries: REGISTRY });
   });
   // UC-F owns the implementation. Shared authentication and flags cover it too.
+  api.route('/widgets', agentic.api);
   api.route('/', dataApi);
   api.all('*', c => c.json({ code: 'not_found', message: 'Route not found.' }, 404));
   return api;

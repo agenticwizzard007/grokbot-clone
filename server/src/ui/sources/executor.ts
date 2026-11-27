@@ -12,7 +12,7 @@ export interface DataRequest { key: string; source: string; params: unknown }
 export function project(source: Source, data: SourceData): SourceData {
   const pick = (row: Record<string, unknown>) => Object.fromEntries(source.fields.filter(key => Object.hasOwn(row, key)).map(key => [key, row[key]]));
   return { count: data.count, ...(data.available === undefined ? {} : { available: data.available }),
-    ...(data.rows ? { rows: data.rows.slice(0, source.series ? 31 : 25).map(pick) } : {}),
+    ...(data.rows ? { rows: data.rows.slice(0, source.series ? 31 : ['handoffs.list', 'loops.list', 'outputs.recent', 'connectors.status', 'email.recent', 'calendar.upcoming', 'crm.deals'].includes(source.id) ? 10 : 25).map(pick) } : {}),
     ...(data.value ? { value: pick(data.value) } : {}) };
 }
 
@@ -34,7 +34,7 @@ export class DataExecutor {
     const key = JSON.stringify([userId, source.id, Object.fromEntries(Object.entries(params).sort(([a], [b]) => a.localeCompare(b)))]);
     if (fresh) this.cache.delete(key);
     const hit = this.cache.get(key);
-    if (hit && this.clock() - hit.fetchedAt < 10_000) return structuredClone(hit);
+    if (hit && this.clock() - hit.fetchedAt < (['email.recent', 'calendar.upcoming', 'crm.deals'].includes(source.id) ? 60_000 : 10_000)) return structuredClone(hit);
     const pending = this.pending.get(key);
     if (pending && !fresh) return structuredClone(await pending.promise);
     const entry = { promise: null! as Promise<DataResult> };
@@ -48,7 +48,7 @@ export class DataExecutor {
           else if (bot.status !== 'needs_you' && live.isRunning) bot.status = 'working';
         }
         const result = { ...project(source, data), ok: true as const, fetchedAt: this.clock() };
-        for (const [key, value] of this.cache) if (this.clock() - value.fetchedAt >= 10_000) this.cache.delete(key);
+        for (const [key, value] of this.cache) if (this.clock() - value.fetchedAt >= 60_000) this.cache.delete(key);
         if (this.cache.size >= 2048) this.cache.delete(this.cache.keys().next().value!);
         if (this.pending.get(key) === entry) this.cache.set(key, result);
         return result;

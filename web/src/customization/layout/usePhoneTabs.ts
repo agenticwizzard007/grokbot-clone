@@ -1,4 +1,4 @@
-import { House, LayoutDashboard, ListTodo, Search, Settings } from 'lucide-react';
+import { House, LayoutDashboard, ListTodo, Search, Settings, Gauge, Folder } from 'lucide-react';
 import type { UiConfig } from '@shared/ui-config/schema';
 import type { Screen } from '../../lib/navigation';
 import { useEffectiveConfig } from '../index';
@@ -12,6 +12,8 @@ export function phoneTabsFor(doc: UiConfig) {
     bots: { label: 'Bots', Icon: House, target: { kind: 'bots' } as Screen },
     tasks: { label: 'Tasks', Icon: ListTodo, target: { kind: 'work', route: { tab: 'Tasks' } } as Screen },
     search: { label: 'Search', Icon: Search, target: { kind: 'search' } as Screen },
+    usage: { label: 'Usage', Icon: Gauge, target: { kind: 'settings', section: 'usage' } as Screen },
+    files: { label: 'Files', Icon: Folder, target: { kind: 'work', route: { tab: 'Reports' } } as Screen },
     settings: { label: 'Settings', Icon: Settings, target: { kind: 'settings' } as Screen },
   };
   let dashboardAdded = false;
@@ -33,8 +35,8 @@ export function phoneTabsFor(doc: UiConfig) {
 export function isPhoneTab(screen: Screen, tabs: ReturnType<typeof phoneTabsFor>): boolean {
   return tabs.some(({ target }) => {
     if (target.kind !== screen.kind) return false;
-    if (screen.kind === 'settings') return !screen.section;
-    if (screen.kind === 'work') return !screen.route.botSlug && screen.route.tab === 'Tasks';
+    if (screen.kind === 'settings' && target.kind === 'settings') return screen.section === target.section;
+    if (screen.kind === 'work' && target.kind === 'work') return !screen.route.botSlug && screen.route.tab === target.route.tab;
     if (screen.kind === 'dash' && target.kind === 'dash') return screen.dashboard === target.dashboard || screen.dashboard.endsWith(`-${target.dashboard}`);
     return true;
   });

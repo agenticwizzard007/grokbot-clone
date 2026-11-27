@@ -7,7 +7,7 @@ import { moveSidebar, phoneTabPatch, setValue, sidebarVisibility } from './patch
 export type Patch = (ops: PatchOp[]) => Promise<boolean>;
 export function LayoutControls({ doc, patch }: { doc: UiConfig; patch: Patch }) {
   const tabs = doc.layout.phoneTabs;
-  const tabOptions = [{ value: '', label: 'None' }, ...['bots', 'tasks', 'search'].map(value => ({ value, label: value[0].toUpperCase() + value.slice(1) })), ...doc.dashboards.map(d => ({ value: `dashboard:${d.id}`, label: d.name }))];
+  const tabOptions = [{ value: '', label: 'None' }, ...['bots', 'tasks', 'search', 'usage', 'files'].map(value => ({ value, label: value[0].toUpperCase() + value.slice(1) })), ...doc.dashboards.map(d => ({ value: `dashboard:${d.id}`, label: d.name }))];
   // Settings keeps its saved position. Empty slots are always at the end.
   const slots = Array.from({ length: 5 }, (_, i) => tabs[i] ?? '');
   return <>

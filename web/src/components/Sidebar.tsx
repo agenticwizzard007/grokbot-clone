@@ -5,7 +5,7 @@ import { Fragment } from 'react';
 import { RosterFeedback } from './LoadFeedback';
 import { userFacingLive } from '../lib/audience';
 import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { Blocks, Folder, Gauge, GitBranch, House, LayoutDashboard, LogOut, Settings, Terminal, X } from 'lucide-react';
+import { Blocks, Folder, Gauge, GitBranch, House, LayoutDashboard, LogOut, Settings, Terminal, X, Repeat } from 'lucide-react';
 import { navigation, openConversation, useConfigUI } from '../configStore';
 import { TasksIsland } from './config/TasksIsland';
 import type { Bot } from '@shared/types';
@@ -147,6 +147,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const sections = {
     allBots: <>{!collapsed && <button type="button" className={`sidebar-island${view === 'bots' && !settingsOpen && !modal ? ' is-active' : ''}`} onClick={showBots} aria-label="All Bots"><House size={18} aria-hidden /><span>All Bots</span></button>}</>,
     tasks: <TasksIsland />,
+    routines: <button type="button" className="sidebar-island" aria-label="Routines" title="Routines" onClick={() => { const bot = bots.find(b => b.isPrimary) ?? bots[0]; if (bot) navigation.navigate({ kind: 'bot-settings', bot: bot.id, tab: 'routines' }); onClose?.(); }}><Repeat size={18} aria-hidden />{!collapsed && <span>Routines</span>}</button>,
     files: <>        {!collapsed && <button type="button" className={`sidebar-island${view === 'tasks' && workTab === 'Reports' && !settingsOpen && !modal ? ' is-active' : ''}`} onClick={() => navigation.navigate({ kind: 'work', route: { tab: 'Reports' } })}><Folder size={18} aria-hidden /><span>Files</span></button>}</>,
     yourBots: <>        {!collapsed && bots.length > 0 && <button type="button" className="sidebar__section-label" onClick={showBots}>Your Bots</button>}
         {primary && (

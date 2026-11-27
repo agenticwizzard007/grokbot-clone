@@ -4,7 +4,7 @@ import React, { createElement } from 'react';
 // Node's tsx runner uses classic JSX without the web project's tsconfig.
 Object.assign(globalThis, { React });
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Brain, Blocks, CircleUserRound, Gauge, KeyRound, MessageCircle, Monitor, LayoutDashboard, Server, Settings, ShieldCheck, Terminal } from 'lucide-react';
+import { Brain, Blocks, CircleUserRound, Gauge, KeyRound, MessageCircle, Monitor, LayoutDashboard, Server, Settings, ShieldCheck, Terminal, Users } from 'lucide-react';
 import { NAV, matches, SettingsNavButton } from '../web/src/components/config/settingsNavigation.tsx';
 import { registerHooks } from 'node:module';
 registerHooks({ load(url, context, next) { return url.endsWith('.css') ? { format: 'module', source: '', shortCircuit: true } : next(url, context); } });
@@ -12,18 +12,19 @@ const { SettingRow } = await import('../web/src/components/config/SettingRow.tsx
 const { AccessRow } = await import('../web/src/components/config/AccessRow.tsx');
 
 const items = NAV.flatMap(group => group.items);
-const expected = { general: Settings, appearance: LayoutDashboard, account: CircleUserRound, messaging: MessageCircle, usage: Gauge, learning: Brain, computer: Monitor, permissions: ShieldCheck, subscriptions: Terminal, keys: KeyRound, apps: Blocks, mcp: Server };
-test('all twelve section IDs follow Paper navigation with distinct Learning and apps icons', () => {
+const expected = { general: Settings, appearance: LayoutDashboard, agents: Users, account: CircleUserRound, messaging: MessageCircle, usage: Gauge, learning: Brain, computer: Monitor, permissions: ShieldCheck, subscriptions: Terminal, keys: KeyRound, apps: Blocks, mcp: Server };
+test('all thirteen section IDs follow Paper navigation with distinct Agents, Learning and apps icons', () => {
   assert.deepEqual(items.map(item => item.id), Object.keys(expected));
   for (const item of items) assert.equal(item.icon, expected[item.id], item.id);
+  assert.equal(new Set(items.map(item => item.icon)).size, 13);
 });
 test('two plain groups keep each existing section reachable exactly once', () => {
   assert.deepEqual(NAV.map(group => [group.group, group.items.map(item => item.id)]), [
-    ['Workspace', ['general', 'appearance', 'account', 'messaging', 'usage', 'learning', 'computer', 'permissions']],
+    ['Workspace', ['general', 'appearance', 'agents', 'account', 'messaging', 'usage', 'learning', 'computer', 'permissions']],
     ['Connections', ['subscriptions', 'keys', 'apps', 'mcp']],
   ]);
-  assert.equal(new Set(items.map(item => item.id)).size, 12);
-  for (const [query, id] of [['sessions', 'account'], ['memory', 'learning'], ['model provider', 'keys'], ['mcp token', 'mcp']]) {
+  assert.equal(new Set(items.map(item => item.id)).size, 13);
+  for (const [query, id] of [['sessions', 'account'], ['memory', 'learning'], ['model provider', 'keys'], ['mcp token', 'mcp'], ['handoffs', 'agents']]) {
     assert.ok(items.filter(item => matches(item, query)).some(item => item.id === id));
   }
 });

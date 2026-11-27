@@ -29,18 +29,18 @@ export class UiStore {
       .run(userId, canonical(doc), doc.version, revision, time, actor);
   }
   history(userId: string): HistoryRow[] {
-    return this.db.prepare('SELECT id,revision,doc,summary,actor,created_at FROM ui_config_history WHERE user_id=? ORDER BY revision DESC LIMIT 50').all(userId) as HistoryRow[];
+    return this.db.prepare("SELECT id,revision,doc,summary,actor,created_at FROM ui_config_history WHERE kind='config' AND user_id=? ORDER BY revision DESC LIMIT 50").all(userId) as HistoryRow[];
   }
   revision(userId: string, revision: number): HistoryRow | undefined {
-    return this.db.prepare('SELECT id,revision,doc,summary,actor,created_at FROM ui_config_history WHERE user_id=? AND revision=?').get(userId, revision) as HistoryRow | undefined;
+    return this.db.prepare("SELECT id,revision,doc,summary,actor,created_at FROM ui_config_history WHERE kind='config' AND user_id=? AND revision=?").get(userId, revision) as HistoryRow | undefined;
   }
   record(userId: string, revision: number, doc: string, summary: string[], actor: string, time: number): void {
     this.db.prepare('INSERT OR IGNORE INTO ui_config_history(id,user_id,revision,doc,summary,actor,created_at) VALUES(?,?,?,?,?,?,?)')
       .run(randomUUID(), userId, revision, doc, canonical(summary), actor, time);
   }
   prune(userId: string, time: number): void {
-    this.db.prepare(`DELETE FROM ui_config_history WHERE user_id=? AND (created_at<? OR revision NOT IN
-      (SELECT revision FROM ui_config_history WHERE user_id=? ORDER BY revision DESC LIMIT 50))`).run(userId, time - 90 * 86400_000, userId);
+    this.db.prepare(`DELETE FROM ui_config_history WHERE kind='config' AND user_id=? AND (created_at<? OR revision NOT IN
+      (SELECT revision FROM ui_config_history WHERE kind='config' AND user_id=? ORDER BY revision DESC LIMIT 50))`).run(userId, time - 90 * 86400_000, userId);
     // Keep terminal preview records for their TTL so cards can observe their final state.
     this.db.prepare("DELETE FROM ui_previews WHERE user_id=? AND status!='pending' AND expires_at<?").run(userId, time - 86400_000);
   }

@@ -33,7 +33,7 @@ const request = (target: ReturnType<typeof app>, body: unknown, user = a, header
 const batch = (count = 1) => ({ requests: Array.from({ length: count }, (_, n) => ({ key: `k${n}`, source: 'tasks.counts', params: {} })) });
 after(() => { for (const data of executors) data.close(); globalThis.fetch = fetchOriginal; db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
-const expectedCounts: Record<string, number> = { 'tasks.counts': 33, 'tasks.list': 33, 'tasks.series': 33, 'bots.list': 30, 'bots.status': 30,
+const expectedCounts: Record<string, number> = { 'handoffs.list': 0, 'loops.list': 0, 'outputs.recent': 0, 'connectors.status': 0, 'email.recent': 0, 'calendar.upcoming': 0, 'crm.deals': 0, 'tasks.counts': 33, 'tasks.list': 33, 'tasks.series': 33, 'bots.list': 30, 'bots.status': 30,
   'needsYou.list': 28, 'usage.summary': 7, 'usage.series': 7, 'usage.windows': 0, 'routines.list': 28, 'routines.upcoming': 196,
   'runs.recent': 33, 'runs.counts': 33, 'runs.series': 33 };
 for (const source of SOURCES) test(`${source.id}: allowlisted fields, caps and disjoint accounts`, async () => {
@@ -49,7 +49,7 @@ for (const source of SOURCES) test(`${source.id}: allowlisted fields, caps and d
   }
   assert.doesNotMatch(JSON.stringify(own), /Fixture B|qa-temp-dashboard-b/);
   assert.doesNotMatch(JSON.stringify(foreign), /Fixture A|qa-temp-dashboard-a/);
-  if (source.id !== 'usage.windows' && !source.id.startsWith('usage.')) assert.notEqual(own.count, foreign.count);
+  if (expectedCounts[source.id] > 0 && !source.id.startsWith('usage.')) assert.notEqual(own.count, foreign.count);
   if (source.id === 'usage.summary') {
     assert.equal(own.value!.costUsd, 1.75); assert.equal(foreign.value!.costUsd, 693);
     assert.equal(own.value!.tokens, 840); assert.equal(foreign.value!.tokens, 70000);
@@ -75,8 +75,8 @@ test('limited Bot status aggregates and filtered task pages retain exact counts 
   if (series.ok) { assert.equal(series.count, 2); assert.equal(series.rows!.reduce((n, row) => n + Number(row.done), 0), 2); }
 });
 
-test('all 14 sources reject unknown params and never accept a user id', async () => {
-  assert.equal(SOURCES.length, 14);
+test('all 21 sources reject unknown params and never accept a user id', async () => {
+  assert.equal(SOURCES.length, 21);
   for (const source of SOURCES) for (const params of [{ userId: b.id }, { sql: 'SELECT * FROM users' }, { url: 'https://example.test' }, [], null]) {
     const result = await read(a.id, source.id, params); assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.code, 'invalid_value');
