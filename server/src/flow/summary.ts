@@ -6,7 +6,7 @@ import { ownFlowBot, readFlowInputs, touchFlow, FlowError } from './cache.js';
 import { stepHash } from './build.js';
 
 const text = (max: number) => z.string().trim().min(1).max(max).regex(/^[^\u2013\u2014]*$/, 'Use plain punctuation.');
-export const flowSummarySchema = z.object({ steps: z.array(z.object({ label: text(40), detail: text(60).optional() }).strict()).min(1).max(6), loopNote: text(60).optional() }).strict();
+export const flowSummarySchema = z.object({ steps: z.array(z.object({ label: text(40), detail: text(60).optional() }).strict()).min(1).max(6), loopNote: text(120).optional() }).strict();
 export const flowStore: FlowStore = {
   async writeFlowSummary(context: HandoffContext, input: FlowSummaryInput) {
     const summary = flowSummarySchema.parse(input);

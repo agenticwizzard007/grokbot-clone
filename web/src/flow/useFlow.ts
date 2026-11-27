@@ -13,7 +13,7 @@ function subscribe(listener: (botId?: string) => void) {
     source = new EventSource('/api/events', { withCredentials: true });
     source.onmessage = message => { try {
       const event = JSON.parse(message.data);
-      if (['flow','routines','setup','memories','bot','connections','messaging','output','handoff','loop','hello'].includes(event.type)) for (const fn of listeners) fn(event.botId ?? event.bot?.id);
+      if (['flow','routines','setup','memories','bot','connections','messaging','output','handoff','loop','native','hello'].includes(event.type)) for (const fn of listeners) fn(event.botId ?? event.bot?.id);
     } catch { /* The server may close an incomplete event. */ } };
   }
   return () => { listeners.delete(listener); if (!listeners.size) { source?.close(); source = undefined; } };

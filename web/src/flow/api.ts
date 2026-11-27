@@ -22,6 +22,7 @@ export type LinkInput = Pick<HandoffLink, 'toBotId' | 'mode' | 'trigger' | 'temp
 export const flowApi = {
   hasRuns: async (id: string, signal?: AbortSignal) => {
     const response = await fetch(`/api/bots/${encodeURIComponent(id)}/flow`, { credentials: 'include', signal });
+    if (response.status === 503) { const error = await response.json().catch(() => ({})); if (error.code === 'disabled') throw new ApiError(503, error.error, error.code); }
     return !response.ok || response.headers.get('X-Flow-Has-Runs') !== '0';
   },
   get: (id: string, signal?: AbortSignal) => request<FlowModel>(`/bots/${encodeURIComponent(id)}/flow`, 'GET', undefined, signal),

@@ -10,25 +10,26 @@ export function LinkSheet({ botId, linkId, sourceBotId, onClose, onSaved }: { bo
   const bots = useStore(s => s.bots), account = useStore(s => s.user?.id);
   const [links, setLinks] = useState<HandoffLink[]>([]), [owner, setOwner] = useState(botId), [selected, setSelected] = useState(linkId);
   const [target, setTarget] = useState(''), [mode, setMode] = useState<LinkInput['mode']>('suggest'), [trigger, setTrigger] = useState<LinkInput['trigger']>('any_run'), [template, setTemplate] = useState(''), [approve, setApprove] = useState(false);
+  const [loaded, setLoaded] = useState(false), [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const writing = useRef(false), mounted = useRef(true);
   const current = () => mounted.current && useStore.getState().user?.id === account;
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
-    let active = true; setLoading(true); setError('');
+    let active = true; setLoading(true); setLoaded(false); setSelected(linkId); setError('');
     flowApi.links(sourceBotId ?? botId).then(async result => {
       const incoming = result.links.find(l => l.id === linkId && l.fromBotId !== botId);
       const source = incoming?.fromBotId ?? sourceBotId ?? botId;
       const ownLinks = incoming ? (await flowApi.links(source)).links : result.links;
-      if (active && current()) { setOwner(source); setLinks(ownLinks.filter(l => l.fromBotId === source)); }
+      if (active && current()) { setLoaded(true); setOwner(source); setLinks(ownLinks.filter(l => l.fromBotId === source)); }
     }).catch(e => { if (active && current()) setError(e.message); }).finally(() => { if (active && current()) setLoading(false); });
     return () => { active = false; };
-  }, [botId, linkId, sourceBotId, account]);
+  }, [botId, linkId, sourceBotId, account, attempt]);
   useEffect(() => { const link = links.find(l => l.id === selected); setTarget(link?.toBotId ?? ''); setMode(link?.mode ?? 'suggest'); setTrigger(link?.trigger ?? 'any_run'); setTemplate(link?.template ?? ''); setApprove(link?.autoApproveLoops ?? false); }, [selected, links]);
   const existing = links.find(l => l.id === selected), full = !existing && links.length >= 5;
   const choices = bots.filter(b => b.id !== owner && b.kind !== 'room' && (!b.onboarding || b.onboarding.status === 'active') && (!links.some(l => l.toBotId === b.id && l.id !== selected)));
   const save = async (remove = false) => {
-    if (writing.current || !current() || (!remove && (!target || full))) return;
+    if (!loaded || writing.current || !current() || (!remove && (!target || full))) return;
     writing.current = true; setBusy(true); setError('');
     const next = links.filter(l => l.id !== selected).map(toInput);
     if (!remove) next.push({ toBotId: target, mode, trigger, template, autoApproveLoops: approve });
@@ -38,7 +39,7 @@ export function LinkSheet({ botId, linkId, sourceBotId, onClose, onSaved }: { bo
   };
   return <Modal className="flow-sheet" label="Handoff links" onClose={() => { if (!busy) onClose(); }}><Page title="Handoff links">
     <Section title={`From ${bots.find(b => b.id === owner)?.name ?? 'this agent'}`}>
-      {loading ? <Card><Row title="Loading links..." /></Card> : <>
+      {loading ? <Card><Row title="Loading links..." /></Card> : !loaded ? <Card><Row title="Could not load links" trailing={<button type="button" onClick={() => setAttempt(n => n + 1)}>Retry</button>} /></Card> : <>
         {!!links.length && <Card>{links.map(link => <Row key={link.id} title={bots.find(b => b.id === link.toBotId)?.name ?? 'Agent'} subtitle={link.mode === 'auto' ? 'Auto' : link.mode === 'off' ? 'Off' : 'Suggest'} trailing={<button type="button" aria-label={`Edit handoff to ${bots.find(b => b.id === link.toBotId)?.name ?? 'agent'}`} onClick={() => setSelected(link.id)}>Edit</button>} />)}</Card>}
         <form onSubmit={e => { e.preventDefault(); void save(); }}>
           <label>Agent<select aria-label="Agent" value={target} onChange={e => setTarget(e.target.value)} required disabled={busy || full}><option value="">Choose an agent</option>{choices.map(bot => <option key={bot.id} value={bot.id}>{bot.name}</option>)}</select></label>

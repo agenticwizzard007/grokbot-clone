@@ -136,7 +136,7 @@ export function SuggestedIntegrations({ botId, description, instructions, placem
   if (!userId) return null;
   const current = result?.displayKey === displayKey ? result : cached ? { apps: cached.suggestions, hasContext: cached.hasContext, error: undefined } : undefined;
   const refresh = () => { loadingDeadlines.delete(windowKey); setRetry(value => value + 1); };
-  return <>{isAgent && <Suspense fallback={null}><FlowCompact botId={botId} /></Suspense>}<section ref={section} className="suggested-integrations bot-detail-section" style={reservedHeight ? { minBlockSize: reservedHeight } : undefined} aria-label="Suggested integrations" aria-busy={!current}>
+  return <>{isAgent && placement === 'details' && <Suspense fallback={null}><FlowCompact botId={botId} /></Suspense>}<section ref={section} className="suggested-integrations bot-detail-section" style={reservedHeight ? { minBlockSize: reservedHeight } : undefined} aria-label="Suggested integrations" aria-busy={!current}>
     <h2>Suggested integrations</h2>
     {!current ? loadingKey === key && <p className="suggested-integrations__note" role="status">Finding relevant apps…</p>
       : <>

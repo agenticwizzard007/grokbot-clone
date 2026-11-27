@@ -49,7 +49,7 @@ export function recordFlowConnections(userId: string, apps: FlowInputs['apps']) 
 export function readFlowInputs(userId: string, botId: string): FlowInputs {
   const bot = ownFlowBot(userId, botId);
   const skills = (db.prepare('SELECT * FROM skills WHERE bot_id=?').all(botId) as { id: string; name: string; body: string; deleted_at?: number }[]).filter(s => !s.deleted_at).map(({id,name,body}) => ({id,name,body}));
-  const routines = (db.prepare('SELECT * FROM routines WHERE bot_id=?').all(botId) as { id: string; name: string; schedule: string; enabled: number; created_at: number; trigger_id?: string }[]).map(r => ({ id: r.id, name: r.name, schedule: r.schedule, enabled: !!r.enabled, createdAt: r.created_at, event: !!r.trigger_id }));
+  const routines = (db.prepare('SELECT * FROM routines WHERE bot_id=?').all(botId) as { id: string; name: string; schedule: string; enabled: number; created_at: number; trigger_id?: string }[]).map(r => ({ id: r.id, name: r.name, schedule: r.schedule, enabled: !!r.enabled, createdAt: r.created_at, event: !!r.trigger_id || r.schedule.startsWith('event:') }));
   const connection = db.prepare('SELECT snapshot FROM flow_connection_snapshots WHERE user_id=?').get(userId) as { snapshot: string } | undefined;
   const apps = parse<FlowInputs['apps']>(connection?.snapshot, []);
   const mcp = listMcpServers(userId).filter(m => m.config.botIds === null || m.config.botIds.includes(botId)).map(m => ({ id: m.id, name: m.config.name, enabled: m.config.enabled, attention: !!m.error }));

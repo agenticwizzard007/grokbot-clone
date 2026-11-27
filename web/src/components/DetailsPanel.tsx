@@ -41,15 +41,16 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
   useLayoutEffect(() => { setHeaderHost(document.querySelector('.shell-header')); }, []);
   const returnFocus = useRef<HTMLElement | null>(null);
   const storedTab = useConfigUI(state => state.detailsTab);
+  const [flowEnabled, setFlowEnabled] = useState(true);
   const [flow, setFlow] = useState(() => bot.kind !== 'room' && (Boolean(flowLocation()) || (storedTab === 'activity' && (Date.now() - bot.createdAt < 3 * 86400_000 || !bot.lastActivityAt))));
   const choseTab = useRef(false);
   const tab = flow && storedTab === 'activity' && bot.kind !== 'room' ? 'flow' : storedTab;
   useEffect(() => { const sync = () => setFlow(Boolean(flowLocation())); window.addEventListener('swarm:flow-location', sync); return () => window.removeEventListener('swarm:flow-location', sync); }, []);
   useEffect(() => { if (flow && storedTab === 'activity' && !flowLocation()) openFlow(bot.id, undefined, true); }, []);
   useEffect(() => {
-    if (flow || bot.kind === 'room' || storedTab !== 'activity') return;
+    if (bot.kind === 'room') return;
     const controller = new AbortController();
-    void flowApi.hasRuns(bot.id, controller.signal).then(hasRuns => { if (!hasRuns && !controller.signal.aborted && !choseTab.current) { setFlow(true); openFlow(bot.id, undefined, true); } }).catch(() => {});
+    void flowApi.hasRuns(bot.id, controller.signal).then(hasRuns => { if (!hasRuns && storedTab === 'activity' && !flow && !controller.signal.aborted && !choseTab.current) { setFlow(true); openFlow(bot.id, undefined, true); } }).catch(error => { if (!controller.signal.aborted && error.code === 'disabled') { setFlowEnabled(false); setFlow(false); if (flowLocation()) { leaveFlow(); useConfigUI.getState().setDetailsTab('activity'); } } });
     return () => controller.abort();
   }, []);
   const covered = useConfigUI(state => Boolean(state.appSettings || state.botSettings));
@@ -96,7 +97,7 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
   const openSettings = () => useConfigUI.getState().openBotSettings(bot.id);
   const navigation = <nav className="pb-bot-tabs" aria-label="Conversation details sections">
     <button type="button" onClick={() => openConversation(bot.id)}><MessageSquare size={18} aria-hidden /><span>Chat</span></button>
-    {sections.filter(section => bot.kind !== 'room' || !['configuration', 'flow'].includes(section.id)).map(section =>
+    {sections.filter(section => (flowEnabled || section.id !== 'flow') && (bot.kind !== 'room' || !['configuration', 'flow'].includes(section.id))).map(section =>
       <button key={section.id} type="button" aria-current={tab === section.id || undefined} onClick={() => setTab(section.id)}><section.icon size={18} aria-hidden /><span>{section.label}</span></button>)}
     <button type="button" className="pb-bot-tabs__settings" aria-label="Bot settings" onClick={openSettings}><Settings size={18} aria-hidden /><span>Settings</span></button>
   </nav>;

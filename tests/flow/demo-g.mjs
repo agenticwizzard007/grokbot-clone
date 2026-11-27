@@ -6,6 +6,8 @@ import { once } from 'node:events';
 import { chromium } from 'playwright';
 import { tsImport } from 'tsx/esm/api';
 import { layoutServer } from '../layout-fixture.mjs';
+import { inspectFlowAccessibility } from './accessibility.mjs';
+import { readableWords } from '../paper-label-geometry.mjs';
 import { inspectAlignment } from '../layout-alignment-ui.mjs';
 const { fixtures } = await tsImport('./fixtures.mts', import.meta.url);
 const { buildFlowModel } = await tsImport('../../server/src/flow/build.ts', import.meta.url);
@@ -39,7 +41,7 @@ try {
     await page.route(/\/api\/bots$/, async route => {
       if (route.request().method() !== 'GET') return route.fallback();
       const data = structuredClone(roster);
-      for (const input of inputs) { let bot = data.bots.find(b => b.id === input.bot.id); if (!bot) { bot = { ...data.bots[0], id: input.bot.id }; data.bots.push(bot); } Object.assign(bot, { name: input.bot.name, instructions: input.bot.instructions, onboarding: { status: 'active' } }); }
+      for (const input of inputs) { let bot = data.bots.find(b => b.id === input.bot.id); if (!bot) { bot = { ...data.bots[0], id: input.bot.id }; data.bots.push(bot); } Object.assign(bot, { name: input.bot.name, instructions: input.bot.instructions, ...(input === empty ? { createdAt: Date.now() - 10 * 86400_000, lastActivityAt: Date.now() - 9 * 86400_000 } : {}), onboarding: { status: 'active' } }); }
       return route.fulfill({ json: data });
     });
     await page.route(/\/api\/bots\/[^/]+\/flow$/, route => route.fulfill({ json: models.get(decodeURIComponent(new URL(route.request().url()).pathname.split('/')[3])), headers: { 'X-Flow-Has-Runs': '0' } }));
@@ -54,14 +56,15 @@ try {
       links = [...links.filter(l => l.fromBotId !== fromBotId), ...next]; return route.fulfill({ json: { links: next } });
     });
     const screenshot = async name => { const file = path.join(evidence, `${name}-${width}.png`); await page.screenshot({ path: file, fullPage: true }); report.screenshots.push(file); };
-    async function show(input) {
+    async function show(input, checkDefault = false) {
       await page.goto(`${app.base}/#bot/${input.bot.id}/details/activity`);
+      if (checkDefault) await page.locator('.flow-chart').waitFor();
       await page.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Flow', exact: true }).click();
       await page.locator('.flow-chart').waitFor();
       await page.waitForFunction(() => document.querySelectorAll('.flow-lane').length === 5);
     }
     for (const [index,input] of inputs.entries()) {
-      await show(input);
+      await show(input, true);
       const issues = await page.evaluate(inspectAlignment); assert.deepEqual(issues, []); pass(`${width} ${['rich','empty','suggestions'][index]} alignment`, '0 issues');
       const labels = await page.locator('.flow-lane .layout-section__header').allTextContents(); assert.deepEqual(labels.map(s => s.replace(/^\d/,'')), ['Triggers','Inputs','Steps','Outputs','Handoffs']);
       const geometry = await page.locator('.flow-lane').evaluateAll(nodes => nodes.map(n => { const r = n.getBoundingClientRect(); return { width: r.width, top: r.top }; }));
@@ -70,9 +73,14 @@ try {
       if (width === 390) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1);
       assert.equal(await page.locator('.flow-lanes > li > section ol').count(), 5);
       assert.equal(await page.locator('.flow-chart button').evaluateAll(nodes => nodes.every(n => n.getAttribute('aria-label') || n.textContent.trim())), true);
-      await screenshot(['rich','empty','suggestions'][index]); pass(`${width} ${['rich','empty','suggestions'][index]} structure and accessibility`, 'ordered lanes, named controls, equal widths');
+      await readableWords(page.locator('.flow-lanes')); assert.deepEqual(await page.evaluate(inspectFlowAccessibility), []);
+      await screenshot(['rich','empty','suggestions'][index]);
+      if (width === 390 && index === 0) for (const lane of ['inputs','steps','outputs','handoffs']) { await page.locator('.flow-lane').nth(['triggers','inputs','steps','outputs','handoffs'].indexOf(lane)).scrollIntoViewIfNeeded(); await screenshot(`rich-${lane}`); } pass(`${width} ${['rich','empty','suggestions'][index]} structure and accessibility`, 'ordered lanes, named controls, equal widths');
     }
     await show(rich);
+    await page.evaluate(async () => { const { useConfigUI } = await import('/src/configStore.ts'); useConfigUI.getState().setTheme('dark'); });
+    assert.deepEqual(await page.evaluate(inspectAlignment), []); assert.deepEqual(await page.evaluate(inspectFlowAccessibility), []); await screenshot('rich-dark'); pass(`${width} dark theme accessibility and alignment`, '0 issues');
+    await page.evaluate(async () => { const { useConfigUI } = await import('/src/configStore.ts'); useConfigUI.getState().setTheme('light'); });
     const nodes = await page.locator('[data-flow-node]').evaluateAll(nodes => nodes.map(n => ({ id: n.dataset.flowNode, kind: n.dataset.kind })));
     await page.locator('[data-flow-node]').first().focus();
     for (let i = 1; i < nodes.length; i++) { await page.keyboard.press('Tab'); assert.equal(await page.evaluate(() => document.activeElement.dataset.flowNode), nodes[i].id); }
@@ -101,6 +109,22 @@ try {
     await dialog.getByRole('button', { name: 'Save link', exact: true }).click(); await dialog.getByRole('alert').filter({ hasText: 'cycle' }).waitFor();
     await screenshot('cycle-refused'); pass(`${width} auto cycle refusal`, 'inline error');
     await dialog.getByRole('button', { name: 'Remove link', exact: true }).click(); await dialog.waitFor({ state: 'hidden' }); pass(`${width} remove link`, 'saved');
+    await page.getByRole('button', { name: 'Add handoff', exact: true }).click(); await dialog.waitFor();
+    await dialog.getByLabel('Agent', { exact: true }).selectOption(empty.bot.id);
+    await dialog.getByLabel('Mode', { exact: true }).selectOption('off');
+    await dialog.getByRole('button', { name: 'Add link', exact: true }).click(); await dialog.waitFor({ state: 'hidden' });
+    assert.equal(links.find(l => l.fromBotId === rich.bot.id && l.toBotId === empty.bot.id).mode, 'off'); pass(`${width} change mode`, 'Off saved');
+    links = Array.from({ length: 5 }, (_, i) => ({ id: `cap-${i}`, fromBotId: rich.bot.id, toBotId: `fixture-target-${i}`, mode: 'suggest', trigger: 'any_run', template: '', autoApproveLoops: false }));
+    await page.getByRole('button', { name: 'Add handoff', exact: true }).click(); await dialog.waitFor();
+    await dialog.getByText('Five links maximum.', { exact: false }).waitFor(); assert.equal(await dialog.getByRole('button', { name: 'Add link', exact: true }).isDisabled(), true);
+    await dialog.locator('button').last().focus(); await page.keyboard.press('Tab'); assert.ok(await dialog.evaluate(el => el.contains(document.activeElement)));
+    await page.keyboard.press('Shift+Tab'); assert.ok(await dialog.evaluate(el => el.contains(document.activeElement)));
+    assert.deepEqual(await page.evaluate(inspectFlowAccessibility), []); await screenshot('link-cap'); await page.keyboard.press('Escape'); await dialog.waitFor({ state: 'hidden' }); pass(`${width} link cap and focus containment`, '5 links, Escape closes');
+    await show(rich); await page.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Setup', exact: true }).click();
+    await page.locator('.flow-compact').waitFor(); await screenshot('setup-compact'); pass(`${width} Setup compact flow`, 'View flow entry');
+    await page.goto(`${app.base}/#bot/${app.fixture.room}/details/activity`);
+    const sections = page.getByRole('navigation', { name: 'Conversation details sections' }); await sections.waitFor();
+    assert.equal(await sections.getByRole('button', { name: 'Flow', exact: true }).count(), 0); pass(`${width} rooms hide Flow`, 'no entry');
     assert.deepEqual(errors, []); await context.close();
   }
   fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2));

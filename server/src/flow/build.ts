@@ -34,6 +34,20 @@ export function flowText(text: string, limit = 40): string {
   return head.slice(0, space > limit / 2 ? space : limit).trim();
 }
 
+export function scheduleLabel(schedule: string): string {
+  if (schedule.startsWith('event:')) return `When ${schedule.slice(6).replace(/_/g, ' ').toLowerCase()}`;
+  const [minute, hour, day, month, weekday, extra] = schedule.trim().split(/\s+/);
+  if (extra || !weekday) return schedule;
+  if (/^\d+$/.test(minute) && /^\d+$/.test(hour) && day === '*' && month === '*') {
+    const time = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+    if (weekday === '*') return `Daily ${time}`;
+    if (weekday === '1-5') return `Weekdays ${time}`;
+    if (/^[0-6]$/.test(weekday)) return `${['Sundays','Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays'][+weekday]} ${time}`;
+  }
+  if (minute === '0' && hour === '*' && day === '*' && month === '*' && weekday === '*') return 'Every hour';
+  return schedule;
+}
+
 /** Pure, offline projection. Times and versions come from the cache, never the clock. */
 export function buildFlowModel(input: FlowInputs, meta: { version: number; generatedAt: number; summary?: FlowSummaryInput; summaryHash?: string } = { version: 1, generatedAt: 0 }): FlowModel {
   const bot = encodeURIComponent(input.bot.id), base = `#bot/${bot}`;
@@ -41,7 +55,7 @@ export function buildFlowModel(input: FlowInputs, meta: { version: number; gener
   const add = (lane: FlowLaneId, kind: FlowNode['kind'], id: string, label: string, hash: string, extra: Partial<FlowNode> = {}) => lanes.find(l => l.id === lane)!.nodes.push({ id: `${lane}:${kind}:${id}`, kind, label: flowText(label), target: { hash }, state: 'ok', ...extra, ...(extra.detail ? { detail: flowText(extra.detail, 60) } : {}) });
   const focus = (hash: string, key: string) => ({ target: { hash, focus: key } });
   const routines = [...input.routines].sort((a,b) => Number(b.enabled) - Number(a.enabled) || a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1));
-  for (const r of routines) add('triggers', r.event ? 'event' : 'routine', r.id, r.name, `${base}/settings/routines`, { detail: r.schedule, ...focus(`${base}/settings/routines`, `routine:${r.id}`), ...(!r.enabled ? { state: 'disabled', badge: 'Paused' } : {}) });
+  for (const r of routines) add('triggers', r.event ? 'event' : 'routine', r.id, r.name, `${base}/settings/routines`, { detail: scheduleLabel(r.schedule), ...focus(`${base}/settings/routines`, `routine:${r.id}`), ...(!r.enabled ? { state: 'disabled', badge: 'Paused' } : {}) });
   add('triggers', 'message', 'chat', 'You message me', base);
   for (const link of sorted(input.links).filter(l => l.toBotId === input.bot.id && l.mode !== 'off')) add('triggers', 'inbound_handoff', link.id, `From ${link.name}`, `${base}/details/flow?link=${encodeURIComponent(link.id)}`, focus(`${base}/details/flow?link=${encodeURIComponent(link.id)}`, `link-source:${link.fromBotId}`));
   if (input.inbound && !input.links.some(l => l.toBotId === input.bot.id && l.mode !== 'off')) add('triggers', 'inbound_handoff', 'incoming', 'Another agent hands off to me', `${base}/details/flow?link=new`);
