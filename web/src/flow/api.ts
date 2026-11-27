@@ -59,7 +59,7 @@ export function openFlowNode(botId: string, node: FlowNode) {
   const link = node.target.hash.match(FLOW);
   if (link) { openFlow(botId, link[2] ? decodeURIComponent(link[2]) : undefined); return; }
   const screen = parseScreen(node.target.hash);
-  if (!screen) { location.hash = node.target.hash; return; } // Loop routing lands in HO-I.
+  if (!screen) { location.hash = node.target.hash; return; }
   navigation.navigate(screen);
   history.replaceState({ ...history.state, flowFocus: node.target.focus }, '');
   if (node.target.focus) window.dispatchEvent(new CustomEvent('swarm:flow-focus', { detail: node.target.focus }));
@@ -71,5 +71,5 @@ export function restoreFlowFocus(botId: string, root: HTMLElement | null) {
 }
 window.addEventListener('hashchange', announce);
 window.addEventListener('popstate', announce);
-// A shared event handler can call this after HO-I adds flow events to the main SSE stream.
+// The shared per-user SSE handler invalidates mounted Flow surfaces.
 export function notifyFlow(botId: string) { useConfigUI.getState().bump(`flow:${botId}`); }

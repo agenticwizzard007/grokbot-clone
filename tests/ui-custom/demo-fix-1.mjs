@@ -74,6 +74,14 @@ try {
       await page.waitForFunction(() => location.hash === '#reports');
       await page.goForward();
       await page.locator('.flow-tab').waitFor();
+      // HO-I represents Flow as an Activity route with a flag; history must
+      // still distinguish the two visible tabs when the panel stays mounted.
+      await page.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Activity', exact: true }).click();
+      await page.locator('.pb-activity-stats').waitFor();
+      await page.goBack();
+      await page.locator('.flow-tab').waitFor();
+      await page.goForward();
+      await page.locator('.pb-activity-stats').waitFor();
       assert.deepEqual(errors, []);
       const check = `${width}-${theme}-${state}: Flow, avatar, navigation, Back/Forward, reload, no errors`;
       report.checks.push(check); console.log(`PASS ${check}`);
