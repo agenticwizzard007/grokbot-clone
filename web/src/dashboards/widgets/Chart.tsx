@@ -2,7 +2,7 @@ import { Empty, type WidgetProps } from './shared';
 import { fieldLabel, widgetLabel } from '../model';
 export default function Chart({ widget, data }: WidgetProps) {
   const rows = data?.rows?.slice(0, 31) ?? [];
-  if (!rows.length || !data?.count) return <Empty text="No activity in this period." />;
+  if (!rows.length || !data?.count) return <Empty widget={widget} text="No activity in this period." />;
   const fields = widget.source?.id === 'tasks.series' ? ['created', 'done'] : ['value'];
   const values = fields.map(field => rows.map(row => typeof row[field] === 'number' && Number.isFinite(row[field]) ? Math.max(0, Number(row[field])) : 0));
   const max = Math.max(...values.flat()) || 1, width = 480, height = 160, step = width / Math.max(1, rows.length);

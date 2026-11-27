@@ -6,7 +6,8 @@ import { Empty, type WidgetProps } from './shared';
 export default function Shortcuts({ widget }: WidgetProps) {
   const bots = useStore(state => state.bots);
   const items = (Array.isArray(widget.options.items) ? widget.options.items : []).slice(0, 6) as { label: string; target: string }[];
-  if (!items.length) return <Empty text="Add a shortcut." />;
+  if (!items.length) return <Empty widget={widget} text="Add a shortcut." />;
+  if (!bots.length && items.length === 1 && items[0].target === 'tasks') return <div className="dashboard-empty-data"><p>Start with your tasks.</p><a className="btn" href="#tasks">{items[0].label}</a></div>;
   return <div className="dashboard-shortcuts">{items.map((item, index) => {
     if (item.target.startsWith('ask:')) {
       const match = /^ask:([a-zA-Z0-9_-]+):([^<>]{1,200})$/.exec(item.target);

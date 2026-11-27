@@ -29,7 +29,7 @@ export function defaultWidget(type: WidgetType): Widget {
     case 'taskBoard': return { ...base, span: 12, rows: 5, source: { id: 'tasks.list', params: { limit: 25 } }, options: {} };
     case 'routineSchedule': return { ...base, rows: 4, source: { id: 'routines.upcoming', params: { days: 7 } }, options: { days: 7 } };
     case 'note': return { ...base, options: { text: '## My notes\nAdd a reminder for your week.' }, refreshSec: 0 };
-    case 'shortcuts': return { ...base, rows: 2, options: { items: [{ label: 'Tasks', target: 'tasks' }, { label: 'Bots', target: 'bots' }] }, refreshSec: 0 };
+    case 'shortcuts': return { ...base, rows: 2, options: { items: [{ label: 'Tasks', target: 'tasks' }] }, refreshSec: 0 };
   }
 }
 export type ToolbarAction = 'earlier' | 'later' | 'narrower' | 'wider' | 'shorter' | 'taller' | 'remove';

@@ -98,3 +98,7 @@
   .dashboard-library { grid-template-columns: minmax(0,1fr); }
 }
 @media (forced-colors: active) { .dashboard-chart-series { fill: Highlight; stroke: Highlight; } .dashboard-chart-series-1 { fill: CanvasText; stroke: CanvasText; } .dashboard-bot-avatar { border: 1px solid CanvasText; } }
+
+.dashboard-empty-data { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.dashboard-empty-data p { margin: 0; }
+.dashboard-empty-data .btn { min-height: 44px; }
