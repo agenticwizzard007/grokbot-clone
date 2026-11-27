@@ -73,6 +73,8 @@ try {
       }
       await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(400);
       if (route.state) { await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().bots.some(bot => bot.id === id), server.fixture.bot.id); await page.locator('.composer__input:not([disabled])').waitFor(); await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().transcripts[id]?.loaded, server.fixture.bot.id); await preparePbeState(page, route.state, server.fixture.bot.id); await page.waitForTimeout(400); }
+      // ActionPreview is lazy: compare the complete card, never its loading fallback.
+      if (route.state === 'approval' || route.state === 'declined') await page.locator('.approval-card .tool-preview').waitFor();
       const result = await page.evaluate(() => {
         // Ignore transient chat scroll restoration when comparing structure.
         for (const element of document.querySelectorAll('*')) if (element.scrollTop) element.scrollTop = 0;

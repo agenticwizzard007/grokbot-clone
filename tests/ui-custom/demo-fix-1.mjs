@@ -27,7 +27,7 @@ try {
     await network.send('Network.setCacheDisabled', { cacheDisabled: false });
     page.setDefaultTimeout(15000);
     page.on('pageerror', error => errors.push(error.message));
-    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    page.on('console', message => { if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url})`); });
     await page.route('**/*', route => {
       if (new URL(route.request().url()).origin !== app.base) { errors.push('Unexpected external request'); return route.abort(); }
       return route.fallback();
