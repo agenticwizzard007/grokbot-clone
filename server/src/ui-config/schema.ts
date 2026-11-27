@@ -23,9 +23,10 @@ export const themeSchema = z.object({
   density: densitySchema, radius: z.enum(['sharp', 'default', 'round']), motion: z.enum(['system', 'reduced']), contrast: z.enum(['normal', 'high']),
 }).strict();
 const homeSchema = z.union([z.object({ kind: z.enum(['default', 'bots', 'tasks']) }).strict(), z.object({ kind: z.literal('dashboard'), dashboardId: dashboardIdSchema }).strict()]);
+// Legacy tab ids stay readable in saved documents; the client ignores retired targets.
 const phoneTab = z.union([z.enum(['bots', 'tasks', 'search', 'settings', 'routines', 'usage', 'files', 'more']), z.string().regex(/^dashboard:d_[a-z0-9]{8}$/)]);
 export const layoutSchema = z.object({
-  sidebar: z.object({ collapsed: z.boolean().nullable(), width: z.enum(['narrow', 'default', 'wide']), order: z.array(z.enum(NAV_IDS)).max(NAV_IDS.length), hidden: z.array(z.enum([...NAV_IDS, 'all'])).max(NAV_IDS.length) }).strict(),
+  sidebar: z.object({ collapsed: z.boolean().nullable(), width: z.enum(['narrow', 'default', 'wide']), order: z.array(z.enum(NAV_IDS)).max(NAV_IDS.length), hidden: z.array(z.enum(NAV_IDS)).max(NAV_IDS.length) }).strict(),
   home: homeSchema, phoneTabs: z.array(phoneTab).min(3).max(5), chat: z.object({ width: z.enum(['default', 'wide']) }).strict(),
   pinned: z.array(z.discriminatedUnion('type', [z.object({ type: z.literal('dashboard'), id: dashboardIdSchema }).strict(), z.object({ type: z.literal('bot'), id: botIdSchema }).strict()])).max(LIMITS.pinned),
 }).strict();
@@ -63,7 +64,6 @@ export const uiConfigSchema = uiConfigShape.superRefine((doc, ctx) => {
   if (bytes === null) issue([], 'Use JSON values within the depth limit.');
   else if (bytes > LIMITS.documentBytes) issue([], 'The document exceeds 256 KB.', 'limit_exceeded');
   if (!doc.layout.sidebar.order.includes('settings')) issue(['layout', 'sidebar', 'order'], 'Settings must stay in the sidebar.', 'required_item');
-  if (doc.layout.sidebar.hidden.includes('all')) issue(['layout', 'sidebar', 'hidden'], 'All sections cannot be hidden.', 'required_item');
   if (doc.layout.sidebar.hidden.includes('settings')) issue(['layout', 'sidebar', 'hidden'], 'Settings cannot be hidden.', 'required_item');
   if (!doc.layout.phoneTabs.includes('settings')) issue(['layout', 'phoneTabs'], 'Settings must stay in phone tabs.', 'required_item');
   if (doc.layout.phoneTabs.filter(x => x.startsWith('dashboard:')).length > 1) issue(['layout', 'phoneTabs'], 'Only one dashboard can be a phone tab.');

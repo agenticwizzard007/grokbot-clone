@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { migrateRequirementsLayout } from './requirements-migration.js';
 
 /** Additive and idempotent. No per-user rows are created during deployment. */
 export function initUiDatabase(db: Database.Database): void {
@@ -77,6 +78,7 @@ export function initUiDatabase(db: Database.Database): void {
   const previewColumns = new Set((db.pragma('table_info(ui_previews)') as { name: string }[]).map(c => c.name));
   if (!previewColumns.has('id_map')) db.exec("ALTER TABLE ui_previews ADD COLUMN id_map TEXT NOT NULL DEFAULT '{}'");
   if (!previewColumns.has('applied_revision')) db.exec('ALTER TABLE ui_previews ADD COLUMN applied_revision INTEGER');
+  migrateRequirementsLayout(db);
 }
 
 /** Shared by settings and isolated service fixtures. Flags are admin-only. */

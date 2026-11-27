@@ -1,17 +1,13 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_CONFIG, uiConfigSchema, type UiConfig, type PatchOp, type Violation } from '../ui-config/index.js';
-import { equal } from '../ui-config/summarize.js';
-import { adaptFromRequirements, patchRequirements, requirementsProfileSchema, selectLens, type AdaptationState, type RequirementsProfile } from '../ui-config/adapt.js';
-import { LENS_IDS, type LensId } from '../ui-config/adapt-keywords.js';
-import { ADAPT_LENSES } from '../ui-config/adapt-lenses.js';
+import { type Violation } from '../ui-config/index.js';
+import { suggestDashboardFromRequirements, patchRequirements, requirementsProfileSchema, type RequirementsProfile } from '../ui-config/adapt.js';
 import { uiAdaptEnabled } from './flags.js';
 import { canonical } from './store.js';
 import type { SqliteUiConfigService } from './service.js';
 
 interface Row { doc: string; revision: number; updated_at: number; updated_by: string; adaptation: string }
-interface Pending { id: string; state?: AdaptationState; reset?: boolean }
-interface Ledger { state?: AdaptationState; seenRevision?: number; pending?: Pending[]; undo?: { token: string; profile: RequirementsProfile | null; state?: AdaptationState; resetPreview: string; revision: number } }
+interface Ledger { undo?: { token: string; profile: RequirementsProfile | null; revision: number } }
 export interface RequirementsOptions { clock?: () => number; flag?: () => string | undefined; staff?: () => string }
 const fail = (code: Violation['code'], message: string) => ({ ok: false as const, errors: [{ code, message, path: '' }] });
 
@@ -36,117 +32,57 @@ export class RequirementsStore {
     this.db.prepare(`DELETE FROM ui_config_history WHERE user_id=? AND kind='requirements' AND (created_at<? OR revision NOT IN
       (SELECT revision FROM ui_config_history WHERE user_id=? AND kind='requirements' ORDER BY revision DESC LIMIT 50))`).run(userId, now - 90 * 86400_000, userId);
   }
-  /** Applied previews alone claim managed paths. Discarded or expired previews never do. */
-  private reconcile(userId: string) {
-    const row = this.row(userId); if (!row) return;
-    const ledger = this.ledger(row);
-    let changed = false;
-    ledger.pending = (ledger.pending ?? []).filter(item => {
-      const preview = this.ui.getPreview(userId, item.id);
-      if (preview?.status === 'pending') return true;
-      if (preview?.status === 'applied') { ledger.state = item.state; ledger.seenRevision = preview.revision; changed = true; }
-      return false;
-    });
-    // An edit followed by a revert is still a hand edit. Replay retained config
-    // revisions so equality with the last adaptation does not reclaim it.
-    if (ledger.state && ledger.seenRevision !== undefined) {
-      const state = ledger.state;
-      const rows = this.db.prepare("SELECT revision,doc FROM ui_config_history WHERE user_id=? AND kind='config' AND revision>? ORDER BY revision")
-        .all(userId, ledger.seenRevision) as { revision: number; doc: string }[];
-      const value = (doc: UiConfig, path: string) => {
-        if (path.startsWith('/dashboards/')) return doc.dashboards.find(d => d.id === state.dashboardId);
-        return path.slice(1).split('/').reduce<unknown>((v, key) => v && typeof v === 'object' ? (v as Record<string, unknown>)[key] : undefined, doc);
-      };
-      for (const history of rows) {
-        if (history.revision !== ledger.seenRevision! + 1) state.managedPaths = []; // History expired: preserve rather than guess.
-        let doc: UiConfig | null = null;
-        try { const parsed = uiConfigSchema.safeParse(JSON.parse(history.doc)); if (parsed.success) doc = parsed.data; } catch { /* Preserve on corrupt history. */ }
-        state.managedPaths = doc ? state.managedPaths.filter(path => equal(value(doc!, path), value(state.doc, path))) : [];
-        ledger.seenRevision = history.revision; changed = true;
-      }
-    }
-    const profile = this.parse(row);
-    if (changed && profile && !equal(profile.managedPaths, ledger.state?.managedPaths ?? [])) {
-      profile.managedPaths = ledger.state?.managedPaths ?? [];
-      profile.revision = row.revision + 1; profile.updatedAt = this.clock();
-      this.db.transaction(() => this.write(userId, profile, profile.revision, profile.updatedBy, ledger, ['Adaptation paths updated']))();
-      return;
-    }
-    const doc = profile ? canonical(profile) : row.doc, adaptation = canonical(ledger);
-    if (doc !== row.doc || adaptation !== row.adaptation)
-      this.db.prepare('UPDATE ui_requirements SET doc=?,adaptation=? WHERE user_id=?').run(doc, adaptation, userId);
-  }
   get(userId: string) {
-    if (this.enabled(userId)) this.reconcile(userId);
-    const row = this.row(userId), profile = this.parse(row);
-    const selection = profile ? selectLens(profile) : null;
-    const ledger = this.ledger(row), undo = ledger.undo;
-    return { profile, revision: row?.revision ?? 0, enabled: this.enabled(userId), adapted: !!ledger.state,
+    const row = this.row(userId), profile = this.parse(row), undo = this.ledger(row).undo;
+    return { profile, revision: row?.revision ?? 0, enabled: this.enabled(userId),
       ...(undo && undo.revision === row?.revision ? { undoToken: undo.token } : {}),
-      ...(row && row.doc !== 'null' && !profile ? { status: 'invalid_stored' as const } : {}),
-      lens: selection?.lens ?? null, rationale: selection?.rationale ?? [], ...(selection?.question ? { question: selection.question } : {}),
-      suggestions: selection ? { bots: ADAPT_LENSES[selection.lens].bots, templates: ADAPT_LENSES[selection.lens].templates, shortcuts: ADAPT_LENSES[selection.lens].shortcuts } : null };
+      ...(row && row.doc !== 'null' && !profile ? { status: 'invalid_stored' as const } : {}) };
   }
   update(userId: string, patch: unknown, expected: number, actor: 'agent' | 'user' = 'user') {
-    if (!this.enabled(userId)) return fail('disabled', 'Requirements adaptation is disabled.');
-    this.reconcile(userId);
+    if (!this.enabled(userId)) return fail('disabled', 'Dashboard suggestions are unavailable.');
     return this.db.transaction(() => {
       const row = this.row(userId); if ((row?.revision ?? 0) !== expected) return fail('stale_revision', 'Your requirements changed. Reload and try again.');
       const previous = this.parse(row), input = previous ? { role: previous.role, goals: previous.goals, workflows: previous.workflows, focus: previous.focus, ...(previous.lens ? { lens: previous.lens } : {}) } : null;
       const patched = patchRequirements(input, patch); if (!patched.ok) return patched;
-      const profile: RequirementsProfile = { ...patched.fields, version: 1, updatedAt: this.clock(), updatedBy: actor, revision: expected + 1, managedPaths: previous?.managedPaths ?? [] };
-      const ledger = this.ledger(row); delete ledger.undo;
+      const profile: RequirementsProfile = { ...patched.fields, version: 1, updatedAt: this.clock(), updatedBy: actor, revision: expected + 1, managedPaths: [] };
+      const ledger: Ledger = {};
       this.write(userId, profile, profile.revision, actor, ledger, patched.diff);
       return { ok: true as const, profile, revision: profile.revision, diff: patched.diff,
         remember: `I will remember: ${[profile.role, ...profile.goals, ...profile.workflows.map(w => `${w.cadence === 'ad_hoc' ? 'as needed' : w.cadence} ${w.name}`)].join(', ')}` };
     }).immediate();
   }
-  preview(userId: string, expected: number, actor = 'user', lens?: LensId) {
-    if (!this.enabled(userId)) return fail('disabled', 'Requirements adaptation is disabled.');
-    if (lens !== undefined && !LENS_IDS.includes(lens)) return fail('invalid_value', 'Choose a registered lens.');
+  preview(userId: string, expected: number, actor = 'user') {
+    if (!this.enabled(userId)) return fail('disabled', 'Dashboard suggestions are unavailable.');
     const current = this.get(userId);
-    if (current.revision !== expected) return fail('stale_revision', 'Your requirements changed. Reload and try again.');
-    if (!current.profile) return fail('not_found', 'Save your requirements first.');
-    const row = this.row(userId)!, ledger = this.ledger(row), before = this.ui.get(userId);
-    const adapted = adaptFromRequirements(lens ? { ...current.profile, lens } : current.profile, before.doc, ledger.state);
-    if (!adapted.ok) return adapted;
-    const result = this.ui.preview(userId, adapted.patch, { intent: `Adapt for ${ADAPT_LENSES[adapted.lens].label}`, actor });
+    if (current.revision !== expected) return fail('stale_revision', 'Your profile changed. Reload and try again.');
+    if (!current.profile) return fail('not_found', 'Save your profile first.');
+    const suggested = suggestDashboardFromRequirements(current.profile);
+    if (!suggested.ok) return suggested;
+    const result = this.ui.preview(userId, suggested.patch, { intent: suggested.title, actor });
     if (!result.ok) return result;
-    ledger.pending = [{ id: result.previewId, state: adapted.state }];
-    this.db.prepare('UPDATE ui_requirements SET adaptation=? WHERE user_id=?').run(canonical(ledger), userId);
-    // Rationale and kept values are part of the normal preview card as well as the detail response.
-    const summary = [...result.summary, ...adapted.rationale, ...adapted.kept.map(k => k.message)];
-    this.ui.store.previewSummary(userId, result.previewId, summary);
-    return { ...result, summary, lens: adapted.lens, rationale: adapted.rationale, suggestions: adapted.suggestions, kept: adapted.kept,
-      question: adapted.question, patch: adapted.patch, before: before.doc, after: adapted.result, viewports: [390, 1280] };
+    // Widget titles are the entire card body; the title already names the dashboard.
+    this.ui.store.previewSummary(userId, result.previewId, suggested.widgets);
+    return { ...result, title: suggested.title, summary: suggested.widgets, patch: suggested.patch };
   }
-  reset(userId: string, expected: number, actor = 'user') {
-    if (!this.enabled(userId)) return fail('disabled', 'Requirements adaptation is disabled.');
-    const current = this.get(userId); if (current.revision !== expected) return fail('stale_revision', 'Your requirements changed. Reload and try again.');
-    const ledger = this.ledger(this.row(userId));
-    // Restore arrangement in one preview. Keep user dashboards and all appearance tokens.
-    const patch: PatchOp[] = [{ op: 'replace', path: '/layout', value: structuredClone(DEFAULT_CONFIG.layout) }];
-    const preview = this.ui.preview(userId, patch, { intent: 'Reset requirements and arrangement', actor });
-    if (!preview.ok) return preview;
-    const undoToken = randomUUID();
-    ledger.undo = { token: undoToken, profile: current.profile, ...(ledger.state ? { state: ledger.state } : {}), resetPreview: preview.previewId, revision: expected + 1 };
-    ledger.pending = [{ id: preview.previewId, reset: true }];
-    this.db.transaction(() => this.write(userId, null, expected + 1, 'reset', ledger, ['Requirements cleared']))();
-    return { ...preview, profile: null, revision: expected + 1, undoToken };
+  reset(userId: string, expected: number, _actor = 'user') {
+    if (!this.enabled(userId)) return fail('disabled', 'Dashboard suggestions are unavailable.');
+    return this.db.transaction(() => {
+      const current = this.get(userId);
+      if (current.revision !== expected) return fail('stale_revision', 'Your profile changed. Reload and try again.');
+      const undoToken = randomUUID();
+      this.write(userId, null, expected + 1, 'reset', { undo: { token: undoToken, profile: current.profile, revision: expected + 1 } }, ['Profile cleared']);
+      return { ok: true as const, profile: null, revision: expected + 1, undoToken };
+    }).immediate();
   }
   undoReset(userId: string, expected: number, token: string) {
-    if (!this.enabled(userId)) return fail('disabled', 'Requirements adaptation is disabled.');
-    const current = this.get(userId), ledger = this.ledger(this.row(userId)), undo = ledger.undo;
-    if (current.revision !== expected) return fail('stale_revision', 'Your requirements changed. Reload and try again.');
-    if (!undo || undo.token !== token || undo.revision !== expected) return fail('not_found', 'Reset is no longer available to undo.');
-    const preview = this.ui.getPreview(userId, undo.resetPreview);
-    if (preview?.status === 'applied') {
-      if (this.ui.get(userId).revision !== preview.revision) return fail('stale_revision', 'Your appearance changed after Reset.');
-      const result = this.ui.undo(userId, 1, 'user'); if (!result.ok) return result;
-    } else if (preview?.status === 'pending') this.ui.discardPreview(userId, preview.id);
-    const profile = undo.profile ? { ...undo.profile, revision: expected + 1, updatedAt: this.clock(), updatedBy: 'user' as const } : null;
-    const restored: Ledger = undo.state ? { state: undo.state, seenRevision: this.ui.get(userId).revision } : {};
-    this.db.transaction(() => this.write(userId, profile, expected + 1, 'user', restored, ['Reset undone']))();
-    return { ok: true as const, profile, revision: expected + 1, diff: ['Reset undone'] };
+    if (!this.enabled(userId)) return fail('disabled', 'Dashboard suggestions are unavailable.');
+    return this.db.transaction(() => {
+      const current = this.get(userId), undo = this.ledger(this.row(userId)).undo;
+      if (current.revision !== expected) return fail('stale_revision', 'Your profile changed. Reload and try again.');
+      if (!undo || undo.token !== token || undo.revision !== expected) return fail('not_found', 'Reset is no longer available to undo.');
+      const profile = undo.profile ? { ...undo.profile, managedPaths: [], revision: expected + 1, updatedAt: this.clock(), updatedBy: 'user' as const } : null;
+      this.write(userId, profile, expected + 1, 'user', {}, ['Reset undone']);
+      return { ok: true as const, profile, revision: expected + 1, diff: ['Reset undone'] };
+    }).immediate();
   }
 }
