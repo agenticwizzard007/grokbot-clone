@@ -64,7 +64,16 @@ try {
     { id: '$new80', type: 'note', title: 'Weekly focus', span: 4, rows: 2, options: { text: 'Review the launch plan' } },
     { id: '$new81', type: 'note', title: 'Next steps', span: 4, rows: 2, options: { text: 'Review the next milestone' } },
   ] }]);
-  await phone.goto(`${server.base}/#dash/${dashboard.id}`); await phone.getByRole('button', { name: 'Edit', exact: true }).tap();
+  await patch(phone, [{ op: 'add', path: '/dashboards/0/description', value: 'Launch planning and daily progress.' }]);
+  await phone.goto(`${server.base}/#dash/${dashboard.id}`);
+  for (const width of [320, 390, 500, 1280]) {
+    await phone.setViewportSize({ width, height: 844 });
+    assert.ok(await phone.getByText('Launch planning and daily progress.', { exact: true }).isVisible(), 'Hiding the duplicate title preserves the user description');
+    assert.equal(await phone.locator('.shell-header__title:visible, .dashboard-heading h1:visible').count(), 1);
+    passed++;
+  }
+  await phone.setViewportSize({ width: 390, height: 844 });
+  await phone.getByRole('button', { name: 'Edit', exact: true }).tap();
   for (const size of ['Small', 'Medium', 'Large', 'Full']) {
     await phone.getByRole('button', { name: 'Settings: Weekly focus', exact: true }).tap();
     await phone.getByRole('radio', { name: size, exact: true }).tap();
