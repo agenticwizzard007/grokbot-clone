@@ -70,7 +70,8 @@ try {
           const issues = await page.evaluate(() => {
             const issues = [];
             for (const root of [document.documentElement, document.body]) if (root.scrollWidth > innerWidth + 1) issues.push({ issue: 'page-overflow', tag: root.tagName, width: root.scrollWidth, viewport: innerWidth });
-            for (const el of document.querySelectorAll('button, input:not([type=hidden]), select, textarea, a[href]')) {
+            const surface = [...document.querySelectorAll('dialog[open], [role=dialog][aria-modal=true]')].at(-1) ?? document;
+            for (const el of surface.querySelectorAll('button, input:not([type=hidden]), select, textarea, a[href]')) {
               if (!el.checkVisibility() || el.closest('[inert]')) continue;
               const r = el.getBoundingClientRect(); if (!r.width || !r.height) continue;
               // Ignore controls in a closed native dialog or intentionally offscreen drawer.
@@ -91,7 +92,7 @@ try {
         const scrollRegions = page.locator('[role=region][tabindex="0"]');
         item.keyboardScroll = 0;
         for (const region of await scrollRegions.all()) {
-          if (!await region.isVisible() || !await region.evaluate(node => node.scrollHeight > node.clientHeight + 1)) continue;
+          if (!await region.isVisible() || !await region.evaluate(node => { const modal = [...document.querySelectorAll('dialog[open], [role=dialog][aria-modal=true]')].at(-1); return (!modal || modal.contains(node)) && node.scrollHeight > node.clientHeight + 1; })) continue;
           await region.scrollIntoViewIfNeeded(); await region.focus();
           await region.evaluate(node => { node.scrollTop = 0; });
           await page.keyboard.press('ArrowDown');
