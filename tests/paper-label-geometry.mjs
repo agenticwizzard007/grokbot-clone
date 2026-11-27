@@ -9,6 +9,14 @@ export async function readableWords(scope) {
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const parent = node.parentElement;
       if (!parent || parent.closest('svg, script, style, [hidden], .sr-only') || !parent.checkVisibility()) continue;
+      // Dashboard Bot names are data: the requested one-line ellipsis keeps a full accessible name.
+      const botName = parent.closest('.dashboard-bot-name');
+      if (botName) {
+        const fullName = botName.textContent.trim(), link = botName.closest('a');
+        if (!fullName || !link?.getAttribute('aria-label')?.includes(fullName)) failures.push(`missing accessible Bot name: ${fullName}`);
+        if (getComputedStyle(botName).whiteSpace !== 'nowrap') failures.push(`wrapped Bot name: ${fullName}`);
+        continue;
+      }
       if (parent.scrollWidth > parent.clientWidth + 1) failures.push(`overflow: ${node.textContent.trim()}`);
       for (const word of node.textContent.matchAll(/\S+/g)) {
         const range = document.createRange();

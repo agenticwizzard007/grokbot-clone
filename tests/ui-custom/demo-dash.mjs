@@ -63,7 +63,7 @@ async function runPolishView({ before, output, view }) {
       const dialog = page.locator('dialog[open]');
       const selector = await dialog.count() ? 'dialog[open]' : name === 'send-prefill' ? '.composer' : name === 'sidebar' ? '.sidebar__dashboards' : '.dashboard-page';
       assert.doesNotMatch(await page.locator('body').innerText(), /mock|Fixture|PRIVATE|QA-|undefined|null|\[object|[\u2013\u2014]/i, `${name}: clean copy`);
-      assert.deepEqual(await page.evaluate(inspectAlignment, { selector, requirePage: !['sidebar', 'send-prefill'].includes(name) }), [], `${name}: alignment`);
+      assert.deepEqual(await page.evaluate(inspectAlignment, { selector: selector === '.dashboard-page' ? '.dashboard-page, .dashboard-header-actions' : selector, requirePage: !['sidebar', 'send-prefill'].includes(name) }), [], `${name}: alignment`);
       const issues = await page.locator(selector).evaluate(root => [...root.querySelectorAll('p,span,strong,label,button,h2')].filter(el => el.checkVisibility() && el.textContent.trim() && !el.closest('svg')).flatMap(el => parseFloat(getComputedStyle(el).fontSize) < (el.closest('.model-pill') || el.matches('.sidebar__section-label, .dashboard-caption, .dashboard-schedule li > span, .dashboard-bot-meta, .dashboard-bot-meta *, .dashboard-list-meta *, .dashboard-muted, .dashboard-library-item > span, .dashboard-status') ? 13 : 14) && !el.matches('.dashboard-status > span') ? [el.textContent] : []));
       if (name !== 'send-prefill') assert.deepEqual(issues, [], `${name}: readable type`);
       if (width <= 760 && name !== 'sidebar') assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1, `${name}: one Back`);

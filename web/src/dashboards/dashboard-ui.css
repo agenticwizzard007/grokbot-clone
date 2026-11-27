@@ -132,9 +132,11 @@
 
 .dashboard-grid-slot:has(.dashboard-widget--agent[data-empty]) { grid-row: span 1; min-height: 88px; align-self: start; }
 .dashboard-widget--agent[data-empty] .dashboard-empty-data { height: auto; flex-direction: row; justify-content: space-between; gap: 8px; }
-
-@media (min-width: 360px) and (max-width: 480px) {
-  .dashboard-grid-slot[data-widget-kind="stat"][data-widget-span="4"] .dashboard-widget-header { min-height: 40px; }
-}
-
+.dashboard-widget--stat { display: grid; grid-template-rows: 1fr auto; }
 .dashboard-widget--stat .dashboard-widget-header { align-items: flex-start; }
+
+.dashboard-header-actions--editing { width: 248px; align-items: stretch; }
+.dashboard-header-actions--editing .btn { flex: 1 1 0; white-space: normal; }
+@media (max-width: 760px) {
+  .dashboard-header-actions--editing { width: 152px; }
+}

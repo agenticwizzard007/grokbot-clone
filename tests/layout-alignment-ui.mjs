@@ -8,6 +8,7 @@ import { chromium } from 'playwright';
 import { preparePbeState } from './paper-pbe-states.mjs';
 import { layoutServer } from './layout-fixture.mjs';
 import { readableWords } from './paper-label-geometry.mjs';
+import { runDashboardPolish } from './ui-custom/demo-dash.mjs';
 
 export const DASHBOARD_POLISH_ROUTES = ['sales-pipeline', 'operations', 'manager', 'create', 'sidebar', 'empty', 'edit', 'widget-settings', 'add-widget', 'ask-agent', 'approve-confirm', 'send-prefill'].map(name => ({ name: `dashboard-${name}`, owner: 'FIX-DASH', enforce: true }));
 
@@ -216,7 +217,6 @@ async function main() {
   if (!process.env.LAYOUT_ROOT && (!process.env.LAYOUT_OWNER || process.env.LAYOUT_OWNER === 'UC-X2') && !process.env.LAYOUT_ROUTES) {
     const { auditDashboardRoutes } = await import('./ui-custom/e2e/layout-x2.mjs');
     report.push(...await auditDashboardRoutes(path.join(evidence, 'dashboards'), inspectAlignment));
-    const { runDashboardPolish } = await import('./ui-custom/demo-dash.mjs');
     const polish = await runDashboardPolish({ output: path.join(evidence, 'dashboard-polish') });
     report.push(...polish.checks.map(name => ({ name, owner: 'FIX-DASH', enforce: true, issues: [] })));
   }
