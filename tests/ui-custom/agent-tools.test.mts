@@ -213,3 +213,16 @@ test('every advertised example passes its strict input schema', async () => {
     assert.equal(checked.valid, true, `${name}: ${checked.errorMessage}`);
   }
 });
+for (const scope of ['all', 'appearance', 'theme', 'layout', 'components', 'dashboards', 'dashboard'] as const) test(`reset ${scope} matches the shared service semantics`, () => {
+  const doc = dashboardDoc(); doc.preset = 'focus'; doc.theme.mode = 'dark'; doc.device = { phone: { scale: 'large' } };
+  doc.layout.home = { kind: 'dashboard', dashboardId: 'd_12345678' };
+  doc.layout.phoneTabs = ['bots', 'dashboard:d_12345678', 'settings'];
+  doc.dashboards.push({ id: 'd_87654321', name: 'Links', icon: 'layout-dashboard', widgets: [{ id: 'w_87654321', type: 'shortcuts', span: 12, rows: 1, options: { items: [{ label: 'Dashboard', target: 'dashboard:d_12345678' }] } }] });
+  class Reference extends MemoryUiConfigService { override get() { return { doc: structuredClone(doc), revision: 0 }; } }
+  const service = new Reference(), reference = service.reset('QA-Temp-a', scope, 'd_12345678');
+  assert.equal(reference.ok, true, JSON.stringify(reference));
+  const built = buildUiPatch('reset_ui', { scope, dashboardId: 'd_12345678' }, doc, fixture().deps);
+  const checked = previewPatch(doc, built.patch, { ctx: {} });
+  assert.equal(checked.ok, true, JSON.stringify(checked));
+  if (reference.ok && checked.ok) assert.deepEqual(checked.result, service.getPreview('QA-Temp-a', reference.previewId)!.result);
+});

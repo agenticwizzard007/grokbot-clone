@@ -129,20 +129,22 @@ export function dashboardTemplate(template: string, botId?: string): Widget[] {
 }
 
 /** Remove every dashboard reference in the same validated patch. */
-export function deleteDashboardPatch(doc: UiConfig, dashboardId: string): PatchOp[] {
+export function deleteDashboardPatch(doc: UiConfig, dashboardId: string, reset = false): PatchOp[] {
   const found = at(doc, dashboardId);
   const ops: PatchOp[] = [{ op: 'test', path: `${found.path}/id`, value: dashboardId }];
   if (doc.layout.home.kind === 'dashboard' && doc.layout.home.dashboardId === dashboardId) ops.push(put('/layout/home', { kind: 'default' }));
   ops.push(put('/layout/pinned', doc.layout.pinned.filter(p => p.type !== 'dashboard' || p.id !== dashboardId)));
   const tabs = doc.layout.phoneTabs.filter(t => t !== `dashboard:${dashboardId}`);
-  for (const tab of ['bots', 'tasks', 'search']) if (tabs.length < 3 && !tabs.includes(tab)) tabs.splice(Math.max(0, tabs.indexOf('settings')), 0, tab);
+  for (const tab of DEFAULT_CONFIG.layout.phoneTabs) if (tabs.length < 3 && !tabs.includes(tab)) {
+    if (reset) tabs.push(tab); else tabs.splice(Math.max(0, tabs.indexOf('settings')), 0, tab);
+  }
   ops.push(put('/layout/phoneTabs', tabs));
   doc.dashboards.forEach((dashboard, di) => [...dashboard.widgets.entries()].reverse().forEach(([wi, widget]) => {
     if (dashboard.id === dashboardId || widget.type !== 'shortcuts' || !Array.isArray(widget.options.items)) return;
     const items = widget.options.items as { label: string; target: string }[];
     if (items.some(item => item.target === `dashboard:${dashboardId}`)) {
       const remaining = items.filter(item => item.target !== `dashboard:${dashboardId}`);
-      ops.push(remaining.length ? put(`/dashboards/${di}/widgets/${wi}/options/items`, remaining) : { op: 'remove', path: `/dashboards/${di}/widgets/${wi}` });
+      ops.push(remaining.length || reset ? put(`/dashboards/${di}/widgets/${wi}/options/items`, remaining.length ? remaining : [{ label: 'Bots', target: 'bots' }]) : { op: 'remove', path: `/dashboards/${di}/widgets/${wi}` });
     }
   }));
   ops.push({ op: 'remove', path: found.path });
@@ -200,19 +202,24 @@ export function buildUiPatch(name: UiToolName, args: any, doc: UiConfig, deps: P
     case 'reset_ui': {
       if (args.scope === 'dashboard') {
         if (!args.dashboardId) throw new BuilderError('/dashboardId', 'Choose the dashboard to reset.');
-        return { patch: deleteDashboardPatch(doc, args.dashboardId), intent: 'Reset dashboard. Removes 1 dashboard' };
+        return { patch: deleteDashboardPatch(doc, args.dashboardId, true), intent: 'Reset dashboard. Removes 1 dashboard' };
       }
       if (args.scope === 'dashboards') {
         const patch: PatchOp[] = [replace('/dashboards', [])];
         if (doc.layout.home.kind === 'dashboard') patch.push(replace('/layout/home', { kind: 'default' }));
         patch.push(replace('/layout/pinned', doc.layout.pinned.filter(p => p.type !== 'dashboard')));
         const tabs = doc.layout.phoneTabs.filter(tab => !tab.startsWith('dashboard:'));
-        for (const tab of ['bots', 'tasks', 'search']) if (tabs.length < 3 && !tabs.includes(tab)) tabs.splice(tabs.indexOf('settings'), 0, tab);
+        for (const tab of DEFAULT_CONFIG.layout.phoneTabs) if (tabs.length < 3 && !tabs.includes(tab)) tabs.push(tab);
         patch.push(replace('/layout/phoneTabs', tabs));
         return { patch, intent: `Reset dashboards. Removes ${doc.dashboards.length} dashboards` };
       }
-      const keys = args.scope === 'all' ? ['preset', 'theme', 'layout', 'components', 'keybindings', 'device', 'dashboards'] : args.scope === 'appearance' ? ['preset', 'theme', 'layout', 'components', 'keybindings', 'device'] : [args.scope];
-      return { patch: keys.map(key => put(`/${key}`, structuredClone(DEFAULT_CONFIG[key as keyof UiConfig]))), intent: `Reset ${args.scope}. Removes ${args.scope === 'all' ? doc.dashboards.length : 0} dashboards` };
+      const keys = args.scope === 'all' ? ['preset', 'theme', 'layout', 'components', 'keybindings', 'device', 'dashboards'] : args.scope === 'appearance' ? ['preset', 'theme', 'layout', 'components', 'keybindings', 'device'] : args.scope === 'theme' ? ['preset', 'theme', 'device'] : [args.scope];
+      const patch = keys.map(key => put(`/${key}`, structuredClone(DEFAULT_CONFIG[key as keyof UiConfig])));
+      if (args.scope === 'components') {
+        const preset = REGISTRY.presets.find(preset => preset.id === doc.preset);
+        patch[0] = put('/components', Object.fromEntries(REGISTRY.components.filter(component => Object.hasOwn(preset?.config.components ?? {}, component.id)).map(component => [component.id, component.default])));
+      }
+      return { patch, intent: `Reset ${args.scope}. Removes ${args.scope === 'all' ? doc.dashboards.length : 0} dashboards` };
     }
     default: throw new Error(`No patch builder for ${name}`);
   }
