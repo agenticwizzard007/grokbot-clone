@@ -35,7 +35,7 @@ The Timeline shows passes, runs, inputs and verdicts. Graph shows the same seque
 
 A Bot's **Flow** tab shows Triggers, Inputs, Steps, Outputs and Handoffs. Select a node to open its related setting; Back returns to the node. Flow reads stored configuration and does not need a model request. Suggested connections stay suggestions until you connect them.
 
-Use the Flow link editor to offer future handoffs or send them automatically. Automatic links cannot form a cycle. Templates support `{title}` and `{summary}`. Settings Agents exposes account policy when that integration is available. A missing Settings entry does not grant any extra permission.
+Use the Flow link editor or **Settings > Agents** to offer future handoffs or send them automatically. Automatic links cannot form a cycle. Templates support `{title}` and `{summary}`. Settings Agents also controls account policy and automatic loop approval for each Bot pair.
 
 ## UI quality
 
@@ -79,6 +79,46 @@ A finalized output is immutable. Declare structured output while a run is active
 2. Use a stored input reader in `flow/cache.ts`. Building Flow must not call a provider or a model. Keep the model below 12KB and the lane node limit intact.
 3. Define a destination and focus target. Add the readable kind label and existing icon or logo in FlowChart. Restore focus when the user returns.
 4. Extend golden fixtures, hash invalidation, shuffled-input determinism, keyboard, route, accessibility, layout and performance tests. Cover rich, empty and suggested-only Bots.
+
+## Data for dashboard widgets
+
+User-built agentic dashboards can display handoffs and loops through the existing session-authenticated read APIs. These reads return account-scoped JSON with `Cache-Control: private, no-store`.
+
+| Read API | Supported filters | Response |
+|---|---|---|
+| `GET /api/handoffs` | `botId`, `direction=sent\|received\|all`, `status`, `limit`, `after` | `{ handoffs: Handoff[], next: string \| null }` |
+| `GET /api/loops` | `status`, `limit`, `after` | `{ loops: Loop[], next: string \| null }` |
+| `GET /api/loops/:id` | None | A flat `Loop` record extended with `steps`, `verdicts`, `iterations`, `bestOutput`, `resultText`, `usage`, `gate` and `events` |
+
+List pages are newest first, with an ID tie-breaker. `limit` is 1 to 50, default 50. Pass the opaque `next` cursor as `after`; `null` ends the list. There is no server total or counts envelope. A count from one page is a loaded-page count; follow all cursors before presenting an account total. Direction needs a `botId`. The loop list has no Bot filter; filter loaded records by `ownerBotId` or `spec.steps` when needed.
+
+Widget-facing fields are:
+
+```ts
+// Selected fields; consumers should tolerate additive fields.
+type Handoff = {
+  id: string; fromBotId: string; toBotId: string;
+  sourceOutputId: string; resultOutputId: string | null;
+  status: string; reason: string; instruction: string;
+  loopId: string | null; iteration: number | null;
+  revision: number; createdAt: number; updatedAt: number;
+};
+type Loop = {
+  id: string; ownerBotId: string; status: string; stopReason: string | null;
+  spec: { name: string; steps: unknown[]; limits: { maxIterations: number } };
+  iteration: number; bestOutputId: string | null; revision: number;
+  startedAt: number | null; finishedAt: number | null;
+  createdAt: number; updatedAt: number;
+};
+```
+
+Handoff statuses are `pending_approval`, `queued`, `delivered`, `running`, `completed`, `failed`, `declined`, `cancelled` and `expired`. Loop statuses are `draft`, `awaiting_approval`, `running`, `paused`, `succeeded`, `capped`, `stalled`, `failed` and `cancelled`. Times are epoch milliseconds. Keep unknown future statuses readable instead of assuming success.
+
+For a loop summary, use `status`, `iteration` and `spec.limits.maxIterations`. Derive step and review counts from `steps.length` and `verdicts.length`; completed steps have `status === 'completed'`. `iterations` contains `{ iteration, steps, verdict }` for each pass. The latest verdict is `verdicts.at(-1)` with `{ iteration, pass, checklist: [{ id, pass, note }], feedback }`. Count failed checklist entries by `pass === false`; when no verdict exists, show checks as unavailable rather than zero failures. `bestOutput` is a record or `null`. `usage` is `{ tracked: boolean, tokens: number | null, costUsd: number | null }`; null usage is not free usage.
+
+Fetch loop detail for the last result sentence: `resultText` is on the detail response, not on list entries, and there is no separate summary endpoint. Examples are `Done in 3 passes: all checks passed.` and `Stopped after 3 passes (limit). 2 of 3 checks still fail.` Display the sentence verbatim. Use the explicit status for state; a draft currently has `resultText: "Working."`. Do not parse prose to compute counts. Missing or foreign records return the same `404` shape, `{ error: "Not found.", code: "not_found" }`; signed-out reads return 401 and a disabled feature returns 503.
+
+`tests/handoffs/widget-data-contract.test.mts` pins these HTTP envelopes, required field types, cursor/filter behavior, account isolation, nullable values, derived counts and terminal sentences against the real route handlers and an isolated SQLite fixture. It adds no widget writes or provider calls.
 
 ## Local quality gate
 
