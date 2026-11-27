@@ -16,7 +16,7 @@ const nameSchema = z.string().min(1).max(40).regex(/^[^<>\u0000-\u001f\u007f\u20
 const resetScopes = new Set(['all', 'appearance', 'theme', 'layout', 'components', 'dashboards', 'dashboard']);
 export const resultHash = (doc: UiConfig) => createHash('sha256').update(canonical(doc)).digest('hex');
 export interface UiSnapshot { doc: UiConfig; revision: number; status?: 'ready' | 'invalid_stored'; updatedAt?: number; updatedBy?: string }
-export interface ServiceOptions { clock?: () => number; flag?: () => string | undefined; emit?: UiEventSink; metrics?: UiMetricSink }
+export interface ServiceOptions { clock?: () => number; flag?: () => string | undefined; emit?: UiEventSink; metrics?: UiMetricSink; resetActor?: () => string }
 
 /** The engine owns validation. This service owns isolation, transactions and lifetime. */
 export class SqliteUiConfigService implements UiConfigService {
@@ -266,7 +266,7 @@ export class SqliteUiConfigService implements UiConfigService {
         for (const dashboard of after.dashboards) for (const widget of dashboard.widgets) if (widget.type === 'shortcuts' && Array.isArray(widget.options.items) && !widget.options.items.length) widget.options.items = [{ label: 'Bots', target: 'bots' }];
       }
       const removedCount = before.dashboards.length - after.dashboards.length;
-      const result = this.createPreview(userId, this.replacement(after), { intent: `Reset ${scope}. Removes ${removedCount} ${removedCount === 1 ? 'dashboard' : 'dashboards'}`, actor: 'reset' }, [], after);
+      const result = this.createPreview(userId, this.replacement(after), { intent: `Reset ${scope}. Removes ${removedCount} ${removedCount === 1 ? 'dashboard' : 'dashboards'}`, actor: this.options.resetActor?.() ?? 'reset' }, [], after);
       if (result.ok) {
         const line = `Removes ${removedCount} ${removedCount === 1 ? 'dashboard' : 'dashboards'}`;
         if (!result.summary.includes(line)) {

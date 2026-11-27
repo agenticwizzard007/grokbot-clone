@@ -179,3 +179,13 @@ test('failed persistence rolls back config and history and emits no successful c
   assert.throws(() => service.patch('a', mode('dark'), 0, 'user'), /Fixture storage failure/);
   assert.equal(service.get('a').revision, 0); assert.deepEqual(service.history('a'), []); assert.deepEqual(events, []);
 });
+
+test('agent reset previews retain the originating Bot for conversation-scoped events', t => {
+  const { db } = fixture(t), events: any[] = [];
+  const service = new SqliteUiConfigService(db, { flag: () => 'on', clock: () => 1000, metrics: () => {},
+    resetActor: () => 'agent:bot_a', emit: (userId, event) => events.push({ userId, ...event }) });
+  const reset = success(service.reset('a', 'theme'));
+  assert.equal(service.getPreview('a', reset.previewId)?.actor, 'agent:bot_a');
+  assert.equal(events[0].botId, 'bot_a'); assert.equal(events[0].userId, 'a');
+  error(service.reset('b', 'theme'), 'not_found');
+});
