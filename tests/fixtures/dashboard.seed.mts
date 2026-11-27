@@ -24,6 +24,7 @@ export async function seedDashboard({ performance = false } = {}) {
   assert.equal(process.env.NODE_ENV, 'test');
   assert.ok(process.env.DB_PATH && process.env.DB_PATH !== ':memory:');
   const { db } = await import('../../server/src/db.js');
+  await import('../../server/src/accounts.js');
   await import('../../server/src/usage.js');
   await import('../../server/src/deliverables/schema.js');
   await import('../../server/src/agent/subagents.js');
