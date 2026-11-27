@@ -39,7 +39,8 @@ export interface LoopApi {
 async function request<T>(path: string, signal?: AbortSignal, body?: unknown): Promise<T> {
   requireActiveSession();
   const response = await fetch(`/api${path}`, {
-    method: body === undefined ? 'GET' : 'POST', credentials: 'include', cache: 'no-store', signal,
+    method: body === undefined ? 'GET' : 'POST', credentials: 'include', cache: 'no-store',
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000),
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -49,7 +50,7 @@ async function request<T>(path: string, signal?: AbortSignal, body?: unknown): P
     if (response.status === 401) void revalidateSession();
     throw new ApiError(response.status, error.error || 'Could not load loops. Try again.', error.code);
   }
-  return response.json();
+  const result = await response.json(); requireActiveSession(); return result;
 }
 
 /** HO-I forwards loop SSE messages as swarm:event; the app owns the connection. */

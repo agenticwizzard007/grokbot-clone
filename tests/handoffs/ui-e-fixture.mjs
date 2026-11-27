@@ -4,6 +4,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { once } from 'node:events';
 import { chromium } from 'playwright';
+import { tsImport } from 'tsx/esm/api';
 import { layoutServer } from '../layout-fixture.mjs';
 
 export const bots = [{ id: 'bot_maker', name: 'Draft agent' }, { id: 'bot_checker', name: 'Review agent' }, { id: 'bot_judge', name: 'Judge agent' }, { id: 'bot_room', name: 'Test room', kind: 'room' }, { id: 'bot_setup', name: 'Setup agent', isConfiguring: true }, { id: 'bot_hidden', name: 'Hidden agent', hidden: true }];
@@ -51,6 +52,7 @@ export function recordedRun(name = 'converged') {
 }
 
 export async function loopFixture({ output = '.context/handoffs/ui-e' } = {}) {
+  const { loopSpecSchema } = await tsImport('../../server/src/handoffs/schema.ts', import.meta.url);
   const out = path.resolve(output); fs.mkdirSync(out, { recursive: true });
   const state = { runs: Object.fromEntries(Object.keys(scenarios).map(name => [`lp_${name}`, recordedRun(name)])), calls: [], failures: {}, listEmpty: false, delay: 0, streams: new Set(), eventPageSize: 200 };
   let seeded;
@@ -74,6 +76,8 @@ export async function loopFixture({ output = '.context/handoffs/ui-e' } = {}) {
     if (url.pathname === '/api/loops' && req.method === 'GET') return json({ loops: state.listEmpty ? [] : Object.values(state.runs).map(run => run.detail.loop), next: null });
     if (url.pathname === '/api/loops' && req.method === 'POST') {
       state.calls.at(-1).body = input;
+      const validated = loopSpecSchema.safeParse(input.spec);
+      if (!validated.success) { res.writeHead(400); return json({ error: validated.error.issues.map(issue => issue.message).join('; '), code: 'invalid_spec' }); }
       const prior = Object.values(state.runs).find(run => run.detail.loop.idempotencyKey === input.idempotencyKey);
       if (prior) return json({ loop: prior.detail.loop });
       const run = recordedRun('running'); run.detail.loop.id = 'lp_created'; run.detail.loop.spec = input.spec; run.detail.loop.idempotencyKey = input.idempotencyKey;

@@ -111,6 +111,58 @@ try {
       await page.locator('.ho-loop-graph-node').first().waitFor(); assert.equal(await page.locator('.ho-loop-graph-list > li > ol').count(), 3);
       await audit(page);
     });
+    await check(`${width} detail errors preserve a retry path`, async () => {
+      fixture.state.failures['/api/loops/lp_converged'] = 100; await view.open('#loop/lp_converged');
+      await page.getByRole('button', { name: 'Retry', exact: true }).waitFor(); fixture.state.failures['/api/loops/lp_converged'] = 0;
+      await page.getByRole('button', { name: 'Retry', exact: true }).click(); await page.getByText('Done in 3 passes: all checks passed.', { exact: true }).waitFor();
+      fixture.state.failures['/api/loops/lp_converged/events'] = 100; fixture.broadcast('lp_converged');
+      await page.getByRole('alert').waitFor(); assert.equal(await page.locator('.ho-loop-timeline > li').count(), 3);
+      fixture.state.failures['/api/loops/lp_converged/events'] = 0; await page.getByRole('button', { name: 'Retry', exact: true }).click();
+      await page.getByRole('alert').waitFor({ state: 'detached' });
+    });
+    await check(`${width} capped gate and absolute extension limit`, async () => {
+      const run = recordedRun('capped'); run.detail.loop.status = 'awaiting_approval'; run.detail.loop.stopReason = null;
+      run.detail.gate = { kind: 'cap', iteration: 5 }; fixture.state.runs.lp_capped = run;
+      await view.open('#loop/lp_capped'); await page.getByRole('button', { name: 'Extend', exact: true }).click();
+      await page.getByText('4 of 6 passes', { exact: true }).waitFor();
+      run.detail.loop.status = 'awaiting_approval'; run.detail.loop.spec.limits.maxIterations = 10; run.detail.canExtend = true; run.detail.gate = { kind: 'cap', iteration: 11 };
+      await view.open('#loop/lp_capped'); await page.getByText('Pass limit reached', { exact: true }).waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Extend', exact: true }).count(), 0);
+    });
+    await check(`${width} checklist and pipeline caps`, async () => {
+      await view.open(); await page.getByRole('button', { name: 'New loop', exact: true }).click();
+      await page.getByLabel('Process', { exact: true }).selectOption('pipeline');
+      for (let n = 0; n < 4; n++) await page.getByRole('button', { name: 'Add step', exact: true }).click();
+      assert.equal(await page.getByRole('button', { name: 'Add step', exact: true }).isDisabled(), true);
+      await page.getByLabel('Stop when', { exact: true }).selectOption('checklist');
+      for (let n = 0; n < 7; n++) await page.getByRole('button', { name: 'Add check', exact: true }).click();
+      assert.equal(await page.getByRole('button', { name: 'Add check', exact: true }).isDisabled(), true);
+      await page.getByLabel('Up to passes', { exact: true }).fill('10'); assert.equal(await page.getByRole('button', { name: 'More passes', exact: true }).isDisabled(), true);
+      await page.keyboard.press('Escape');
+    });
+    await check(`${width} judge, input, task and room fields`, async () => {
+      await page.getByRole('button', { name: 'New loop', exact: true }).click();
+      await page.getByLabel('Name', { exact: true }).fill('Judge fixture'); await page.getByLabel('Goal', { exact: true }).fill('Meet the rubric.');
+      await page.getByLabel('Start with', { exact: true }).selectOption('output'); await page.getByLabel('Starting output', { exact: true }).fill('swarm://output/out_fixture');
+      await page.getByLabel('Maker agent', { exact: true }).selectOption('bot_maker'); await page.getByLabel('Checker agent', { exact: true }).selectOption('bot_checker');
+      await page.getByText('Advanced', { exact: true }).click(); await page.getByLabel('Use a judge rubric', { exact: true }).check();
+      await page.getByLabel('Judge', { exact: true }).selectOption('bot_judge'); await page.getByLabel('Rubric', { exact: true }).fill('Require a version and a call to action.');
+      await page.getByLabel('Minutes', { exact: true }).fill('25'); await page.getByLabel('Budget in USD', { exact: true }).fill('2');
+      await page.getByLabel('Token budget', { exact: true }).fill('5000'); await page.getByLabel('Post progress in room', { exact: true }).selectOption('bot_room');
+      await page.getByLabel('Task', { exact: true }).selectOption('task_fixture');
+      await page.getByRole('button', { name: 'Start loop', exact: true }).click(); await page.getByRole('heading', { name: 'Judge fixture', exact: true }).waitFor();
+      const spec = fixture.state.runs.lp_created.detail.loop.spec;
+      assert.equal(spec.exit.mode, 'judge'); assert.equal(spec.exit.judgeBotId, 'bot_judge'); assert.equal(spec.roomId, 'bot_room'); assert.equal(spec.taskId, 'task_fixture'); assert.equal(spec.limits.maxCostUsd, 2);
+    });
+    await check(`${width} long untrusted labels remain readable`, async () => {
+      const run = recordedRun('converged'); run.detail.loop.spec.name = 'A deliberately long placeholder loop name that wraps safely on a small screen';
+      for (const step of run.detail.steps) step.botName = 'Placeholder agent with a long name and <img src=x onerror=alert(1)>';
+      fixture.state.runs.lp_converged = run; await view.open('#loop/lp_converged'); await page.getByRole('button', { name: 'Copy details', exact: true }).waitFor();
+      await audit(page); assert.equal(await page.locator('#root img').count(), 0);
+      await page.getByRole('tab', { name: 'Graph', exact: true }).click(); await audit(page);
+      const nodes = await page.locator('.ho-loop-graph-node').evaluateAll(nodes => nodes.map(node => { const r = node.getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; }));
+      for (let n = 1; n < nodes.length; n++) assert.ok(nodes[n].top > nodes[n - 1].bottom);
+    });
     await view.close();
   }
   await check('source strings contain no forbidden dashes', async () => {

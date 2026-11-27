@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Modal } from '../../components/modals/Modal';
 import { ButtonGroup, Card, Page, Row, Section } from '../../components/layout';
 import { eligibleBot, errorText, loopsApi, type LoopApi, type LoopBot, type LoopSpec, type LoopTask } from './api';
@@ -22,7 +22,7 @@ export function validateLoop(value: LoopDraft, bots: LoopBot[], compact = false)
   if (!value.goal.trim() || value.goal.length > 2000) errors.goal = 'Add a goal, up to 2000 characters.';
   if (!value.seed.text?.trim() && !value.seed.outputRef) errors.seed = 'Add a starting brief or output reference.';
   if (value.seed.text && value.seed.text.length > 2000) errors.seed = 'Use a brief up to 2000 characters.';
-  if (value.seed.outputRef && !/^swarm:\/\/output\/out_[A-Za-z0-9_-]+$/.test(value.seed.outputRef)) errors.seed = 'Use a Swarm output reference.';
+  if (value.seed.outputRef && (value.seed.outputRef.length > 400 || !/^swarm:\/\/output\/out_[A-Za-z0-9_-]+$/.test(value.seed.outputRef))) errors.seed = 'Use a Swarm output reference.';
   const valid = new Set(bots.filter(eligibleBot).map(bot => bot.id));
   for (const [index, step] of value.steps.entries()) {
     if (!valid.has(step.botId)) errors[`bot${index}`] = 'Choose an available agent.';
@@ -119,6 +119,8 @@ export function LoopSheet({ bots, onClose, onCreated, initial, api = loopsApi, u
   const [serverError, setServerError] = useState('');
   const [pending, setPending] = useState(false);
   const busy = useRef(false), key = useRef(crypto.randomUUID());
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const submitted = useRef('');
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault(); if (busy.current) return;
@@ -130,9 +132,9 @@ export function LoopSheet({ bots, onClose, onCreated, initial, api = loopsApi, u
     const fingerprint = JSON.stringify(spec);
     if (submitted.current && submitted.current !== fingerprint) key.current = crypto.randomUUID();
     submitted.current = fingerprint; busy.current = true; setPending(true);
-    try { const result = await api.create(spec, key.current); onCreated(result.loop.id); onClose(); }
-    catch (error) { setServerError(errorText(error)); }
-    finally { busy.current = false; setPending(false); }
+    try { const result = await api.create(spec, key.current); if (mounted.current) { onCreated(result.loop.id); onClose(); } }
+    catch (error) { if (mounted.current) setServerError(errorText(error)); }
+    finally { busy.current = false; if (mounted.current) setPending(false); }
   };
   return <Modal label="New loop" className="ho-loop-sheet" onClose={onClose}>
     <Page title="New loop" className="ho-loops"><form onSubmit={submit} noValidate>
