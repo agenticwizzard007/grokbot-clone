@@ -39,6 +39,9 @@ function forwardReleaseTo(scope: string, x: number, y: number) {
 /** Accessible dialog with keyboard containment, Escape, and focus restoration. */
 export function Modal({ onClose, children, className, label, top, passThrough, embedded = false }: { onClose: () => void; children: ReactNode; className?: string; label: string; top?: number; passThrough?: string; embedded?: boolean }) {
   const scrimDown = (event: ReactMouseEvent) => {
+    // Do not let the backdrop's default focus change undo the trigger focus
+    // restored when the phone navigation drawer unmounts.
+    if (className?.includes('phone-drawer')) event.preventDefault();
     if (passThrough && event.button === 0) forwardReleaseTo(passThrough, event.clientX, event.clientY);
     onClose();
   };
