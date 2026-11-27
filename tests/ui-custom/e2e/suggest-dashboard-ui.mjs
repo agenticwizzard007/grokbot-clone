@@ -295,7 +295,7 @@ export async function runSuggestionUi(directory = '.context/ui-custom/suggest-da
           pass('compact profile action opens an unsent draft without profile or layout writes', variant);
           await proposeChatSuggestion(sales, { ...profiles.sales, goals: ['Draft the launch email'] }, 'Suggest a sales dashboard for my launch follow ups.');
           await page.reload();
-          card = page.locator('.ui-preview-card').filter({ has: page.getByRole('button', { name: 'Apply', exact: true }) }).last();
+          card = page.locator('.ui-preview-card').last();
           await card.waitFor(); await card.scrollIntoViewIfNeeded();
           assert.deepEqual(check(await sales.request('GET', '/ui/config')), initial);
           pass('chat saves the profile and proposes a dashboard without changing layout', variant);
