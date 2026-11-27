@@ -4,6 +4,7 @@ import { isTenant } from './deployment.js';
 import { usesPersonalOpenRouter } from './providers/openrouter.js';
 import { migrateUsageKeyKind, responseUsageKey, type UsageKeyKind } from './usage-key-kind.js';
 import { hub } from './lib/hub.js';
+import { afterCommit } from './lib/commit-effects.js';
 import { withRun } from './agent/run-scope.js';
 import { billingNote, type BillingSource } from './usage-summary.js';
 export { withUsage } from './usage-context.js';
@@ -168,7 +169,7 @@ function insert(r: {
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(r.userId, r.botId, r.kind, r.provider, r.model, r.input, r.cached, r.output, r.reasoning, r.tools, r.units, r.unit, r.cost, r.source, r.byok, r.requestId, r.usageStatus, r.tokenFields === null ? null : JSON.stringify(r.tokenFields), now(), r.jobId, r.reviewId, r.keyKind);
   // A recorded charge still invalidates usage after its originating run stops.
-  if (r.userId) withRun(undefined, () => hub.emit(r.userId!, { type: 'usage' }));
+  if (r.userId) afterCommit(() => withRun(undefined, () => hub.emit(r.userId!, { type: 'usage' })));
 }
 
 // ---------- reporting ----------
