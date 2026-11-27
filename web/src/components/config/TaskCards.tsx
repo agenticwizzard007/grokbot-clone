@@ -48,7 +48,7 @@ export function TaskHandoffProvider({ children }: { children: ReactNode }) {
       .catch(() => {});
     return () => controller.abort();
   }, [userId, version, connected]);
-  return <HandoffEnabled.Provider value={{ enabled: !!userId && enabledFor === userId, links: enabledFor === userId && linkSnapshot?.userId === userId ? linkSnapshot.links : {} }}>{children}</HandoffEnabled.Provider>;
+  return <HandoffEnabled.Provider value={{ enabled: !!userId && enabledFor === userId, links: linkSnapshot && enabledFor === userId && linkSnapshot.userId === userId ? linkSnapshot.links : {} }}>{children}</HandoffEnabled.Provider>;
 }
 
 export function TaskLoopsLink() {
