@@ -32,7 +32,7 @@ export async function auditRoute(page, width) {
 export async function auditRoutes(page, server, width, ids) {
   const checks = [];
   const routes = [ ['#loops', '.ho-loop-heading'], [`#loop/${ids.loop}`, '[data-loop-revision]'],
-    [`#handoff/${ids.handoff}`, '.ho-heading'], [`#output/${ids.output}`, '.ho-prose'],
+    [`#handoff/${ids.handoff}`, '.ho-heading'], [`#output/${ids.output}`, 'button[aria-label="Open Body"]'],
     [`#bot/${server.data.maker}/details/flow`, '.flow-chart'], ['#settings/agents', '.agents-settings'] ];
   for (const [route, marker] of routes) {
     try {
