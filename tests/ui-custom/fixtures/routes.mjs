@@ -63,8 +63,9 @@ export async function prepareRoute(page, context, server, route) {
     for (const widget of await widgets.all()) {
       await widget.scrollIntoViewIfNeeded();
       await until(async () => (await widget.getAttribute('data-widget-state')) !== 'loading', 'Widget data remained loading');
+      assert.equal(await widget.getAttribute('data-widget-state'), 'ready', 'The matrix requires resolved widget data, not an error surface');
     }
-    await page.getByRole('heading', { name: 'My week', exact: true }).scrollIntoViewIfNeeded().catch(error => { if (!route.adapt) throw error; });
+    await page.getByRole('heading', { level: 1 }).first().scrollIntoViewIfNeeded();
     if (['edit', 'widget-settings', 'add-widget'].includes(route.state)) {
       await page.getByRole('button', { name: 'Edit', exact: true }).click();
       await page.getByRole('button', { name: 'Done', exact: true }).waitFor();

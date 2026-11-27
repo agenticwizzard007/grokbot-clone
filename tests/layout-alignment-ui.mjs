@@ -319,7 +319,7 @@ export async function customMatrix() {
       assert.deepEqual(classification.stale, [], `UC-P: remove resolved known issues for ${key}`);
     } finally { await context.close(); }
   } })));
-  return runSuite('alignment-matrix', cases, { casesPerServer: 3 });
+  return runSuite('alignment-matrix', cases, { casesPerServer: 4 });
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main(); await customMatrix();

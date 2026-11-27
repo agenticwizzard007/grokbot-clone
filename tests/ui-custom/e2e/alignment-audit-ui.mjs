@@ -103,6 +103,8 @@ cases.push({ name: 'known issue matching rejects new, changed, stale and forbidd
   const issue = { rule: 'body-text-size', target: 'p', actual: '12px', expected: '14px minimum' };
   const inventory = { views: { screen: [issue] } };
   assert.deepEqual(compareKnownIssues('screen', [issue], inventory, false), { unexpected: [], stale: [], known: 1 });
+  assert.deepEqual(compareKnownIssues('screen', [issue], { findings: { Q001: issue }, views: { screen: ['Q001'] } }, false), { unexpected: [], stale: [], known: 1 });
+  assert.throws(() => compareKnownIssues('screen', [], { views: { screen: ['missing'] } }, false), /Unknown UC-P finding/);
   assert.equal(compareKnownIssues('screen', [{ ...issue, actual: '11px' }], inventory, false).unexpected.length, 1);
   assert.equal(compareKnownIssues('screen', [], inventory, false).stale.length, 1);
   assert.equal(compareKnownIssues('screen', [issue], inventory, true).unexpected.length, 1);

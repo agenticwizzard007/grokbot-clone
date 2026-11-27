@@ -57,7 +57,8 @@ export async function fixtureContext(browser, server, width = 1280, token = 'lay
     external.push(url.origin); return route.abort();
   });
   await context.addCookies([{ name: 'swarm_session', value: token, url: server.base }]);
-  await context.addInitScript(theme => { if (location.origin !== 'null') { localStorage.setItem('swarm.sidebarCollapsed', '0'); localStorage.setItem('swarm.theme', theme); } }, theme);
+  // Emulate system light/dark without triggering the app's legacy theme migration.
+  await context.addInitScript(() => { if (location.origin !== 'null') localStorage.setItem('swarm.sidebarCollapsed', '0'); });
   return { context, external };
 }
 export async function open(page, base, hash = '#bots') {

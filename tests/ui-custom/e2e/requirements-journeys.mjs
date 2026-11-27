@@ -9,7 +9,7 @@ async function chat(page, server, name, input, confirmation) {
   server.script(confirmation, `${name} ${JSON.stringify(input, null, 2)} | say ${confirmation}`);
   await composer.fill(confirmation);
   await composer.press('Enter');
-  await page.getByText(confirmation, { exact: true }).last().waitFor();
+  await page.locator('.bubble.is-agent').getByText(confirmation, { exact: true }).last().waitFor();
 }
 async function previewCommand(args, name, input, step) {
   const { page, context, server, capture = async () => {} } = args;
