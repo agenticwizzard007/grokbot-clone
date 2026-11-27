@@ -61,7 +61,10 @@ export function createDataApi(options: { executor?: DataExecutor; clock?: () => 
     const parsed = batchSchema.safeParse(body);
     if (!parsed.success) return c.json({ code: 'invalid_value', message: 'Use 1 to 24 requests with unique keys.' }, 422);
     const start = performance.now();
-    const entries = await Promise.all(parsed.data.requests.map(async request => [request.key, await executor.execute(userId, request)] as const));
+    // A visible dashboard requests fresh data after a matching SSE invalidation.
+    // This keeps the normal 10 second cache without holding a stale stat after an edit.
+    const fresh = c.req.header('cache-control') === 'no-cache';
+    const entries = await Promise.all(parsed.data.requests.map(async request => [request.key, await executor.execute(userId, request, fresh)] as const));
     uiMetric('ui_data_request_ms', performance.now() - start);
     return c.json({ results: Object.fromEntries(entries) });
   });

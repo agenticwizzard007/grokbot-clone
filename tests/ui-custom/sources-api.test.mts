@@ -183,6 +183,16 @@ test('signed-in API accepts 24 keys and returns per-key errors without failing h
   assert.equal(results.k0.ok, true); assert.equal(results.k1.code, 'not_found'); assert.equal(results.k2.code, 'invalid_value'); assert.equal(results.k23.ok, true);
   for (const bad of [batch(0), batch(25), { ...batch(), userId: b.id }, { requests: [batch().requests[0], batch().requests[0]] }]) assert.equal((await request(target, bad)).status, 422);
 });
+test('SSE-driven no-cache refresh returns current data before the normal cache TTL', async () => {
+  const target = app();
+  const first = await (await request(target, batch())).json(); assert.equal(first.results.k0.value.working, 11);
+  db.prepare("UPDATE tasks SET state='done' WHERE id=?").run(`${a.id}-task-0`);
+  try {
+    const cached = await (await request(target, batch())).json(); assert.equal(cached.results.k0.value.working, 11);
+    const refreshed = await (await request(target, batch(), a, { 'cache-control': 'no-cache' })).json();
+    assert.equal(refreshed.results.k0.value.working, 10); assert.equal(refreshed.results.k0.value.done, 12);
+  } finally { db.prepare("UPDATE tasks SET state='working' WHERE id=?").run(`${a.id}-task-0`); }
+});
 test('API uses session authentication, feature gates, JSON and origin boundaries', async () => {
   const target = app();
   assert.equal((await request(target, batch(), a, { cookie: '' })).status, 401);

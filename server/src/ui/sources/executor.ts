@@ -18,11 +18,11 @@ export function project(source: Source, data: SourceData): SourceData {
 
 export class DataExecutor {
   private cache = new Map<string, DataResult & { ok: true }>();
-  private pending = new Map<string, Promise<DataResult>>();
+  private pending = new Map<string, { promise: Promise<DataResult> }>();
   private runner = new SourceRunner();
   constructor(private clock = Date.now) {}
 
-  async execute(userId: string, request: DataRequest): Promise<DataResult> {
+  async execute(userId: string, request: DataRequest, fresh = false): Promise<DataResult> {
     const fail = (code: string, message: string): DataResult => ({ ok: false, code, message, fetchedAt: this.clock() });
     const source = sourceById.get(request.source);
     if (!source) return fail('not_found', 'Data source not found.');
@@ -32,11 +32,14 @@ export class DataExecutor {
     // Recheck ownership even for a warm cache after a Bot was removed or moved.
     if (!userId || (params.botId && !db.prepare('SELECT 1 FROM bots WHERE user_id=? AND id=?').get(userId, params.botId))) return fail('not_found', 'Bot not found.');
     const key = JSON.stringify([userId, source.id, Object.fromEntries(Object.entries(params).sort(([a], [b]) => a.localeCompare(b)))]);
+    if (fresh) this.cache.delete(key);
     const hit = this.cache.get(key);
     if (hit && this.clock() - hit.fetchedAt < 10_000) return structuredClone(hit);
     const pending = this.pending.get(key);
-    if (pending) return structuredClone(await pending);
+    if (pending && !fresh) return structuredClone(await pending.promise);
+    const entry = { promise: null! as Promise<DataResult> };
     const work = (async (): Promise<DataResult> => {
+      await Promise.resolve();
       try {
         const data = source.id === 'usage.windows' ? cachedWindows(userId) : await this.runner.run(source.id, userId, params);
         if (source.id === 'bots.status') for (const bot of data.rows ?? []) {
@@ -47,14 +50,15 @@ export class DataExecutor {
         const result = { ...project(source, data), ok: true as const, fetchedAt: this.clock() };
         for (const [key, value] of this.cache) if (this.clock() - value.fetchedAt >= 10_000) this.cache.delete(key);
         if (this.cache.size >= 2048) this.cache.delete(this.cache.keys().next().value!);
-        this.cache.set(key, result);
+        if (this.pending.get(key) === entry) this.cache.set(key, result);
         return result;
       } catch (error) {
         return error instanceof SourceError ? fail(error.code, error.message) : fail('unavailable', 'Data is unavailable.');
       }
     })();
-    this.pending.set(key, work);
-    try { return structuredClone(await work); } finally { this.pending.delete(key); }
+    entry.promise = work;
+    this.pending.set(key, entry);
+    try { return structuredClone(await work); } finally { if (this.pending.get(key) === entry) this.pending.delete(key); }
   }
 
   close() { this.runner.close(); this.cache.clear(); }
