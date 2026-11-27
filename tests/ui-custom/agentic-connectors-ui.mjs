@@ -47,14 +47,14 @@ try {
     for (const source of sources) {
       const region = page.getByRole('region', { name: source.title, exact: true });
       await region.scrollIntoViewIfNeeded();
-      await region.getByText('No connected data yet.', { exact: true }).waitFor();
+      await region.getByText('Connect an app to see your data.', { exact: true }).waitFor();
       const connect = region.getByRole('link', { name: 'Connect', exact: true });
       assert.equal(await connect.getAttribute('href'), '#settings/apps');
       assert.equal(await region.locator('.dashboard-widget-error').count(), 0);
       assert.equal(await region.getByRole('button', { name: 'Ask your agent', exact: true }).count(), 0);
       assert.equal(await region.locator('h2, p, a').evaluateAll(elements => elements.every(el => el.scrollWidth <= el.clientWidth + 1)), true);
     }
-    await page.getByRole('region', { name: 'My summary', exact: true }).getByText('No data yet.', { exact: true }).waitFor();
+    await page.getByRole('region', { name: 'My summary', exact: true }).getByText('No answer yet', { exact: true }).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     const screenshot = path.join(output, `connect-${width}.png`);
     await page.screenshot({ path: screenshot, fullPage: true }); screenshots.push(screenshot);
