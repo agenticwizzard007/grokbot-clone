@@ -43,12 +43,9 @@ try {
     await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
     await context.addInitScript(theme => { if (location.origin === 'null') return; localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
     const page = await context.newPage(); page.setDefaultTimeout(15000);
-    // Lazy routes can replace the initial chat after its Page has appeared.
-    // Wait for finite requests, including lazy chunks, before measuring either checkout.
-    const pending = new Set(); let lastResponse = 0;
-    page.on('request', request => { if (!['eventsource', 'websocket'].includes(request.resourceType())) pending.add(request); });
-    const settled = request => { pending.delete(request); lastResponse = Date.now(); };
-    page.on('requestfinished', settled); page.on('requestfailed', settled);
+    // History routing must not disable caching of this checkout's immutable assets.
+    const network = await context.newCDPSession(page);
+    await network.send('Network.setCacheDisabled', { cacheDisabled: false });
     for (const route of ROUTES) {
       if (process.env.CLIENT_ROUTES && !process.env.CLIENT_ROUTES.split(',').includes(route.name)) continue;
       const key = `${width}-${theme}-${route.name.replaceAll('/', '-')}`;
@@ -56,16 +53,23 @@ try {
       if (route.signedOut) await context.clearCookies();
       if (route.code) await page.route('**/api/auth/phone/start', request => request.fulfill({ json: { id: 'layout-code', delivery: 'sent', textNumber: null, line: null } }));
       const hash = route.hash.replace('{bot}', server.fixture.bot.id).replace('{room}', server.fixture.room);
+      const setups = route.name === 'chat' ? page.waitForResponse(response => new URL(response.url()).pathname === `/api/bots/${server.fixture.bot.id}/coworker-setups`) : null;
       await page.goto('about:blank'); await page.goto(`${server.base}/${hash.replace(/^\//, '')}`);
       await page.locator(route.signedOut ? '.signin, .access-signin, .join' : '.shell-header').first().waitFor();
       if (route.code) { await page.locator('input[type=tel]').fill('+15555550123'); await page.getByRole('button', { name: 'Continue with phone', exact: true }).click(); await page.getByRole('textbox', { name: '6-digit code' }).waitFor(); }
 
       await page.locator('[data-layout="page"]:visible').first().waitFor();
+      // A lazy details route can briefly expose the underlying chat Page.
       if (route.hash.includes('/details/')) await page.locator('.pb-details [data-layout="page"]:visible').waitFor();
-      const deadline = Date.now() + 15000;
-      while (pending.size || Date.now() - lastResponse < 200) {
-        assert.ok(Date.now() < deadline, `${key}: requests settled before snapshot`);
-        await page.waitForTimeout(50);
+      if (route.name === 'chat' || route.name === 'room') {
+        await page.locator('.composer__input:not([disabled])').waitFor();
+        await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().transcripts[id]?.loaded,
+          route.name === 'room' ? server.fixture.room : server.fixture.bot.id);
+        await page.locator('.empty-chat').waitFor();
+        if (setups) {
+          const data = await (await setups).json();
+          await page.waitForFunction(count => document.querySelectorAll('.coworker-setup').length === count, data.setups.length);
+        }
       }
       await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(400);
       if (route.state) { await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().bots.some(bot => bot.id === id), server.fixture.bot.id); await page.locator('.composer__input:not([disabled])').waitFor(); await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().transcripts[id]?.loaded, server.fixture.bot.id); await preparePbeState(page, route.state, server.fixture.bot.id); await page.waitForTimeout(400); }
