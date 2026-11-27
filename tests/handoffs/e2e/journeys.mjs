@@ -199,6 +199,7 @@ try {
       assert.equal(await page.getByText('-----BEGIN DATA', { exact: false }).count(), 0);
       await page.getByRole('button', { name: 'Message actions', exact: true }).first().click();
       await page.getByRole('menuitem', { name: 'Send to agent', exact: true }).click();
+      await page.getByRole('dialog', { name: 'Send to agent', exact: true }).getByRole('button', { name: /^Checker/ }).waitFor();
       const names = await page.locator('.ho-target .layout-row__title').allTextContents();
       assert.deepEqual(names, ['Checker']); await page.keyboard.press('Escape');
     });
