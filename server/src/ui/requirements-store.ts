@@ -66,7 +66,12 @@ export class RequirementsStore {
       }
     }
     const profile = this.parse(row);
-    if (changed && profile) profile.managedPaths = ledger.state?.managedPaths ?? [];
+    if (changed && profile && !equal(profile.managedPaths, ledger.state?.managedPaths ?? [])) {
+      profile.managedPaths = ledger.state?.managedPaths ?? [];
+      profile.revision = row.revision + 1; profile.updatedAt = this.clock();
+      this.db.transaction(() => this.write(userId, profile, profile.revision, profile.updatedBy, ledger, ['Adaptation paths updated']))();
+      return;
+    }
     const doc = profile ? canonical(profile) : row.doc, adaptation = canonical(ledger);
     if (doc !== row.doc || adaptation !== row.adaptation)
       this.db.prepare('UPDATE ui_requirements SET doc=?,adaptation=? WHERE user_id=?').run(doc, adaptation, userId);

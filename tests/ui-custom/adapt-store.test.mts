@@ -37,8 +37,8 @@ test('only applying a preview claims its managed paths, including after process 
   const restart = new RequirementsStore(ui, { flag: () => '100' });
   assert.ok(restart.get('a').profile!.managedPaths.includes('/layout/home'));
   const manual = ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: { kind: 'tasks' } }], 1, 'user'));
-  ok(restart.update('a', patch('Operations'), 1));
-  const next = ok(restart.preview('a', 2, 'user', 'operations'));
+  ok(restart.update('a', patch('Operations'), restart.get('a').revision));
+  const next = ok(restart.preview('a', restart.get('a').revision, 'user', 'operations'));
   assert.deepEqual(next.after.layout.home, manual.doc.layout.home); assert.ok(next.kept.some(k => k.path === '/layout/home'));
 });
 
@@ -64,10 +64,10 @@ test('reset clears only requirements, previews defaults, and Undo restores both'
   const { ui, store } = fixture(t); ok(store.update('a', patch(), 0));
   const adaptation = ok(store.preview('a', 1)); ok(ui.applyPreview('a', adaptation.previewId, 'user')); store.get('a');
   const before = ui.get('a').doc;
-  const reset = ok(store.reset('a', 1)); assert.equal(store.get('a').profile, null); assert.deepEqual(ui.get('a').doc, before);
+  const reset = ok(store.reset('a', store.get('a').revision)); assert.equal(store.get('a').profile, null); assert.deepEqual(ui.get('a').doc, before);
   ok(ui.applyPreview('a', reset.previewId, 'user')); assert.deepEqual(ui.get('a').doc.layout, DEFAULT_CONFIG.layout);
   assert.equal(store.undoReset('b', 0, reset.undoToken).ok, false);
-  ok(store.undoReset('a', 2, reset.undoToken)); assert.equal(store.get('a').profile?.role, 'Sales'); assert.deepEqual(ui.get('a').doc, before);
+  ok(store.undoReset('a', store.get('a').revision, reset.undoToken)); assert.equal(store.get('a').profile?.role, 'Sales'); assert.deepEqual(ui.get('a').doc, before);
   assert.equal(store.undoReset('a', 3, reset.undoToken).ok, false);
 });
 
@@ -124,7 +124,27 @@ test('a hand edit followed by a revert is never reclaimed by adaptation', t => {
   const order = ui.get('a').doc.layout.sidebar.order;
   ok(ui.patch('a', [{ op: 'replace', path: '/layout/sidebar/order', value: [...order].reverse() }], 1, 'user'));
   ok(ui.patch('a', [{ op: 'replace', path: '/layout/sidebar/order', value: order }], 2, 'user'));
-  const next = ok(store.preview('a', 1, 'user', 'operations'));
+  const next = ok(store.preview('a', store.get('a').revision, 'user', 'operations'));
   assert.deepEqual(next.after.layout.sidebar.order, order);
   assert.ok(next.kept.some(k => k.path === '/layout/sidebar/order'));
+});
+
+test('backup and tenant export include only the owning account requirements and audit', async t => {
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const { exportTenantDatabase } = await import('../../server/src/platform/migration.js');
+  const { db, store } = fixture(t); ok(store.update('a', patch('Sales'), 0)); ok(store.update('b', patch('Operations'), 0));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'adapt-export-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const snapshot = path.join(root, 'source.db'), destination = path.join(root, 'account.db'); await db.backup(snapshot);
+  await exportTenantDatabase(snapshot, destination, 'a', 'fixture_volume');
+  const exported = new Database(destination); t.after(() => exported.close());
+  assert.deepEqual(exported.prepare('SELECT user_id FROM ui_requirements').all(), [{ user_id: 'a' }]);
+  assert.deepEqual(exported.prepare("SELECT user_id FROM ui_config_history WHERE kind='requirements'").all(), [{ user_id: 'a' }]);
+  assert.equal(JSON.parse((exported.prepare('SELECT doc FROM ui_requirements').get() as any).doc).role, 'Sales');
+});
+
+test('failed requirements history persistence rolls back the entire profile write', t => {
+  const { db, store, ui } = fixture(t);
+  db.exec("CREATE TRIGGER fail_fixture_requirements BEFORE INSERT ON ui_config_history WHEN NEW.kind='requirements' AND NEW.user_id='a' BEGIN SELECT RAISE(ABORT,'Fixture history failure'); END");
+  assert.throws(() => store.update('a', patch(), 0), /Fixture history failure/);
+  assert.equal(store.get('a').revision, 0); assert.equal(store.get('a').profile, null); assert.equal(ui.get('a').revision, 0);
 });

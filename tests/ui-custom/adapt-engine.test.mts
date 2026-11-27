@@ -76,7 +76,7 @@ test('deleted and reordered managed dashboards are not replaced by index', () =>
   moved.dashboards.unshift({ id: 'd_fixture1', name: 'Personal', icon: 'home', widgets: [] });
   const next = ok(adaptFromRequirements(profile({ lens: 'support' }), moved, first.state));
   assert.equal(next.result.dashboards[0].name, 'Personal'); assert.equal(next.result.dashboards[1].name, 'Support queue');
-  const removed = structuredClone(first.result); removed.dashboards = []; removed.layout.home = { kind: 'default' };
+  const removed = structuredClone(first.result); removed.dashboards = []; removed.layout.home = { kind: 'default' }; removed.layout.phoneTabs = [...DEFAULT_CONFIG.layout.phoneTabs];
   const kept = ok(adaptFromRequirements(profile({ lens: 'operations' }), removed, first.state));
   assert.equal(kept.result.dashboards.length, 0); assert.ok(kept.kept.some(k => k.label === 'Home dashboard'));
 });
