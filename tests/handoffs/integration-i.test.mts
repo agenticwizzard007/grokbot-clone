@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { Hono } from 'hono';
+import { layoutServer } from '../layout-fixture.mjs';
 import { fixture, output, db, jobs, links, requests, spec, cleanup, createBot, flush } from './server-fixture.test.mts';
 
 const originalFetch = globalThis.fetch;
@@ -16,6 +17,66 @@ const app = new Hono().route('/api', api);
 after(() => { globalThis.fetch = originalFetch; cleanup(); });
 const call = (f: ReturnType<typeof fixture>, path: string, method = 'GET', data?: unknown) => app.request(`/api${path}`, { method, headers: f.headers, ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
 const names = ['submit_output', 'handoff_to_agent', 'read_handoff', 'list_handoffs', 'submit_verdict', 'start_loop', 'write_flow_summary'];
+
+test('public app routes retain their unauthenticated responses through the production mounts', async t => {
+  // Exercise tenant-app registration order, not a duplicate test router. The
+  // shared fixture seeds temporary data and blocks non-local provider requests.
+  const blockedFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    assert.ok(['127.0.0.1', 'localhost'].includes(url.hostname), 'Only the local fixture may be contacted.');
+    return originalFetch(input, init);
+  };
+  let server: Awaited<ReturnType<typeof layoutServer>> | undefined;
+  try {
+    server = await layoutServer();
+    const cases: { path: string; status: number; body?: RegExp; location?: RegExp; data?: unknown; form?: boolean }[] = [
+      { path: '/api/apps/callback', status: 200, body: /"ok":false/ },
+      { path: '/api/apps/callback?native=1', status: 200, body: /Connection not confirmed/ },
+      { path: '/api/health', status: 200, body: /"ok":true/ },
+      { path: '/api/version', status: 503, body: /"revision":null/ },
+      { path: '/api/companion/script', status: 200, body: /node/ },
+      { path: '/api/cli/script', status: 200, body: /node/ },
+      { path: '/api/messaging/inkbox/webhook', data: {}, status: 503, body: /^not configured$/ },
+      { path: '/api/join/placeholder-invite', status: 200, body: /"valid":false/ },
+      { path: '/api/join/placeholder-invite/claim', data: {}, status: 400, body: /"error":/ },
+      { path: '/api/auth/text/request', data: {}, status: 400, body: /"error":/ },
+      { path: '/api/auth/phone/start', data: {}, status: 400, body: /"error":/ },
+      { path: '/api/auth/phone/verify', data: {}, status: 400, body: /"error":/ },
+      { path: '/api/auth/text?t=placeholder-token', status: 302, location: /\?login=expired$/ },
+      { path: '/api/auth/me', status: 200, body: /"user":null/ },
+      { path: '/api/auth/dev', data: {}, status: 400, body: /email required/ },
+      { path: '/api/auth/native/start', status: 400, body: /Invalid sign-in request/ },
+      { path: '/api/auth/native/exchange', data: {}, status: 400, body: /Invalid sign-in request/ },
+      { path: '/api/auth/google/start?intent=link', status: 302, location: /login=google_link_required/ },
+      { path: '/api/auth/google/callback', status: 302, location: /login=google_session/ },
+      { path: '/api/auth/apple/start', status: 303, location: /login=apple_unavailable/ },
+      { path: '/api/auth/apple/callback', data: '', form: true, status: 303, location: /login=apple_session/ },
+      { path: '/api/auth/apple/native/start', data: {}, status: 400, body: /apple_invalid/ },
+      { path: '/api/auth/apple/native/complete', data: {}, status: 400, body: /apple_invalid/ },
+      { path: '/api/auth/openrouter/start', status: 302, location: /^https:\/\/openrouter.ai\/auth\?/ },
+      { path: '/api/auth/openrouter/callback', status: 303, location: /login=openrouter_session/ },
+      { path: '/', status: 200, body: /<div id="root"/ },
+      { path: '/join/placeholder-invite', status: 200, body: /<div id="root"/ },
+      // These callbacks and account actions are intentionally private on main.
+      { path: '/api/auth/native/openrouter/prepare', data: {}, status: 401, body: /Sign in before connecting OpenRouter/ },
+      ...['/api/mcp/servers/oauth/callback', '/api/health/details', '/api/auth/sessions', '/api/handoff-task-links', '/api/handoffs', '/api/loops', '/api/outputs', '/api/bots/placeholder/flow'].map(path => ({ path, status: 401, body: /"error":"unauthenticated"/ })),
+    ];
+    for (const entry of cases) await t.test(`${entry.data === undefined ? 'GET' : 'POST'} ${entry.path}`, async () => {
+      const response = await fetch(`${server!.base}${entry.path}`, {
+        redirect: 'manual',
+        ...(entry.data === undefined ? {} : { method: 'POST', headers: { 'content-type': entry.form ? 'application/x-www-form-urlencoded' : 'application/json' }, body: entry.form ? String(entry.data) : JSON.stringify(entry.data) }),
+      });
+      const body = await response.text();
+      assert.equal(response.status, entry.status, body);
+      if (entry.body) assert.match(body, entry.body);
+      if (entry.location) assert.match(response.headers.get('location') ?? '', entry.location);
+    });
+  } finally {
+    await server?.close();
+    globalThis.fetch = blockedFetch;
+  }
+});
 
 test('production registry exposes all seven bound tools and removes them and the prompt when disabled', async () => {
   const f = fixture();

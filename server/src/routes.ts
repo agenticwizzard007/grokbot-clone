@@ -192,7 +192,12 @@ api.post('/outputs/from-message', apiBodyLimit, async (c, next) => {
   }
 });
 api.route('/', handoffsApi);
-api.route('/', handoffTasksApi);
+// The task router has a wildcard session guard. Keep it inside its endpoint so
+// it cannot intercept later public routes, including app OAuth callbacks.
+api.get('/handoff-task-links', c => {
+  const url = new URL(c.req.url); url.pathname = '/handoff-task-links';
+  return handoffTasksApi.fetch(new Request(url, c.req.raw), c.env);
+});
 api.route('/', flowApi);
 
 // ---------- events (SSE) ----------
