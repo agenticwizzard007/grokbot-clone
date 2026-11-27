@@ -28,13 +28,13 @@ const sections = [
 ] as const;
 type DetailTab = typeof sections[number]['id'];
 
-export function DetailsPanel({ onFlowChange }: { onFlowChange?: (open: boolean) => void }) {
+export function DetailsPanel() {
   const bot = useSelectedBot();
   const userId = useStore(state => state.user?.id);
-  return bot ? <ConversationDetails key={JSON.stringify([userId, bot.id])} bot={bot} userId={userId} onFlowChange={onFlowChange} /> : null;
+  return bot ? <ConversationDetails key={JSON.stringify([userId, bot.id])} bot={bot} userId={userId} /> : null;
 }
 
-function ConversationDetails({ bot, userId, onFlowChange }: { bot: Bot; userId?: string; onFlowChange?: (open: boolean) => void }) {
+function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
   const panel = useRef<HTMLElement>(null);
   const [headerHost, setHeaderHost] = useState<Element | null>(null);
   useLayoutEffect(() => { setHeaderHost(document.querySelector('.shell-header')); }, []);
@@ -44,10 +44,6 @@ function ConversationDetails({ bot, userId, onFlowChange }: { bot: Bot; userId?:
   const [flow, setFlow] = useState(() => bot.kind !== 'room' && (Boolean(flowLocation()) || (storedTab === 'activity' && (Date.now() - bot.createdAt < 3 * 86400_000 || !bot.lastActivityAt))));
   const choseTab = useRef(false);
   const tab = flow && storedTab === 'activity' && bot.kind !== 'room' ? 'flow' : storedTab;
-  useLayoutEffect(() => {
-    onFlowChange?.(tab === 'flow');
-    return () => onFlowChange?.(false);
-  }, [tab, onFlowChange]);
   useEffect(() => { const sync = () => { if (flowLocation()) setFlow(true); }; window.addEventListener('swarm:flow-location', sync); return () => window.removeEventListener('swarm:flow-location', sync); }, []);
   // An automatic default must not rewrite an explicit Activity URL or its Back trail.
   useEffect(() => {

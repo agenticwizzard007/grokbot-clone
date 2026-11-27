@@ -54,7 +54,7 @@ try {
       assert.ok(await page.locator('.shell-header > .bot-avatar').isVisible());
       assert.equal(await page.locator('.shell-header__subtitle').innerText(), 'Flow');
       assert.equal(await page.locator('.shell-back:visible').count(), 1);
-      assert.equal(await page.locator('.phone-tabs:visible').count(), width <= 760 ? 1 : 0);
+      assert.equal(await page.locator('.phone-tabs:visible').count(), 0);
       assert.deepEqual(errors, []);
       if (model?.lanes && [390, 1280].includes(width)) {
         const screenshot = path.join(output, `${state}-${width}-${theme}.png`);

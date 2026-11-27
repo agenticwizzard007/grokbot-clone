@@ -72,12 +72,9 @@ function Shell() {
   const bots = useStore(s => s.bots);
   const screen = navigation.screen ?? { kind: 'bots' };
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [flowOpen, setFlowOpen] = useState(false);
   const routeModal = modal === 'search' || modal === 'apps';
   const chatHeader = screen.kind === 'chat';
   const topLevel = isPhoneRoot(screen, phoneTabs);
-  // Flow keeps its existing phone tabs while shared navigation supplies Back.
-  const showPhoneTabs = topLevel || (detailsOpen && screen.kind === 'details' && flowOpen);
   const hasBack = mobile ? !topLevel : screen.kind !== 'bots' || navigation.trail.length > 0;
   const backTarget = parseScreen(navigation.trail.at(-1) ?? '') ?? parentScreen(screen) ?? { kind: 'bots' };
   const backText = mobile ? 'Back' : screen.kind === 'settings' ? 'Back to chat' : backTarget.kind === 'chat' ? 'Back to chat' : backLabel(backTarget, bots);
@@ -130,7 +127,7 @@ function Shell() {
   }, []);
 
   return (
-    <div className={`app paper-shell${settingsOpen ? ' is-app-settings' : ''}${collapsed && !mobile ? ' is-sidebar-collapsed' : ''}${mobile ? ' is-mobile' : ''}${showPhoneTabs ? ' has-phone-tabs' : ''}${chatHeader ? ' is-chat-route' : ''}`}>
+    <div className={`app paper-shell${settingsOpen ? ' is-app-settings' : ''}${collapsed && !mobile ? ' is-sidebar-collapsed' : ''}${mobile ? ' is-mobile' : ''}${topLevel ? ' has-phone-tabs' : ''}${chatHeader ? ' is-chat-route' : ''}`}>
       {!mobile && <Sidebar />}
       <div className="shell-content">
         <header className="shell-header" tabIndex={-1}>
@@ -153,7 +150,7 @@ function Shell() {
           : view === 'bots' ? <BotsView /> : <ChatView />}
       </Suspense>
       </div>
-      {detailsOpen && hasBot && view === 'chat' && <div className="bot-details-pane" hidden={!!botSettings || modal === 'create' || modal === 'group'}><Suspense fallback={<div role="status">Loading...</div>}><DetailsPanel key={selectedBotId} onFlowChange={setFlowOpen} /></Suspense></div>}
+      {detailsOpen && hasBot && view === 'chat' && <div className="bot-details-pane" hidden={!!botSettings || modal === 'create' || modal === 'group'}><Suspense fallback={<div role="status">Loading...</div>}><DetailsPanel key={selectedBotId} /></Suspense></div>}
       </div>
       <Suspense fallback={<div className="toast" role="status">Loading</div>}>
       {modal === 'search' && <SearchModal inline />}
@@ -161,7 +158,7 @@ function Shell() {
       {viewerOpen && <ComputerViewer />}
       </Suspense>
       {settingsOpen && <AppSettings />}
-      {mobile && showPhoneTabs && <nav className="phone-tabs" aria-label="App navigation" data-ui-id="phone.tabLabels" data-ui-visibility={tabLabels}>
+      {mobile && topLevel && <nav className="phone-tabs" aria-label="App navigation" data-ui-id="phone.tabLabels" data-ui-visibility={tabLabels}>
         {phoneTabs.map(tab => <button type="button" key={tab.id} aria-label={tab.label} aria-current={isPhoneTab(screen, [tab]) ? 'page' : undefined} onClick={() => navigation.navigate(tab.target)}><tab.Icon size={22} aria-hidden /><span hidden={tabLabels === 'hide'}>{tab.label}</span></button>)}
       </nav>}
       </div>
