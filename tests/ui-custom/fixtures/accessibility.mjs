@@ -91,6 +91,9 @@ export async function accessibilityFixture() {
     }
     hash = hash.replaceAll('coordinator', server.fixture.bot.id).replaceAll('project-room', server.fixture.room);
     await page.goto('about:blank');
+    // The old document can leave cancelled requests in flight during navigation.
+    // Quiescence and loaded-widget assertions apply to the new document only.
+    page.a11yTraffic.pending.clear();
     await page.goto(`${server.base}/${hash}`);
     await page.locator('.shell-header').waitFor();
     await page.waitForFunction(() => !document.querySelector('.shell-loading'));
