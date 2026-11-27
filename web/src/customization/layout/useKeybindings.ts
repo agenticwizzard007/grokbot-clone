@@ -1,4 +1,4 @@
-import { useLayoutEffect } from 'react';
+import { useLayoutEffect, useReducer } from 'react';
 import { useEffectiveConfig } from '../index';
 import { navigation, useConfigUI } from '../../configStore';
 import { useStore } from '../../store';
@@ -8,7 +8,8 @@ import { dashboardScreen } from './usePhoneTabs';
 
 export function useKeybindings() {
   const { keybindings, dashboards } = useEffectiveConfig();
-  useLayoutEffect(() => { setShortcutBindings(keybindings); }, [keybindings]);
+  const [, refreshLabels] = useReducer(value => value + 1, 0);
+  useLayoutEffect(() => { setShortcutBindings(keybindings); refreshLabels(); }, [keybindings]);
   useLayoutEffect(() => {
     const bindings = effectiveBindings(keybindings);
     const keydown = (event: KeyboardEvent) => {

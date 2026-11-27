@@ -25,7 +25,7 @@ export function useHome() {
     if (handled.current || !loaded || status === 'loading') return;
     handled.current = true;
     // A deliberate route chosen while the config loads has priority over home.
-    if (initialRoute.current && initialRoute.current !== window.location.hash) return;
+    if ((initialRoute.current && initialRoute.current !== window.location.hash) || navigation.trail.length > 0) return;
     const target = homeScreen(doc);
     if (target) navigation.navigate(target, 'replace');
   }, [loaded, status, doc]);

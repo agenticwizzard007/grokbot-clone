@@ -31,6 +31,10 @@ try {
   assert.equal(order[0], 'Pinned'); assert.ok(order[1].includes('sidebar__footer')); assert.equal(order[2], 'Dashboards');
   await page.waitForFunction(() => Math.round(document.querySelector('.sidebar').getBoundingClientRect().width) === 320);
   pass('sidebar ordering, hidden items, width and Pinned group');
+  await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Settings/ }).click();
+  await page.waitForURL('**/#settings');
+  pass('Settings menu stays reachable when reordered near the top');
   await page.getByRole('region', { name: 'Dashboards', exact: true }).getByRole('button', { name: 'Weekly overview and planning', exact: true }).click();
   await page.waitForURL(`**/#dash/${id}`); pass('dashboard sidebar route');
   await server.patch([{ op: 'replace', path: '/layout/sidebar/collapsed', value: true }]);

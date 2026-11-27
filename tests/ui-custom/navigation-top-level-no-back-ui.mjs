@@ -17,6 +17,7 @@ try {
       await server.patch([{ op: 'replace', path: '/theme/mode', value: theme }]);
       for (const hash of ['#bots', '#tasks', '#search', '#settings', ...(index === 2 ? [`#dash/${id}`] : [])]) {
         await server.open(page, hash);
+        if (hash.startsWith('#dash/')) await page.waitForURL(`**/${hash}`);
         assert.equal(await visibleBacks(page), 0, `${hash}: no Back at ${width} ${theme}`);
         assert.ok(await page.getByRole('navigation', { name: 'App navigation', exact: true }).isVisible());
         const expected = order.map(tab => tab.startsWith('dashboard:') ? 'Weekly overview' : tab[0].toUpperCase() + tab.slice(1));

@@ -94,7 +94,16 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     if (!accountMenu || !account) return;
     const measure = () => {
       // Allow for the menu's 6px trigger gap and an 8px viewport margin.
-      account.style.setProperty('--account-menu-height', `${Math.max(0, account.getBoundingClientRect().top - 14)}px`);
+      const rect = account.getBoundingClientRect();
+      const below = innerHeight - rect.bottom - 14;
+      const above = rect.top - 14;
+      if (layout.standardOrder) account.style.setProperty('--account-menu-height', `${Math.max(0, above)}px`);
+      else {
+        const height = Math.min(320, Math.max(above, below));
+        account.style.setProperty('--account-menu-height', `${Math.max(0, height)}px`);
+        account.style.setProperty('--ui-menu-top', `${below >= above ? rect.bottom + 6 : Math.max(8, rect.top - height - 6)}px`);
+        account.style.setProperty('--ui-menu-left', `${Math.max(8, rect.left)}px`);
+      }
     };
     measure();
     let frame = 0;
@@ -119,7 +128,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
       window.removeEventListener('resize', scheduleMeasure);
       window.removeEventListener('scroll', scheduleMeasure, true);
     };
-  }, [accountMenu, collapsed]);
+  }, [accountMenu, collapsed, layout.standardOrder]);
   // R2F-004: leaving Bot settings with unsaved edits asks first.
   const createBot = () => setModal('create');
   const showBots = () => { useConfigUI.getState().setView('bots'); onClose?.(); };
@@ -174,7 +183,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             <button ref={accountTrigger} type="button" className="account__btn" aria-label="Account & settings" onClick={() => setAccountMenu(open => !open)} aria-haspopup="menu" aria-expanded={accountMenu} title={accountVisibility === 'hide' ? 'Settings' : user?.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user?.email}>
               <span className="account__initials" data-ui-id="sidebar.account" hidden={accountVisibility === 'hide'}>{initials(user?.name ?? user?.email ?? '')}</span>
               <span className="account__name">Settings</span>
-              {!collapsed && <Settings size={18} aria-hidden />}
+              {(!collapsed || accountVisibility === 'hide') && <Settings size={18} aria-hidden />}
             </button>
             {accountMenu && (
               <Menu
@@ -202,7 +211,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const section = (id: keyof typeof sections) => layout.items.includes(id) ? sections[id] : null;
 
   return (
-    <aside className={`sidebar${collapsed ? ' is-collapsed' : ''}`} aria-label="Your Bots">
+    <aside className={`sidebar${layout.standardOrder ? '' : ' is-custom-order'}${collapsed ? ' is-collapsed' : ''}`} aria-label="Your Bots">
 
       <div className="sidebar__titlebar">
         <button type="button" className="sidebar__brand" aria-label="Your Bots" onClick={showBots}>
