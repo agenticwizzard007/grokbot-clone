@@ -1,3 +1,4 @@
+import { useAdaptedNavigation } from './AllSections';
 import { useComponentVisible } from '../customization';
 import { useSidebarItems } from '../customization/layout/useSidebarItems';
 import { dashboardScreen } from '../customization/layout/usePhoneTabs';
@@ -5,7 +6,7 @@ import { Fragment } from 'react';
 import { RosterFeedback } from './LoadFeedback';
 import { userFacingLive } from '../lib/audience';
 import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { Blocks, Folder, Gauge, GitBranch, House, LayoutDashboard, LogOut, Settings, Terminal, X } from 'lucide-react';
+import { Blocks, Folder, Gauge, GitBranch, House, LayoutDashboard, LogOut, Settings, Terminal, X, Repeat, Menu as MenuIcon } from 'lucide-react';
 import { navigation, openConversation, useConfigUI } from '../configStore';
 import { TasksIsland } from './config/TasksIsland';
 import type { Bot } from '@shared/types';
@@ -65,6 +66,7 @@ const BotRow = memo(function BotRow({ bot, selected, running, awaiting, onSelect
 
 export function Sidebar({ onClose }: { onClose?: () => void }) {
   const layout = useSidebarItems();
+  const adapted = useAdaptedNavigation();
   const searchVisibility = useComponentVisible('sidebar.search');
   const usageVisibility = useComponentVisible('sidebar.usage');
   const accountVisibility = useComponentVisible('sidebar.account');
@@ -147,6 +149,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const sections = {
     allBots: <>{!collapsed && <button type="button" className={`sidebar-island${view === 'bots' && !settingsOpen && !modal ? ' is-active' : ''}`} onClick={showBots} aria-label="All Bots"><House size={18} aria-hidden /><span>All Bots</span></button>}</>,
     tasks: <TasksIsland />,
+    routines: <button type="button" className="sidebar-island" aria-label="Routines" title="Routines" onClick={() => { navigation.navigate({ kind: 'all', routines: true }); onClose?.(); }}><Repeat size={18} aria-hidden />{!collapsed && <span>Routines</span>}</button>,
     files: <>        {!collapsed && <button type="button" className={`sidebar-island${view === 'tasks' && workTab === 'Reports' && !settingsOpen && !modal ? ' is-active' : ''}`} onClick={() => navigation.navigate({ kind: 'work', route: { tab: 'Reports' } })}><Folder size={18} aria-hidden /><span>Files</span></button>}</>,
     yourBots: <>        {!collapsed && bots.length > 0 && <button type="button" className="sidebar__section-label" onClick={showBots}>Your Bots</button>}
         {primary && (
@@ -250,6 +253,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
         {layout.items.map(id => <Fragment key={id}>{section(id)}</Fragment>)}
       </div>}
 
+      {adapted && <footer className="sidebar__footer"><button type="button" className="sidebar-island" aria-label="All sections" title="All sections" onClick={() => { navigation.navigate({ kind: 'all' }); onClose?.(); }}><MenuIcon size={18} aria-hidden />{!collapsed && <span>All sections</span>}</button></footer>}
     </aside>
   );
 }

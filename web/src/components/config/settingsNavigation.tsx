@@ -1,4 +1,4 @@
-import { Brain, Blocks, ChevronRight, CircleUserRound, Gauge, KeyRound, MessageCircle, Monitor, LayoutDashboard, Server, Settings as SettingsIcon, ShieldCheck, Terminal, type LucideIcon } from 'lucide-react';
+import { Brain, Blocks, ChevronRight, CircleUserRound, Gauge, KeyRound, MessageCircle, Monitor, LayoutDashboard, Server, Settings as SettingsIcon, ShieldCheck, Terminal, Users, type LucideIcon } from 'lucide-react';
 import { SETTINGS_LABELS } from '../../lib/navigation';
 import type { AppSection } from '../../configStore';
 
@@ -8,6 +8,7 @@ export const NAV: { group: string; items: NavItem[] }[] = [
   { group: 'Workspace', items: [
     { id: 'general', label: SETTINGS_LABELS.general, icon: SettingsIcon, keywords: 'details panel time zone keyboard diagnostics' },
     { id: 'appearance', label: 'Layout', icon: LayoutDashboard, keywords: 'layout sidebar navigation home dashboard shortcuts export import history reset' },
+    { id: 'agents', label: SETTINGS_LABELS.agents, icon: Users, keywords: 'handoffs send team standing links automatic loops defaults limits approval' },
     { id: 'account', label: SETTINGS_LABELS.account, icon: CircleUserRound, keywords: 'profile name email sign out log out apple delete sessions sign in' },
     { id: 'messaging', label: SETTINGS_LABELS.messaging, icon: MessageCircle, keywords: 'imessage sms text phone number whatsapp voice replies invite friends contact' },
     { id: 'usage', label: SETTINGS_LABELS.usage, icon: Gauge, keywords: 'cost spend money dollars tokens requests billing limits' },

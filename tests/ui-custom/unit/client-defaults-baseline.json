@@ -12,33 +12,2408 @@
     "dark"
   ],
   "routeViews": 208,
-  "reviewedDifferences": {},
+  "reviewedDifferences": {
+    "1280-dark-settings": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-dark-settings-account": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-dark-settings-apps": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-dark-settings-computer": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-dark-settings-general": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-dark-settings-keys": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-dark-settings-learning": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-dark-settings-mcp": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-dark-settings-messaging": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-dark-settings-permissions": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-dark-settings-subscriptions": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-dark-settings-usage": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-light-settings": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-light-settings-account": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-light-settings-apps": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-light-settings-computer": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-light-settings-general": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-light-settings-keys": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-light-settings-learning": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-light-settings-mcp": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-light-settings-messaging": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-light-settings-permissions": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-light-settings-subscriptions": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "1280-light-settings-usage": {
+      "reason": "Agents adds a 44px row with the existing 2px gap to the Settings sidebar. Workspace grows by 46px; Connections moves down by 46px. The content pane is unchanged.",
+      "rectangles": [
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            128,
+            195,
+            352
+          ],
+          "after": [
+            284,
+            128,
+            195,
+            398
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            160,
+            195,
+            320
+          ],
+          "after": [
+            284,
+            160,
+            195,
+            366
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            284,
+            482,
+            195,
+            214
+          ],
+          "after": [
+            284,
+            528,
+            195,
+            214
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            292,
+            485,
+            81.2,
+            18
+          ],
+          "after": [
+            292,
+            531,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            284,
+            514,
+            195,
+            182
+          ],
+          "after": [
+            284,
+            560,
+            195,
+            182
+          ]
+        }
+      ]
+    },
+    "390-dark-settings": {
+      "reason": "Agents adds one existing 48px row to the phone Settings list. Workspace and its Page grow by 48px; Connections moves down by 48px.",
+      "rectangles": [
+        {
+          "index": 1,
+          "tag": "DIV",
+          "class": "layout-page",
+          "before": [
+            0,
+            56,
+            390,
+            810
+          ],
+          "after": [
+            0,
+            56,
+            390,
+            858
+          ]
+        },
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            16,
+            230,
+            358,
+            370
+          ],
+          "after": [
+            16,
+            230,
+            358,
+            418
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            16,
+            262,
+            358,
+            338
+          ],
+          "after": [
+            16,
+            262,
+            358,
+            386
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            16,
+            624,
+            358,
+            226
+          ],
+          "after": [
+            16,
+            672,
+            358,
+            226
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            24,
+            627,
+            81.2,
+            18
+          ],
+          "after": [
+            24,
+            675,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            16,
+            656,
+            358,
+            194
+          ],
+          "after": [
+            16,
+            704,
+            358,
+            194
+          ]
+        }
+      ]
+    },
+    "390-light-settings": {
+      "reason": "Agents adds one existing 48px row to the phone Settings list. Workspace and its Page grow by 48px; Connections moves down by 48px.",
+      "rectangles": [
+        {
+          "index": 1,
+          "tag": "DIV",
+          "class": "layout-page",
+          "before": [
+            0,
+            56,
+            390,
+            810
+          ],
+          "after": [
+            0,
+            56,
+            390,
+            858
+          ]
+        },
+        {
+          "index": 2,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            16,
+            230,
+            358,
+            370
+          ],
+          "after": [
+            16,
+            230,
+            358,
+            418
+          ]
+        },
+        {
+          "index": 4,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            16,
+            262,
+            358,
+            338
+          ],
+          "after": [
+            16,
+            262,
+            358,
+            386
+          ]
+        },
+        {
+          "index": 5,
+          "tag": "SECTION",
+          "class": "layout-section settings-nav__group",
+          "before": [
+            16,
+            624,
+            358,
+            226
+          ],
+          "after": [
+            16,
+            672,
+            358,
+            226
+          ]
+        },
+        {
+          "index": 6,
+          "tag": "H2",
+          "class": "",
+          "before": [
+            24,
+            627,
+            81.2,
+            18
+          ],
+          "after": [
+            24,
+            675,
+            81.2,
+            18
+          ]
+        },
+        {
+          "index": 7,
+          "tag": "DIV",
+          "class": "layout-card layout-card--list settings-nav__items",
+          "before": [
+            16,
+            656,
+            358,
+            194
+          ],
+          "after": [
+            16,
+            704,
+            358,
+            194
+          ]
+        }
+      ]
+    }
+  },
   "reviewedGeometryViews": [
-    "390-light-bot-activity",
-    "390-light-bot-setup",
-    "390-light-bot-setup-responsibilities",
-    "390-light-bot-setup-harness",
-    "390-light-bot-setup-files",
-    "390-light-bot-setup-history",
-    "390-dark-bot-activity",
-    "390-dark-bot-setup",
-    "390-dark-bot-setup-responsibilities",
-    "390-dark-bot-setup-harness",
-    "390-dark-bot-setup-files",
-    "390-dark-bot-setup-history",
-    "1280-light-bot-activity",
-    "1280-light-bot-setup",
-    "1280-light-bot-setup-responsibilities",
-    "1280-light-bot-setup-harness",
-    "1280-light-bot-setup-files",
-    "1280-light-bot-setup-history",
     "1280-dark-bot-activity",
     "1280-dark-bot-setup",
-    "1280-dark-bot-setup-responsibilities",
-    "1280-dark-bot-setup-harness",
     "1280-dark-bot-setup-files",
-    "1280-dark-bot-setup-history"
+    "1280-dark-bot-setup-harness",
+    "1280-dark-bot-setup-history",
+    "1280-dark-bot-setup-responsibilities",
+    "1280-light-bot-activity",
+    "1280-light-bot-setup",
+    "1280-light-bot-setup-files",
+    "1280-light-bot-setup-harness",
+    "1280-light-bot-setup-history",
+    "1280-light-bot-setup-responsibilities",
+    "390-dark-bot-activity",
+    "390-dark-bot-setup",
+    "390-dark-bot-setup-files",
+    "390-dark-bot-setup-harness",
+    "390-dark-bot-setup-history",
+    "390-dark-bot-setup-responsibilities",
+    "390-light-bot-activity",
+    "390-light-bot-setup",
+    "390-light-bot-setup-files",
+    "390-light-bot-setup-harness",
+    "390-light-bot-setup-history",
+    "390-light-bot-setup-responsibilities"
   ],
-  "reviewNote": "HO-P: Flow uses 14/20 node titles, 13/18 metadata, 20px chips, 16px card padding, 20px icon slots and two toolbar actions. Setup compact rows use the same type and trailing alignment. See tests/handoffs/POLISH-REPORT.md for the measured before/after view inventory.",
+  "reviewNote": "HO-P: Flow uses 14/20 node titles, 13/18 metadata, 20px chips, 16px card padding, 20px icon slots and two toolbar actions. Setup compact rows use the same type and trailing alignment. See tests/handoffs/POLISH-REPORT.md for the measured before/after view inventory. Stage 2 retains its 26 exact Settings navigation rectangle reviews against this pin; no views or token comparisons are skipped.",
   "reviewedFrom": "5294c8567ff1c956a8731ad24e96437804cfcef7"
 }

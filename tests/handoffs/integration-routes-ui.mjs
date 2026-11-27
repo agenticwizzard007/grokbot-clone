@@ -17,7 +17,7 @@ export async function integrationServer(evidence) {
   const fixtureFile = path.join(temp, 'fixture.json');
   const env = { PATH: process.env.PATH, NODE_ENV: 'test', SWARM_ROLE: 'standalone', SWARM_NO_SCHEDULER: '1',
     DB_PATH: path.join(temp, 'app.db'), FILES_DIR: path.join(temp, 'files'), CLI_PROFILES_DIR: path.join(temp, 'profiles'),
-    SESSION_SECRET: 'layout-test', COMPUTER_PROVIDER: 'local', INKBOX_TUNNEL: '0', DEV_LOGIN: '1', WHATSAPP_DISABLED: '1',
+    SESSION_SECRET: 'layout-test', COMPUTER_PROVIDER: 'local', INKBOX_TUNNEL: '0', DEV_LOGIN: '1', WHATSAPP_DISABLED: '1', UI_CUSTOMIZATION: 'on',
     PHONE_QA_FIXTURE_FILE: fixtureFile, PORT: String(apiPort), APP_URL: base, SERVER_URL: base,
     DIRECT_API_KEY: 'placeholder', DIRECT_BASE_URL: `http://127.0.0.1:${mockPort}/v1`, LLM_PROVIDER: 'direct' };
   const preload = path.join(temp, 'offline.mjs');
@@ -89,7 +89,7 @@ runner.stopLoopDeadlines(); reconcile.stopHandoffRecovery(); db.close();
   } catch (error) { await close(); throw error; }
 }
 
-export async function runIntegrationDemo() {
+export async function runIntegrationDemo({ settingsFlow, outputFlow } = {}) {
   const { inspectAlignment } = await import('../layout-alignment-ui.mjs');
   const evidence = path.resolve('.context/handoffs/demo-i'); fs.mkdirSync(evidence, { recursive: true });
   const server = await integrationServer(evidence);
@@ -102,7 +102,7 @@ export async function runIntegrationDemo() {
       const page = await context.newPage(); lastPage = page; page.setDefaultTimeout(15000);
       const errors = []; page.on('pageerror', error => { errors.push(error.message); console.error('Page error:', error.message); });
       await page.route('**/*', route => ['127.0.0.1','localhost'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort());
-      await page.addInitScript(() => { localStorage.setItem('swarm.theme', 'light'); window.handoffEvents = []; window.addEventListener('swarm:event', event => window.handoffEvents.push(event.detail.type)); });
+      await page.addInitScript(() => { if (location.origin === 'null') return; localStorage.setItem('swarm.theme', 'light'); window.handoffEvents = []; window.addEventListener('swarm:event', event => window.handoffEvents.push(event.detail.type)); });
       const check = (name, detail = {}) => { checks.push({ width, name, ...detail, pass: true }); console.log(`PASS ${width}: ${name}`); };
       const capture = async name => { const file = path.join(evidence, `${name}-${width}.png`); if (name !== 'receipt') await page.setViewportSize({ width, height: Math.min(4000, await page.locator(name === 'flow' ? '.flow-page' : '.ho-route').evaluate(el => el.scrollHeight) + 160) }); await page.screenshot({ path: file, fullPage: true }); screenshots.push(file); await page.setViewportSize({ width, height: 1000 }); };
       const openSidebar = async () => { if (width === 390) await page.getByRole('button', { name: 'Open navigation', exact: true }).click(); };
@@ -117,6 +117,7 @@ export async function runIntegrationDemo() {
       await page.getByRole('menuitem', { name: 'Send to agent', exact: true }).click();
       await page.getByRole('dialog', { name: 'Send to agent' }).waitFor(); await page.keyboard.press('Escape');
       check('Assistant message overflow snapshots output and opens Send to agent');
+      if (outputFlow) await outputFlow({ page, width, server, check, screenshots, evidence });
       await page.locator('.ho-output-card').getByRole('button', { name: 'Send to agent', exact: true }).first().click();
       const sheet = page.getByRole('dialog', { name: 'Send to agent' });
       await sheet.getByRole('button', { name: /Research/ }).click();
@@ -207,10 +208,11 @@ export async function runIntegrationDemo() {
       await page.locator('.task-filters .is-done').click();
       await page.locator('.task-card-frame').filter({ hasText: 'Release note draft' }).getByRole('button', { name: 'Send to agent', exact: true }).click();
       await sheet.waitFor(); await page.keyboard.press('Escape'); check('Done task card opens Send to agent');
+      if (settingsFlow) await settingsFlow({ page, width, server, check, alignment, openSidebar, screenshots, evidence });
       assert.deepEqual(errors, []); await context.close();
     }
     const report = { checks, passed: checks.length, screenshots, realProviderCalls: 0,
-      deviations: ['Settings Agents and output chat card kinds remain gated on UC-G.'], fixture: server.fixture };
+      deviations: [], fixture: server.fixture };
     fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2));
     console.log(`HO-I integration UI: ${checks.length} checks passed; 0 real provider calls`);
     console.log(`Demo output: ${path.join(evidence, 'report.json')}`);
