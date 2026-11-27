@@ -31,7 +31,7 @@ export async function polishFixture() {
         const page = await d.page({ view: dView, state: ['loading','empty','error'].includes(state) && name !== 'send-error' ? state : 'ready', width, theme, loops: state === 'loop' });
         if (name === 'handoff-approval') { await page.evaluate(() => { window.fixture.status = 'pending_approval'; window.refreshFixture(); }); await page.getByRole('button', {name:'Approve',exact:true}).waitFor(); }
         if (name === 'send-error') { await page.getByRole('button', { name: /^Checker/ }).click(); await page.evaluate(() => { window.fixture.failSend = true; }); await page.getByRole('button', { name: 'Send', exact: true }).click(); await page.getByRole('alert').waitFor(); }
-        if (name === 'send-loop') { await page.getByRole('button', { name: /^Checker/ }).click(); await page.getByLabel('Keep improving', { exact: true }).check(); }
+        if (name === 'send-loop') { await page.getByRole('button', { name: /^Checker/ }).click(); await page.getByLabel('Keep improving', { exact: true }).check(); await page.getByLabel('Stop when', {exact:true}).waitFor(); }
         return { page, selector: dView === 'sheet' ? 'dialog[open]' : '#root', close: () => page.close() };
       }
       const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
@@ -70,7 +70,19 @@ export async function polishFixture() {
       if (name === 'send-sheet') { await page.locator('.ho-output-card').getByRole('button', { name: 'Send to agent', exact: true }).first().click(); selector = 'dialog[open]'; }
       if (name === 'link-sheet' || name === 'link-edit') { await page.getByRole('button', { name: 'Add handoff', exact: true }).click(); selector = '.flow-sheet'; if (name === 'link-edit') await page.getByRole('button', { name: /^Edit handoff/ }).first().click(); }
       if (name === 'sidebar-loops') { if (width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click(); await page.getByRole('button', { name: 'Account & settings', exact: true }).click(); selector = '.sidebar .menu__item:has(.lucide-git-branch)'; }
-      await page.locator(selector).first().waitFor(); await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(200);
+      await page.locator(selector).first().waitFor();
+      // Audit the requested state, never its transient loading fallback.
+      if (name === 'loops-list') await page.locator('.ho-loop-title-link').first().waitFor();
+      if (name === 'loops-empty') await page.getByText('Nothing here yet', {exact:true}).waitFor();
+      if (name === 'loops-error') await page.getByRole('alert').waitFor();
+      if ((name.startsWith('loop-') && name !== 'loop-sheet') || name.startsWith('gate-')) await page.locator('[data-loop-revision]').waitFor();
+      if (['flow-tab','flow-suggestions','flow-long','flow-empty'].includes(name)) await page.locator('.flow-chart').waitFor();
+      if (name === 'flow-error') await page.getByRole('button', {name:'Retry',exact:true}).waitFor();
+      if (name === 'output-viewer') await page.getByRole('heading', {name:'Parts',exact:true}).waitFor();
+      if (name === 'handoff-detail') await page.getByRole('heading', {name:'Events',exact:true}).waitFor();
+      if (name === 'send-sheet') await page.locator('.ho-target').first().waitFor();
+      if (name.startsWith('link-')) await page.getByRole('combobox', {name:'Agent',exact:true}).waitFor();
+      await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(200);
       return { page, selector, close: () => context.close() };
     },
     async close() { await d.close(); await browser.close(); await server.close(); },
