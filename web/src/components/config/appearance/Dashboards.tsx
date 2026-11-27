@@ -12,7 +12,7 @@ export function Dashboards({ doc, patch, readSaved, error }: { error: string; do
   const dashboard = doc.dashboards.find(d => d.id === dialog?.id);
   const open = (id: string) => { location.hash = `dash/${id}`; };
   return <Section title="Dashboards" aria-label="Dashboards" className="appearance-section">
-    <Card variant="list">
+    <Card>
       {doc.dashboards.map(d => <Row className="appearance-dashboard-row" key={d.id} title={d.name} subtitle={`${d.widgets.length} widget${d.widgets.length === 1 ? '' : 's'}`} trailing={<ButtonGroup>
         <span className="appearance-button"><button type="button" className="cfg-btn cfg-btn--secondary" aria-label={`Open ${d.name}`} onClick={() => open(d.id)}>Open</button></span>
         <SettingsMenu ariaLabel={`Manage ${d.name}`} items={[

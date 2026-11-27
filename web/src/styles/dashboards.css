@@ -13,7 +13,7 @@
 .dashboard-widget-header h2 { margin: 0; flex: 0 0 auto; font: 600 calc(14px * var(--font-scale))/calc(20px * var(--font-scale)) var(--font-stack); color: var(--color-text-primary); }
 .dashboard-widget-body { min-width: 0; flex: 1; }
 .dashboard-widget-body--scroll { min-height: 0; overflow: auto; max-height: calc(var(--widget-rows) * 88px + (var(--widget-rows) - 1) * 16px - 64px); scrollbar-gutter: stable; }
-.dashboard-widget--stat { gap: 4px; }
+.dashboard-widget--stat { gap: 8px; }
 .dashboard-stat { display: block; font: 600 clamp(22px,2.6vw,30px)/1 var(--font-stack); font-variant-numeric: tabular-nums; }
 .dashboard-empty-data { margin: 0; color: var(--color-text-secondary); line-height: 1.5; }
 .dashboard-muted { color: var(--color-text-secondary); font-size: 13px; line-height: 18px; }
@@ -35,7 +35,7 @@
 .dashboard-status > span { font-size: 10px; }
 .dashboard-status[data-status='working'] > span, .dashboard-status[data-status='running'] > span { color: var(--color-primary); }
 .dashboard-status[data-status='needs_you'] > span, .dashboard-status[data-status='needs_input'] > span { color: var(--color-warn-text); }
-.dashboard-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.dashboard-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 14px; }
 .dashboard-table th, .dashboard-table td { padding: 8px; border-bottom: 1px solid var(--color-border); text-align: start; vertical-align: top; }
 .dashboard-table th { font-weight: 600; }
 .dashboard-table tr:last-child td { border-bottom: 0; }
@@ -61,13 +61,13 @@
 .dashboard-task-board a { min-height: 44px; display: flex; align-items: center; }
 .dashboard-schedule { display: flex; flex-direction: column; gap: 16px; }
 .dashboard-schedule li { display: flex; flex-direction: column; gap: 4px; border-inline-start: 2px solid var(--color-primary); padding-inline-start: 8px; }
-.dashboard-schedule time, .dashboard-schedule li > span { font-size: 13px; color: var(--color-text-secondary); }
+.dashboard-schedule time, .dashboard-schedule li > span { font-size: 14px; color: var(--color-text-secondary); }
 .dashboard-note :is(h2,h3,p,ul,ol) { margin: 0 0 8px; }
 .dashboard-note h2 { font-size: 18px; line-height: 24px; }
 .dashboard-note h3 { font-size: 16px; line-height: 24px; }
 .dashboard-note p, .dashboard-note li { line-height: 1.5; }
 .dashboard-note ul, .dashboard-note ol { padding-inline-start: 24px; }
-.dashboard-link-domain { font-size: 13px; color: var(--color-text-secondary); }
+.dashboard-link-domain { font-size: 14px; color: var(--color-text-secondary); }
 .dashboard-shortcuts { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,120px),1fr)); gap: 8px; }
 .dashboard-shortcuts .cfg-btn { min-height: 44px; }
 .dashboard-toolbar { display: grid; grid-template-columns: repeat(4,44px); gap: 8px; }
@@ -116,7 +116,7 @@
   background: var(--color-elevated); border: 1px solid var(--color-border); box-shadow: none;
 }
 .dashboard-widget-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-.dashboard-widget-header h2 { flex: 1 1 120px; font-size: 13px; line-height: 18px; font-weight: 600; color: var(--color-text-secondary); min-height: 24px; }
+.dashboard-widget-header h2 { flex: 1 1 120px; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--color-text-secondary); min-height: 24px; }
 .dashboard-toolbar .cfg-btn { width: 44px; padding: 0; }
 .dashboard-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 192px; text-align: center; }
 .dashboard-empty .layout-button-group { max-width: 400px; }
@@ -130,8 +130,8 @@
 .dashboard-status { padding: 0 8px; border-radius: var(--radius-full); font-size: 13px; line-height: 24px; background: var(--color-bg-tertiary); color: var(--color-text-secondary); }
 .dashboard-status[data-status='working'], .dashboard-status[data-status='running'] { background: var(--color-bg-active); color: var(--color-primary); }
 .dashboard-status[data-status='needs_you'], .dashboard-status[data-status='needs_input'] { background: var(--color-warn-bg); color: var(--color-warn-text); }
-.dashboard-chart-values { font-size: 12px; line-height: 16px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
-.dashboard-chart-labels, .dashboard-chart-legend { font-size: 12px; line-height: 16px; }
+.dashboard-chart-values { font-size: 14px; line-height: 20px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+.dashboard-chart-labels, .dashboard-chart-legend { font-size: 13px; line-height: 20px; }
 .dashboard-chart svg { min-height: 112px; }
 .dashboard-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .dashboard-dialog-heading h1 { margin: 0; font: 600 var(--text-page-title)/var(--line-title) var(--font-heading); }
@@ -168,10 +168,20 @@
   .dashboard-table tr { display: block; padding-block: 8px; border-bottom: 1px solid var(--color-border); }
   .dashboard-table tr:last-child { border-bottom: 0; }
   .dashboard-table td { display: grid; grid-template-columns: 64px minmax(0,1fr); gap: 8px; padding: 8px 0; border: 0; }
-  .dashboard-table-field { display: block; font-size: 13px; color: var(--color-text-secondary); }
+  .dashboard-table-field { display: block; font-size: 14px; color: var(--color-text-secondary); }
 }
 
 .dashboard-settings-fields { display: flex; flex-direction: column; gap: 16px; max-height: calc(100dvh - 240px); overflow-y: auto; }
 .dashboard-library { max-height: calc(100dvh - 240px); overflow-y: auto; }
 
 @container (max-width: 199px) { .dashboard-toolbar { grid-template-columns: repeat(2,44px); } }
+
+.dashboard-page .layout-button-group > *, .dashboard-dialog .layout-button-group > * { flex: 1 1 0; }
+.dashboard-dialog-back { display: none; }
+@media (max-width: 760px) {
+  .dashboard-dialog-back { display: block; border-bottom: 1px solid var(--color-border); padding: 8px 16px; }
+  .dashboard-dialog-back button { display: flex; align-items: center; gap: 8px; min-height: 44px; color: var(--color-primary); font-size: 14px; }
+  .dashboard-settings-fields, .dashboard-library { max-height: calc(100dvh - 304px); }
+}
+
+.dashboard-chart-legend { font-size: 14px; }

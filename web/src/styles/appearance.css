@@ -28,7 +28,7 @@
 .appearance-settings :is(input:not([type='file']), select), .appearance-dialog input { min-height: var(--control-h); }
 
 .appearance-settings .layout-row__text { flex: 1 1 96px; }
-.appearance-settings .layout-row__subtitle { font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }
+.appearance-settings .layout-row__subtitle, .appearance-dialog .layout-row__subtitle { font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }
 .appearance-settings .cfg-btn, .appearance-dialog .cfg-btn { border: 1px solid transparent; font-size: 14px; line-height: 20px; padding: 8px 16px; min-height: 44px; border-radius: var(--radius-sm); gap: 8px; }
 .appearance-settings .cfg-btn--secondary, .appearance-dialog .cfg-btn--secondary { background: var(--color-elevated); border: 1px solid var(--color-border); box-shadow: none; }
 .appearance-row-actions .layout-button-group { flex: none; width: 96px; }
@@ -36,8 +36,8 @@
 .layout-page.layout-page .appearance-settings .toggle { flex: 0 0 44px; width: 44px; min-width: 44px; min-height: 44px; height: 44px; padding: 0; background: transparent; border: 0; }
 .appearance-dashboard-row > .layout-row__trailing, .appearance-section[aria-label='Manage'] .layout-row__trailing { width: 208px; }
 .appearance-settings .cfg-seg { padding: 4px; gap: 4px; border-radius: var(--radius-sm); }
-.appearance-settings .cfg-seg button { min-height: 44px; border-radius: var(--radius-sm); }
-.appearance-helper { font-size: 13px; line-height: 20px; padding-block: 8px; }
+.appearance-settings .cfg-seg button { font-size: 14px; min-height: 44px; border-radius: var(--radius-sm); }
+.appearance-helper { font-size: 14px; line-height: 20px; padding-block: 8px; }
 @media (max-width: 760px) {
   .appearance-dashboard-row > .layout-row__text, .appearance-dashboard-row > .layout-row__trailing, .appearance-section[aria-label='Manage'] .layout-row__text, .appearance-section[aria-label='Manage'] .layout-row__trailing { flex: 1 1 100%; width: 100%; }
 }
@@ -48,3 +48,6 @@
 .layout-page.layout-page .appearance-settings .toggle.is-on .toggle__knob { left: 20px; transform: none; }
 
 .appearance-settings .menu__item { font-size: 14px; line-height: 20px; padding: 8px; gap: 8px; }
+
+.appearance-settings :is(input:not([type='file']), select), .appearance-dialog input, .appearance-dialog .modal-page-back button { font-size: 14px; }
+.appearance-settings kbd { font-size: inherit; }
