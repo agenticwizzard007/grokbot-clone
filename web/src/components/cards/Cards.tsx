@@ -1,3 +1,4 @@
+import { UiPreviewCard } from './UiPreviewCard';
 import { Card as LayoutCard, ButtonGroup } from '../layout';
 import { PreviewBody, plainBodyText } from './PreviewBody';
 import { ConnectedAccountDetails, type DisplayAccount } from '../ConnectedAccountDetails';
@@ -234,6 +235,7 @@ export function CardRow({ row }: { row: Row }) {
   const b = row.body;
   if (b.type !== 'card') return null;
   switch (b.card) {
+    case 'ui_preview': return <UiPreviewCard body={b} />;
     case 'approval': return <ApprovalCard body={b} />;
     case 'question': return <QuestionCard row={row} body={b} />;
     case 'connect': return <ConnectCard row={row} body={b} />;

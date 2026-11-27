@@ -30,10 +30,11 @@ export function deleteDashboard(doc: UiConfig, id: string): PatchOp[] {
   patch.push(...setValue('/layout/phoneTabs', tabs));
   doc.dashboards.forEach((dashboard, di) => {
     if (dashboard.id === id) return;
-    dashboard.widgets.forEach((widget, wi) => {
+    [...dashboard.widgets.entries()].reverse().forEach(([wi, widget]) => {
       if (widget.type !== 'shortcuts' || !Array.isArray(widget.options.items)) return;
       const items = widget.options.items.filter(item => item.target !== `dashboard:${id}`);
-      if (items.length !== widget.options.items.length) patch.push(...setValue(`/dashboards/${di}/widgets/${wi}/options/items`, items));
+      if (!items.length) patch.push({ op: 'remove', path: `/dashboards/${di}/widgets/${wi}` });
+      else if (items.length !== widget.options.items.length) patch.push(...setValue(`/dashboards/${di}/widgets/${wi}/options/items`, items));
     });
   });
   patch.push({ op: 'remove', path: `/dashboards/${index}` });

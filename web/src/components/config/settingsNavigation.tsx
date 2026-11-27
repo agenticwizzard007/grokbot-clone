@@ -1,4 +1,4 @@
-import { Brain, Blocks, ChevronRight, CircleUserRound, Gauge, KeyRound, MessageCircle, Monitor, Server, Settings as SettingsIcon, ShieldCheck, Terminal, type LucideIcon } from 'lucide-react';
+import { Brain, Blocks, ChevronRight, CircleUserRound, Gauge, KeyRound, MessageCircle, Monitor, Palette, Server, Settings as SettingsIcon, ShieldCheck, Terminal, type LucideIcon } from 'lucide-react';
 import { SETTINGS_LABELS } from '../../lib/navigation';
 import type { AppSection } from '../../configStore';
 
@@ -6,7 +6,8 @@ import type { AppSection } from '../../configStore';
 export type NavItem = { id: AppSection; label: string; icon: LucideIcon; keywords: string };
 export const NAV: { group: string; items: NavItem[] }[] = [
   { group: 'Workspace', items: [
-    { id: 'general', label: SETTINGS_LABELS.general, icon: SettingsIcon, keywords: 'theme dark light appearance layout sidebar details panel keyboard shortcuts' },
+    { id: 'general', label: SETTINGS_LABELS.general, icon: SettingsIcon, keywords: 'details panel time zone keyboard diagnostics' },
+    { id: 'appearance', label: 'Appearance', icon: Palette, keywords: 'theme dark light color font density corners layout sidebar dashboard shortcuts' },
     { id: 'account', label: SETTINGS_LABELS.account, icon: CircleUserRound, keywords: 'profile name email sign out log out apple delete sessions sign in' },
     { id: 'messaging', label: SETTINGS_LABELS.messaging, icon: MessageCircle, keywords: 'imessage sms text phone number whatsapp voice replies invite friends contact' },
     { id: 'usage', label: SETTINGS_LABELS.usage, icon: Gauge, keywords: 'cost spend money dollars tokens requests billing limits' },

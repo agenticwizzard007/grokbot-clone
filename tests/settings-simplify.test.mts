@@ -4,7 +4,7 @@ import React, { createElement } from 'react';
 // Node's tsx runner uses classic JSX without the web project's tsconfig.
 Object.assign(globalThis, { React });
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Brain, Blocks, CircleUserRound, Gauge, KeyRound, MessageCircle, Monitor, Server, Settings, ShieldCheck, Terminal } from 'lucide-react';
+import { Brain, Blocks, CircleUserRound, Gauge, KeyRound, MessageCircle, Monitor, Palette, Server, Settings, ShieldCheck, Terminal } from 'lucide-react';
 import { NAV, matches, SettingsNavButton } from '../web/src/components/config/settingsNavigation.tsx';
 import { registerHooks } from 'node:module';
 registerHooks({ load(url, context, next) { return url.endsWith('.css') ? { format: 'module', source: '', shortCircuit: true } : next(url, context); } });
@@ -12,17 +12,17 @@ const { SettingRow } = await import('../web/src/components/config/SettingRow.tsx
 const { AccessRow } = await import('../web/src/components/config/AccessRow.tsx');
 
 const items = NAV.flatMap(group => group.items);
-const expected = { general: Settings, account: CircleUserRound, messaging: MessageCircle, usage: Gauge, learning: Brain, computer: Monitor, permissions: ShieldCheck, subscriptions: Terminal, keys: KeyRound, apps: Blocks, mcp: Server };
-test('all eleven section IDs follow Paper navigation with distinct Learning and apps icons', () => {
+const expected = { general: Settings, appearance: Palette, account: CircleUserRound, messaging: MessageCircle, usage: Gauge, learning: Brain, computer: Monitor, permissions: ShieldCheck, subscriptions: Terminal, keys: KeyRound, apps: Blocks, mcp: Server };
+test('all twelve section IDs follow Paper navigation with distinct Learning and apps icons', () => {
   assert.deepEqual(items.map(item => item.id), Object.keys(expected));
   for (const item of items) assert.equal(item.icon, expected[item.id], item.id);
 });
 test('two plain groups keep each existing section reachable exactly once', () => {
   assert.deepEqual(NAV.map(group => [group.group, group.items.map(item => item.id)]), [
-    ['Workspace', ['general', 'account', 'messaging', 'usage', 'learning', 'computer', 'permissions']],
+    ['Workspace', ['general', 'appearance', 'account', 'messaging', 'usage', 'learning', 'computer', 'permissions']],
     ['Connections', ['subscriptions', 'keys', 'apps', 'mcp']],
   ]);
-  assert.equal(new Set(items.map(item => item.id)).size, 11);
+  assert.equal(new Set(items.map(item => item.id)).size, 12);
   for (const [query, id] of [['sessions', 'account'], ['memory', 'learning'], ['model provider', 'keys'], ['mcp token', 'mcp']]) {
     assert.ok(items.filter(item => matches(item, query)).some(item => item.id === id));
   }

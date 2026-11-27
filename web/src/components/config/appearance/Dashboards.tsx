@@ -16,8 +16,8 @@ export function Dashboards({ doc, patch, readSaved }: { doc: UiConfig; patch: Pa
       {doc.dashboards.map(d => <Row key={d.id} title={d.name} subtitle={`${d.widgets.length} widgets`} trailing={<ButtonGroup>
         <button type="button" className="cfg-btn cfg-btn--secondary" aria-label={`Open ${d.name}`} onClick={() => open(d.id)}>Open</button>
         <SettingsMenu ariaLabel={`Manage ${d.name}`} items={[
-          { label: 'Rename', onClick: () => { setName(d.name); setDialog({ kind: 'rename', id: d.id }); } },
-          { label: 'Delete', danger: true, onClick: () => setDialog({ kind: 'delete', id: d.id }) },
+          { label: 'Rename', onSelect: () => { setName(d.name); setDialog({ kind: 'rename', id: d.id }); } },
+          { label: 'Delete', danger: true, onSelect: () => setDialog({ kind: 'delete', id: d.id }) },
         ]} />
       </ButtonGroup>} />)}
       <Row title="New dashboard" trailing={<button type="button" className="cfg-btn cfg-btn--secondary" aria-label="New dashboard" disabled={doc.dashboards.length >= 12} onClick={() => { setName(''); setDialog({ kind: 'new' }); }}>Create</button>} />
