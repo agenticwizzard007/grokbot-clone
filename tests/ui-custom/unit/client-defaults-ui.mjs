@@ -6,6 +6,7 @@ import { chromium } from 'playwright';
 import { layoutServer } from '../../layout-fixture.mjs';
 import { ROUTES } from '../../layout-alignment-ui.mjs';
 import { preparePbeState } from '../../paper-pbe-states.mjs';
+import { installSnapshotReadiness, waitForSnapshotReadiness } from '../../handoffs/defaults-readiness.mjs';
 import { compareDefaultView } from './client-defaults-compare.mjs';
 
 const output = path.resolve('.context/ui-custom/defaults'); fs.mkdirSync(output, { recursive: true });
@@ -42,7 +43,7 @@ try {
     });
     await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
     await context.addInitScript(theme => { if (location.origin === 'null') return; localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
-    const page = await context.newPage(); page.setDefaultTimeout(15000);
+    const page = await context.newPage(); page.setDefaultTimeout(15000); await installSnapshotReadiness(page);
     // History routing must not disable caching of this checkout's immutable assets.
     const network = await context.newCDPSession(page);
     await network.send('Network.setCacheDisabled', { cacheDisabled: false });
@@ -75,6 +76,7 @@ try {
       if (route.state) { await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().bots.some(bot => bot.id === id), server.fixture.bot.id); await page.locator('.composer__input:not([disabled])').waitFor(); await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().transcripts[id]?.loaded, server.fixture.bot.id); await preparePbeState(page, route.state, server.fixture.bot.id); await page.waitForTimeout(400); }
       // ActionPreview is lazy: compare the complete card, never its loading fallback.
       if (route.state === 'approval' || route.state === 'declined') await page.locator('.approval-card .tool-preview').waitFor();
+      await waitForSnapshotReadiness(page);
       const result = await page.evaluate(() => {
         // Ignore transient chat scroll restoration when comparing structure.
         for (const element of document.querySelectorAll('*')) if (element.scrollTop) element.scrollTop = 0;
