@@ -902,7 +902,7 @@ async function processCalls(ctx: ToolCtx, st: PendingState, options: { nested?: 
           }
           st.approvalId = '';
           res = { output: JSON.stringify(program), summary: program.status === 'completed' ? 'Data processed' : program.status, isError: program.status !== 'completed' };
-        } else res = impl ? await impl.impl(args, { ...ctx, depth: st.depth })
+        } else res = impl ? await impl.impl(args, { ...ctx, depth: st.depth, toolCallId: c.call_id })
           : c.name.startsWith('mcp_') ? await runMcpTool(userId, botId, c.name, args)
           : await runComposioTool({ ...ctx, readOnlyApps: ctx.readOnlyApps === true || pol.readOnlyApps }, c.name, args);
         assertTurnCanContinue();

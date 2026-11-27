@@ -1,6 +1,6 @@
 # Dashboard client
 
-`DashboardView` consumes UC-D's effective configuration and revision-aware patch hook. UC-E mounts it at the dashboard route. The ten renderers share `WidgetFrame`, the Paper `Card` primitive and an accessible region name. Each grid cell has its own `Section`; `assertGrid` checks the variable column spans independently of the generic card-column audit.
+`DashboardView` consumes UC-D's effective configuration and revision-aware patch hook. UC-E mounts it at the dashboard route. The renderers share `WidgetFrame`, the Paper `Card` primitive and an accessible region name. Each grid cell has its own `Section`; `assertGrid` checks the variable column spans independently of the generic card-column audit.
 
 The grid uses 12, 6 and 2 columns, a 16 px gap and an 88 px minimum row unit. Tracks can grow to keep long labels, enlarged text and edit controls visible. This is an accessibility exception to the fixed 88 px wording in spec 8.2. Equal row spans still share track heights. Lists and tables alone use internal scrolling.
 
@@ -27,4 +27,10 @@ Local checks:
 
 The fixture uses the seeded local server with provider fetches disabled. Evidence is written under `.context/ui-custom/`. The data check includes a real task SSE event, account isolation, offscreen deferral, hidden-tab pause, SWR, retry, polling bounds and warm route budgets.
 
-`demo-f.mjs` captures the same dashboard at 390 and 1280: a new account, seeded source data, and a widget added, resized, moved and removed through chat. Its transcript, final document and screenshot manifest accompany the captures. UC-F tests and demos use the default appearance only; no cosmetic customization is added. Whole-app requirements profiles belong to UC-I.
+`demo-f.mjs` captures the same dashboard at 390 and 1280: a new account, seeded source data, and a widget added, resized, moved and removed through chat. Its transcript, final document and screenshot manifest accompany the captures. UC-F tests and demos use the default appearance only; no cosmetic customization is added. User requirements do not change navigation.
+
+UC-X2 adds the per-user manager at `#dashboards` and keeps dashboard slugs stable through renames. The shell header owns the only page title; its title control is a checked desktop menu or a phone sheet. Manager mutations and desktop drag reorder use the same guarded patch flow as the existing editor. Settings and search link to the manager without changing other destinations.
+
+Agent widgets import their options, results, actions and endpoint paths from the shared contract. They fetch the stored snapshot on mount, keep a per-account memory cache, run only through the run endpoint, and validate each action with the server. Send uses the composer draft helper; Approve has an explicit confirmation. The dashboard's existing SSE connection forwards `ui_widget` to mounted agent cards. Polling pauses in hidden tabs and for widgets outside the viewport.
+
+`node tests/ui-custom/e2e/dashboards-x2.mjs` exercises the real seeded server and a scripted local provider. The provider script is attached at the local model boundary, keeping conversation text natural. `node tests/ui-custom/demo-x.mjs` writes the screenshot matrix and report to `.context/ui-custom/demo-x/`. The shared alignment audit includes seven dashboard surfaces at 320, 390, 500 and 1280 in light mode and at 390 and 1280 in dark mode.

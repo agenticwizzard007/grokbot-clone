@@ -82,7 +82,7 @@ export function AppSettings() {
 
   const sectionLabel = aboutUse ? 'About you' : NAV.flatMap(group => group.items).find(item => item.id === section)?.label ?? (section ? SETTINGS_LABELS[section] : 'Settings');
   if (!section) return null;
-  const pick = (id: AppSection) => { open(id); setQuery(''); };
+  const pick = (id: AppSection | 'dashboards') => { if (id === 'dashboards') { navigation.navigate({ kind: 'dashboards' }); return; } open(id); setQuery(''); };
   const q = query.trim();
   const groups = q ? availableNav.map((g) => ({ ...g, items: g.items.filter((it) => matches(it, q)) })).filter((g) => g.items.length) : availableNav;
   // Up/Down move between sections, like a native sidebar.

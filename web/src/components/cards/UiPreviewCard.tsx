@@ -1,10 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { createdDashboard } from '../../dashboards/manager/preview';
+import { openDashboard } from '../../dashboards/manager/useDashboardManager';
+import { widgetLabel } from '../../dashboards/model';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { UiPreviewCardBody, StoredPreview } from '@shared/ui-config/index';
 import { usePreview, useUiConfig } from '../../customization';
+import { setPreviewCardVisible } from '../../customization/store';
 import { ButtonGroup, Card } from '../layout';
 import { appearanceRequest, readPreview } from '../config/appearance/api';
 import { compareAppliedAppearance, refreshAppearance } from '../config/appearance/runtime';
 import '../../styles/appearance.css';
+import '../../dashboards/dashboard-ui.css';
 
 export function UiPreviewCard({ body }: { body: UiPreviewCardBody }) {
   const active = usePreview();
@@ -16,8 +21,18 @@ export function UiPreviewCard({ body }: { body: UiPreviewCardBody }) {
   const [error, setError] = useState('');
   const [undone, setUndone] = useState(false);
   const statusRef = useRef<HTMLParagraphElement>(null);
+  const cardKey = useId();
   const current = active.preview?.id === body.previewId ? active.preview : stored;
+  const dashboard = createdDashboard(current);
+  const title = dashboard ? `Create dashboard: ${dashboard.name}` : body.title;
   const status = stored?.status === 'expired' ? 'expired' : current?.status ?? body.status;
+  useEffect(() => {
+    const card = statusRef.current?.closest('.ui-preview-card');
+    if (!card || status !== 'pending') return;
+    const observer = new IntersectionObserver(entries => setPreviewCardVisible(cardKey, entries[0]?.isIntersecting ? body.previewId : null));
+    observer.observe(card);
+    return () => { observer.disconnect(); setPreviewCardVisible(cardKey, null); };
+  }, [body.previewId, cardKey, status]);
   useEffect(() => () => { if (comparing.current) compareAppliedAppearance(null); }, []);
   useEffect(() => { if (current?.status === 'pending' && revision === current.baseRevision) before.current = { doc: saved, revision }; }, [current, saved, revision]);
   useEffect(() => {
@@ -40,17 +55,20 @@ export function UiPreviewCard({ body }: { body: UiPreviewCardBody }) {
   const decide = async (action: 'apply' | 'discard') => {
     if (active.preview?.id === body.previewId) await active[action]();
     else { await appearanceRequest(`/ui/previews/${encodeURIComponent(body.previewId)}/${action}`, 'POST', {}, revision); await refreshAppearance(); }
-    setStored(await readPreview(body.previewId));
+    const updated = await readPreview(body.previewId);
+    setStored(updated);
+    const created = createdDashboard(updated);
+    if (action === 'apply' && created) openDashboard(created);
   };
   const compare = (show: boolean) => {
     comparing.current = show;
     if (active.preview?.id === body.previewId) active.setShowBefore(show);
     else compareAppliedAppearance(show ? before.current?.doc ?? null : null);
   };
-  const lines = current?.summary ?? body.lines;
+  const lines = dashboard ? dashboard.widgets.map(widget => widgetLabel(widget)) : current?.summary ?? body.lines;
   const warnings = current?.warnings.map(w => w.message) ?? body.warnings;
-  return <Card className="ui-preview-card" role="region" aria-label={body.title}>
-    <strong className="ui-preview-card__title">{body.title}</strong>
+  return <Card className={`ui-preview-card${dashboard ? ' ui-preview-card--dashboard' : ''}`} role="region" aria-label={title}>
+    <strong className="ui-preview-card__title">{title}</strong>
     <p ref={statusRef} tabIndex={-1} role="status" aria-live="polite"><span className="cfg-chip">{undone ? 'Undone' : status[0].toUpperCase() + status.slice(1)}</span></p>
     <ul>{lines.slice(0, 6).map((line, i) => <li key={i}>{line}</li>)}</ul>
     {Math.max(body.moreCount, lines.length - 6) > 0 && <p>and {Math.max(body.moreCount, lines.length - 6)} more</p>}
@@ -59,6 +77,7 @@ export function UiPreviewCard({ body }: { body: UiPreviewCardBody }) {
       <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={() => void run(() => decide('apply'))}>Apply</button>
       <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void run(() => decide('discard'))}>Discard</button>
     </ButtonGroup>}
+    {status === 'applied' && !undone && dashboard && saved.dashboards.some(item => item.id === dashboard.id) && <ButtonGroup><button type="button" className="cfg-btn cfg-btn--primary" onClick={() => openDashboard(dashboard)}>Open dashboard</button></ButtonGroup>}
     {status === 'applied' && !undone && <ButtonGroup>
       <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy || (current?.revision !== undefined && current.revision !== revision)} onClick={() => void run(async () => { await appearanceRequest('/ui/undo', 'POST', { steps: 1 }, revision); await refreshAppearance(); setUndone(true); })}>Undo</button>
       <button type="button" className="cfg-btn cfg-btn--secondary" aria-pressed={active.showBefore} disabled={busy || !before.current || before.current.revision !== current?.baseRevision} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); compare(true); }} onPointerUp={() => compare(false)} onPointerCancel={() => compare(false)} onKeyDown={event => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); compare(true); } }} onKeyUp={event => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); compare(false); } }} onBlur={() => compare(false)}>Show before</button>
