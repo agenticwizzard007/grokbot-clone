@@ -24,7 +24,7 @@ class RequestError extends Error {
 }
 
 /** Read the actual byte stream before parsing, even if Content-Length is missing or false. */
-async function body<T>(c: Context<AuthVars>, schema: z.ZodType<T>): Promise<T> {
+async function boundedBytes(c: Context<AuthVars>): Promise<Uint8Array> {
   if (!/^application\/(?:json|json-patch\+json)(?:\s*;|$)/i.test(c.req.header('content-type') ?? ''))
     throw new RequestError('invalid_value', 'Send a JSON request.', 415);
   const reader = c.req.raw.body?.getReader(), chunks: Uint8Array[] = []; let bytes = 0;
@@ -37,12 +37,20 @@ async function body<T>(c: Context<AuthVars>, schema: z.ZodType<T>): Promise<T> {
       chunks.push(item.value);
     }
   } finally { reader?.releaseLock(); }
+  return new Uint8Array(Buffer.concat(chunks));
+}
+
+async function body<T>(c: Context<AuthVars>, schema: z.ZodType<T>): Promise<T> {
   let raw: unknown;
-  try { raw = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+  try { raw = await c.req.json(); }
   catch { throw new RequestError('invalid_value', 'Send valid JSON.', 400); }
   const parsed = schema.safeParse(raw);
-  if (!parsed.success) throw new RequestError('invalid_value', 'Check the request values.', 422,
-    parsed.error.issues.map(issue => ({ path: `/${issue.path.join('/')}`, code: 'invalid_value', message: issue.message })));
+  if (!parsed.success) {
+    const tooBig = (issue: { code: string; errors?: { code: string }[][] }): boolean => issue.code === 'too_big' || !!issue.errors?.some(group => group.some(tooBig));
+    const code = parsed.error.issues.some(tooBig) ? 'limit_exceeded' : 'invalid_value';
+    throw new RequestError(code, 'Check the request values.', 422,
+      parsed.error.issues.map(issue => ({ path: `/${issue.path.join('/')}`, code: issue.code === 'too_big' ? 'limit_exceeded' : 'invalid_value', message: issue.message })));
+  }
   return parsed.data;
 }
 
@@ -61,6 +69,10 @@ export function createUiApi(service: SqliteUiConfigService) {
   api.use('*', async (c, next) => {
     c.header('Cache-Control', 'private, no-store');
     if (!service.enabled(user(c))) return c.json({ code: 'disabled', message: 'Appearance customization is disabled.' }, 404);
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
+      const bytes = await boundedBytes(c);
+      c.req.raw = new Request(c.req.raw, { body: bytes as BodyInit });
+    }
     await next();
   });
   api.onError((error, c) => {

@@ -159,3 +159,16 @@ test('an unavailable imported bot cannot conceal malformed widget content', t =>
   }] });
   error(service.importPreview('a', doc), 'invalid_value');
 });
+
+test('portable bot filters and shortcuts round trip; missing bots remove their widgets visibly', t => {
+  const { service } = fixture(t), doc = structuredClone(DEFAULT_CONFIG);
+  doc.dashboards.push({ id: 'd_aaaaaaaa', name: 'Fixture bots', icon: 'layout-dashboard', widgets: [
+    { id: 'w_aaaaaaaa', type: 'stat', span: 4, rows: 1, source: { id: 'tasks.counts', params: { botId: 'bot_a' } }, options: { field: 'total' } },
+    { id: 'w_bbbbbbbb', type: 'shortcuts', span: 8, rows: 1, options: { items: [{ label: 'Open fixture', target: 'bot:bot_a' }, { label: 'Ask fixture', target: 'ask:bot_a:Fixture question' }] } },
+  ] });
+  success(service.replace('a', doc, 0)); const exported = service.export('a');
+  assert.ok(!JSON.stringify(exported).includes('bot_a'));
+  const own = success(service.importPreview('a', exported)); assert.deepEqual(service.getPreview('a', own.previewId)!.result, doc);
+  const foreign = success(service.importPreview('b', exported)); assert.ok(foreign.warnings.length >= 2);
+  assert.deepEqual(service.getPreview('b', foreign.previewId)!.result.dashboards[0].widgets, []);
+});

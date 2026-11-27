@@ -194,7 +194,7 @@ export class SqliteUiConfigService implements UiConfigService {
       return result.ok ? this.commit(userId, result.result, result.summary, actor) : result;
     });
   }
-  private replacement(before: UiConfig, after: UiConfig): PatchOp[] {
+  private replacement(after: UiConfig): PatchOp[] {
     return [{ op: 'replace', path: '', value: after }];
   }
   replace(userId: string, raw: unknown, expectedRevision: number, actor = 'import'): ApplyResult {
@@ -261,7 +261,7 @@ export class SqliteUiConfigService implements UiConfigService {
         for (const dashboard of after.dashboards) for (const widget of dashboard.widgets) if (widget.type === 'shortcuts' && Array.isArray(widget.options.items) && !widget.options.items.length) widget.options.items = [{ label: 'Bots', target: 'bots' }];
       }
       const removedCount = before.dashboards.length - after.dashboards.length;
-      const result = this.createPreview(userId, this.replacement(before, after), { intent: `Reset ${scope}. Removes ${removedCount} ${removedCount === 1 ? 'dashboard' : 'dashboards'}`, actor: 'reset' }, [], after);
+      const result = this.createPreview(userId, this.replacement(after), { intent: `Reset ${scope}. Removes ${removedCount} ${removedCount === 1 ? 'dashboard' : 'dashboards'}`, actor: 'reset' }, [], after);
       if (result.ok) {
         const line = `Removes ${removedCount} ${removedCount === 1 ? 'dashboard' : 'dashboards'}`;
         if (!result.summary.includes(line)) {
@@ -302,7 +302,7 @@ export class SqliteUiConfigService implements UiConfigService {
   importPreview(userId: string, raw: unknown): PreviewResult {
     if (!this.enabled(userId)) return this.unavailable();
     const parsed = this.importDocument(userId, raw); if (!parsed.ok) return parsed;
-    return this.atomic(() => this.createPreview(userId, this.replacement(this.get(userId).doc, parsed.doc), { intent: 'Import appearance', actor: 'import' }, parsed.warnings, parsed.doc));
+    return this.atomic(() => this.createPreview(userId, this.replacement(parsed.doc), { intent: 'Import appearance', actor: 'import' }, parsed.warnings, parsed.doc));
   }
   /** Translate only registered bot reference fields, never arbitrary note text. */
   private translateBots(userId: string, raw: object, direction: 'import' | 'export', warnings: Violation[], dropMissing = true) {
@@ -331,6 +331,7 @@ export class SqliteUiConfigService implements UiConfigService {
         const id = resolve(value); if (!id) { missing(); return false; }
         item.target = `${match[1]}:${direction === 'export' ? encodeURIComponent(id) : id}${match[3]}`; return true;
       });
+      if (dropMissing && widget.type === 'shortcuts' && Array.isArray(widget.options?.items) && !widget.options.items.length) return false;
       return true;
     });
   }

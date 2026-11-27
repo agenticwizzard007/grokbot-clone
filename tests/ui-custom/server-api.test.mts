@@ -43,7 +43,7 @@ test('JSON shape, JSON-only, streaming byte cap, patch count, and unknown keys r
   const send = (body: string, type = 'application/json') => fetch(`${server.base}/api/ui/config`, { method: 'PATCH', headers: { cookie: server.a.cookie, origin: server.base,
     'content-type': type, 'If-Match': `"${rev}"` }, body });
   for (const [input, status, code] of [['{', 400, 'invalid_value'], [JSON.stringify({ userId: server.b.userId, patch: patch('dark') }), 422, 'invalid_value'],
-    [JSON.stringify(Array.from({ length: 101 }, () => patch('dark')[0])), 422, 'invalid_value']]) {
+    [JSON.stringify(Array.from({ length: 101 }, () => patch('dark')[0])), 422, 'limit_exceeded']]) {
     const response = await send(String(input)); assert.equal(response.status, status); assert.equal((await response.json()).code, code);
   }
   assert.equal((await send('[]', 'text/plain')).status, 415);
