@@ -29,7 +29,7 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH 
 const results = [];
 let last;
 try {
- async function checkWidth(width) { for (const theme of ['light','dark']) {
+ async function checkCase(width, theme) {
   const { page, fixture, errors, writes } = await shellFixture(browser, width, theme); last = page; page.on('pageerror', e => console.error(page.url(), e.message));
   // Cold documents may reuse this immutable local build, as bookmarks do.
   // Playwright routing otherwise disables caching for every static asset too.
@@ -215,14 +215,14 @@ try {
   await failure.page.waitForFunction(() => location.hash === '#bots');
   console.log(`PASS ${width}: roster failure retains navigation to Bots`);
   await failure.page.context().close();
- } }
+ }
  // Independent contexts keep the expanded matrix within a few minutes.
- const queue = [...widths];
- const completed = await Promise.allSettled(Array.from({ length: Math.min(5, queue.length) }, async () => {
+ const queue = widths.flatMap(width => ['light', 'dark'].map(theme => ({ width, theme })));
+ const completed = await Promise.allSettled(Array.from({ length: Math.min(10, queue.length) }, async () => {
   while (queue.length) {
-   const width = queue.shift();
-   try { await checkWidth(width); }
-   catch (error) { console.error(`FAIL navigation ${width}: ${error.message}`); throw error; }
+   const { width, theme } = queue.shift();
+   try { await checkCase(width, theme); }
+   catch (error) { console.error(`FAIL navigation ${width} ${theme}: ${error.message}`); throw error; }
   }
  }));
  for (const result of completed) if (result.status === 'rejected') throw result.reason;
