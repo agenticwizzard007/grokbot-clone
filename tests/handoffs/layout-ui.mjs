@@ -24,7 +24,9 @@ export async function auditRoute(page, width) {
     const hidden = await page.locator('textarea[tabindex="-1"]').evaluateAll(nodes => nodes.every(el => !!el.closest('[aria-hidden="true"]') && getComputedStyle(el).visibility === 'hidden' && el.tabIndex < 0));
     if (!hidden) throw error;
   }
-  if (await page.locator('.flow-tab').count()) assert.deepEqual(await page.evaluate(inspectFlowAccessibility), []);
+  // Settings can retain a Bot's previous tab behind its active page. Audit the
+  // chart only on the Flow route, where the route marker requires it to load.
+  if (/\/details\/flow(?:[?#]|$)/.test(new URL(page.url()).hash)) assert.deepEqual(await page.evaluate(inspectFlowAccessibility), []);
   if (width <= 760) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1, 'One Back on phone');
 }
 export async function auditRoutes(page, server, width, ids) {
