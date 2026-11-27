@@ -6,6 +6,7 @@ import { isConfiguring } from '../bot-setup.js';
 import { currentRun, withRun } from './run-scope.js';
 import { currentJobId } from '../usage-context.js';
 import { createUiTools, UI_TOOL_NAMES } from './ui-tools.js';
+import { REQUIREMENTS_TOOL_NAMES } from './ui-requirements-tools.js';
 import type { ToolCtx } from './tools.js';
 import { APPEARANCE_SKILL } from './ui-skill.js';
 
@@ -34,7 +35,7 @@ export function uiChatJobs(ctx: Context): string[] {
 
 const safeNames = new Set(['tool_search', 'tool_describe', 'get_platform_state', 'ask_user']);
 function outsideName(name: string, args?: any) {
-  if (UI_TOOL_NAMES.has(name) || safeNames.has(name)) return false;
+  if (UI_TOOL_NAMES.has(name) || REQUIREMENTS_TOOL_NAMES.has(name) || safeNames.has(name)) return false;
   if (name === 'read_skill' && args?.skill_id === 'appearance') return false;
   // App metadata, memory, other skills, computer actions and unknown tools can all contain outside text.
   return true;
