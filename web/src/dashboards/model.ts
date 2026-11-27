@@ -1,12 +1,13 @@
 import type { Dashboard, Widget } from '@shared/ui-config/schema';
 import type { PatchOp } from '@shared/ui-config/service';
-import { WIDGETS, type WidgetType } from '@shared/ui-config/registry-widgets';
+import { type WidgetType } from '@shared/ui-config/registry-widgets';
 import { routeDashboard } from '../lib/navigation';
 export { dashboardSlug } from '../lib/navigation';
 export type { Dashboard, Widget };
 export interface WidgetData { ok: boolean; rows?: Record<string, unknown>[]; value?: Record<string, unknown>; count?: number; available?: boolean; fetchedAt?: number; message?: string }
 export interface WidgetState { status: 'loading' | 'ready' | 'error'; data?: WidgetData; error?: string; refreshing?: boolean }
-export const widgetLabel = (widget: Widget) => widget.title || WIDGETS.find(entry => entry.id === widget.type)?.label || 'Widget';
+export { widgetTitle as widgetLabel } from '@shared/ui-config/presentation';
+import { widgetTitle } from '@shared/ui-config/presentation';
 export const columnSpan = (span: number, width: number) => width <= 480 ? span <= 4 ? 1 : 2 : width <= 1023 ? Math.ceil(span / 2) : span;
 export function findDashboard(dashboards: Dashboard[], reference?: string) {
   return reference ? routeDashboard(reference, dashboards) : undefined;
@@ -18,7 +19,11 @@ export function widgetSource(widget: Widget) {
 }
 export const sourceKey = (widget: Widget) => { const source = widgetSource(widget); return source ? JSON.stringify([source.id, Object.fromEntries(Object.entries(source.params).sort(([a], [b]) => a.localeCompare(b)))]) : ''; };
 export function defaultWidget(type: WidgetType): Widget {
-  const base = { id: '$new1', type, title: WIDGETS.find(entry => entry.id === type)!.label, span: 6, rows: 3, refreshSec: 60 as const };
+  const widget = widgetDefaults(type);
+  return { ...widget, title: widgetTitle(widget) };
+}
+function widgetDefaults(type: WidgetType): Widget {
+  const base = { id: '$new1', type, span: 6, rows: 3, refreshSec: 60 as const };
   switch (type) {
     case 'agent': return { ...base, title: 'Daily summary', rows: 3, options: { prompt: 'Summarize my open tasks and what needs my input.', display: 'text', schedule: 'manual' }, refreshSec: 0 };
     case 'stat': return { ...base, span: 4, rows: 1, source: { id: 'tasks.counts', params: {} }, options: { field: 'total', format: 'number' } };
