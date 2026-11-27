@@ -43,7 +43,7 @@ export function HandoffDetail({ handoffId, onBack, onSend }: { handoffId: string
       </Card></Section>
       <Section title="Ask"><Card><p className="ho-prose">{handoffText(handoff.instruction)}</p></Card></Section>
       <Section title="Passed"><HandoffState loading={!source.data && source.loading} error={source.error} retry={source.retry} />{source.data && <OutputParts output={source.data.output} />}</Section>
-      <Section title="Result">{handoff.resultOutputId ? <OutputCard output={result.data?.output} loading={result.loading} error={result.error} onRetry={result.retry} onSend={onSend} /> : <Card variant="list"><HandoffState empty={['queued', 'delivered', 'running', 'pending_approval'].includes(handoff.status) ? 'Waiting for a result' : 'No result returned'} /></Card>}</Section>
+      <Section title="Result">{handoff.resultOutputId ? <OutputCard output={result.data?.output} loading={result.loading} error={result.error} onRetry={result.retry} onSend={onSend} openLabel="Open output" /> : <Card variant="list"><HandoffState empty={['queued', 'delivered', 'running', 'pending_approval'].includes(handoff.status) ? 'Waiting for a result' : 'No result returned'} /></Card>}</Section>
       <Section title="Events"><Card variant="list">{detail.data?.events.length ? [...detail.data.events].sort((a, b) => a.seq - b.seq).map(event => <Row key={event.seq}
         title={eventLabels[event.type] ?? 'Updated'} subtitle={new Date(event.createdAt).toLocaleString()} />) : <HandoffState empty="No events yet" />}</Card></Section>
       <ButtonGroup>

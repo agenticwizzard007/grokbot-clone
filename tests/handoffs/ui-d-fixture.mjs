@@ -29,7 +29,8 @@ export const handoff = { id: 'ho_fixture', userId: 'usr_fixture', fromBotId: 'bo
 export const events = ['created', 'delivered', 'read', 'completed'].map((type, index) => ({ seq: index + 1, type: `handoff.${type}`, createdAt: stamp + index * 15000, data: type === 'read' ? { partId: 'p_body', bytes: 500 } : {} }));
 
 export async function fixture() {
-  const out = path.resolve('.context/ho-d/fixture'); fs.mkdirSync(out, { recursive: true });
+  const root = path.resolve('.context/ho-d'); fs.mkdirSync(root, { recursive: true });
+  const out = fs.mkdtempSync(path.join(root, 'fixture-'));
   const from = name => JSON.stringify(path.resolve(`web/src/handoffs/${name}`));
   fs.writeFileSync(path.join(out, 'index.html'), '<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Handoff fixture</title></head><body><main id="root"></main><script type="module">import RefreshRuntime from "/@react-refresh"; RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type; window.__vite_plugin_react_preamble_installed__ = true; await import("./index.tsx");</script></body></html>');
   fs.writeFileSync(path.join(out, 'index.tsx'), `
@@ -58,11 +59,12 @@ function App() {
  const row = {handoffId: 'ho_fixture', direction: 'sent', otherBotId: 'bot_checker', status: mode === 'ready' ? 'running' : mode === 'error' ? 'failed' : 'queued', title: output.title};
  const body = view === 'detail' ? <HandoffDetail handoffId="ho_fixture" onBack={() => history.back()} onSend={send}/> : view === 'viewer' ? <OutputViewer outputId="out_fixture" partId={new URLSearchParams(hash.split('?')[1]).get('part') || undefined} onBack={() => history.back()} onSend={send} onStartLoop={() => { window.loopRequested = true; }}/> :
  <Page className="ho" title={view === 'settings' ? 'Agents' : view === 'list' ? 'Activity' : view === 'row' ? 'Conversation' : 'Run output'}>
- {view === 'settings' ? <HandoffSettingsControls botId="bot_maker"/> : view === 'list' ? <HandoffList botId="bot_maker"/> : view === 'row' ? <Card variant="list"><HandoffRow body={row} otherBotName="Checker"/></Card> : <Section title="Finished run"><OutputCard output={mode === 'empty' || mode === 'loading' ? null : output} loading={mode === 'loading'} error={mode === 'error' ? 'Could not load this output.' : undefined} onRetry={() => { location.search = '?view=card'; }} onSend={send} suggestions={[{link, name: 'Checker'}]}/></Section>}
+ {view === 'settings' ? <HandoffSettingsControls botId={params.get('global') ? undefined : 'bot_maker'}/> : view === 'list' ? <HandoffList botId="bot_maker"/> : view === 'row' ? <Card variant="list"><HandoffRow body={row} otherBotName="Checker"/></Card> : <Section title="Finished run"><OutputCard output={mode === 'empty' || mode === 'loading' ? null : output} loading={mode === 'loading'} error={mode === 'error' ? 'Could not load this output.' : undefined} onRetry={() => { location.search = '?view=card'; }} onSend={send} suggestions={[{link, name: 'Checker'}]}/></Section>}
  {view === 'sheet' && <button className="ho-button" onClick={() => setOpen(true)}>Open Send sheet</button>}
  {receipt && <Card variant="list"><HandoffRow body={{...row, handoffId:receipt.id, status:receipt.status}} otherBotName="Checker"/></Card>}
  </Page>;
- return <>{body}<SendSheet open={open} onClose={() => setOpen(false)} senderId="bot_maker" output={output} initialTargetId={target} onSent={value => setReceipt(value)}/></>;
+ const source = params.get('source') === 'task' ? {taskId:'task_fixture'} : params.get('source') === 'message' ? {messageRef:{botId:'bot_maker',generation:1,seq:5}} : undefined;
+ return <>{body}<SendSheet open={open} onClose={() => setOpen(false)} senderId="bot_maker" output={source ? undefined : output} source={source} title="Release note draft" roomId={params.get('room') ? 'bot_room' : undefined} roomMemberIds={params.get('room') ? ['bot_editor'] : undefined} initialTargetId={target} onSent={value => setReceipt(value)}/></>;
 }
 createRoot(document.getElementById('root')).render(<App/>);
 `);
@@ -70,7 +72,7 @@ createRoot(document.getElementById('root')).render(<App/>);
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   return {
     server, browser,
-    async page({ view = 'card', state = 'ready', width = 390, theme = 'light' } = {}) {
+    async page({ view = 'card', state = 'ready', width = 390, theme = 'light', source = 'output', room = false, global = false } = {}) {
       const page = await browser.newPage({ viewport: { width, height: width === 390 ? 844 : 1000 }, reducedMotion: 'reduce' });
       const errors = []; page.on('pageerror', error => errors.push(error.message));
       await page.route('**/*', route => {
@@ -79,7 +81,7 @@ createRoot(document.getElementById('root')).render(<App/>);
       });
       await page.addInitScript(({ output, agents, handoff, link, events, state }) => {
         const nativeFetch = window.fetch.bind(window);
-        const f = window.fixture = { calls: [], sent: [], failSend: false, failOnce: false, failAfterCommit: false, links: [link], settings: { enabled: true, agentHandoffs: 'team' }, status: handoff.status, agents, ids: {}, state, failLinks: false };
+        const f = window.fixture = { calls: [], sent: [], failSend: false, failOnce: false, failAfterCommit: false, links: [link], settings: { enabled: true, agentHandoffs: 'team' }, status: handoff.status, agents, ids: {}, state, failLinks: false, output, delay: 100 };
         window.fetch = async (input, init = {}) => {
           const url = new URL(typeof input === 'string' ? input : input.url, location.origin);
           if (!url.pathname.startsWith('/api/')) return nativeFetch(input, init);
@@ -98,7 +100,7 @@ createRoot(document.getElementById('root')).render(<App/>);
             return reply({ links: state === 'empty' ? [] : f.links });
           }
           if (url.pathname === '/api/handoffs' && init.method === 'POST') {
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise(resolve => setTimeout(resolve, f.delay));
             if (f.failSend || f.failOnce) { f.failOnce = false; return reply({ error: 'That would send the work back to Maker. Use a loop instead.', code: 'cycle_detected' }, 422); }
             if (!f.ids[body.idempotencyKey]) { f.ids[body.idempotencyKey] = { ...handoff, id: 'ho_sent_' + f.sent.length, status: 'running', toBotId: body.toBotId }; f.sent.push(body); }
             if (f.failAfterCommit) { f.failAfterCommit = false; throw new TypeError('Connection lost. Try again.'); }
@@ -112,11 +114,11 @@ createRoot(document.getElementById('root')).render(<App/>);
           if (url.pathname === '/api/handoffs/ho_fixture') return reply({ handoff: state === 'empty' ? null : { ...handoff, status: f.status }, events });
           if (/\/handoffs\/ho_fixture\/(cancel|approve|decline)$/.test(url.pathname)) { f.status = url.pathname.endsWith('cancel') ? 'cancelled' : url.pathname.endsWith('approve') ? 'queued' : 'declined'; return reply({ handoff: { ...handoff, status: f.status } }); }
           if (/\/outputs\/[^/]+\/parts\//.test(url.pathname)) return reply({ text: url.searchParams.get('offset') === '0' ? 'First body page. <script>window.injected = true</script>' : 'Last body page.', next: url.searchParams.get('offset') === '0' ? 8000 : null });
-          if (url.pathname.startsWith('/api/outputs/')) return reply({ output: state === 'empty' ? null : url.pathname.endsWith('out_result') ? { ...output, id: 'out_result', title: 'Reviewed release note', summary: 'All requested changes are in the reviewed note.' } : output });
+          if (url.pathname.startsWith('/api/outputs/')) return reply({ output: state === 'empty' ? null : url.pathname.endsWith('out_result') ? { ...f.output, id: 'out_result', title: 'Reviewed release note', summary: 'All requested changes are in the reviewed note.' } : f.output });
           throw new Error('Unstubbed API: ' + url.pathname);
         };
       }, { output, agents, handoff, link, events, state });
-      await page.goto(`${server.base}/@fs${out}/index.html?view=${view}&state=${state}&theme=${theme}`);
+      await page.goto(`${server.base}/@fs${out}/index.html?view=${view}&state=${state}&theme=${theme}&source=${source}${room ? '&room=1' : ''}${global ? '&global=1' : ''}`);
       await page.locator('[data-layout="page"]').first().waitFor();
       if (view === 'sheet') await page.getByRole('button', { name: 'Open Send sheet', exact: true }).click();
       if (state !== 'loading') await page.waitForTimeout(220);

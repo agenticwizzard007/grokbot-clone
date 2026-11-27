@@ -4,9 +4,9 @@ import path from 'node:path';
 import { fixture, checkAccessibility, checkLayout } from './ui-d-fixture.mjs';
 
 const f = await fixture(), results = [];
-async function check(name, run) {
+async function check(name, run, options = {}) {
   for (const width of [390, 1280]) {
-    const page = await f.page({ width, view: name.startsWith('viewer') ? 'viewer' : name.startsWith('detail') ? 'detail' : name.startsWith('list') ? 'list' : name.startsWith('settings') ? 'settings' : 'card' });
+    const page = await f.page({ width, view: name.startsWith('viewer') ? 'viewer' : name.startsWith('detail') ? 'detail' : name.startsWith('list') ? 'list' : name.startsWith('settings') ? 'settings' : 'card', ...options });
     try { await run(page); assert.deepEqual(page.fixtureErrors, []); results.push({ name, width }); console.log(`PASS ${name} ${width}`); }
     finally { await page.close(); }
   }
@@ -149,6 +149,43 @@ try {
     assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1);
     await page.getByRole('button', { name: 'Back', exact: true }).click(); await page.getByRole('heading', { name: 'Run output', exact: true }).waitFor();
   });
+  for (const source of ['task', 'message']) await check(`${source} source is sent by reference`, async page => {
+    await open(page); await pick(page); await send(page).click(); await waitReceipt(page);
+    const body = await page.evaluate(() => window.fixture.sent[0]);
+    assert.deepEqual(body.source, source === 'task' ? { taskId: 'task_fixture' } : { messageRef: { botId: 'bot_maker', generation: 1, seq: 5 } });
+    assert.equal('output' in body, false);
+  }, { source });
+  await check('room sends only to eligible members', async page => {
+    await open(page); await page.getByRole('button', { name: /^Editor/ }).waitFor();
+    assert.deepEqual(await page.locator('.ho-target .layout-row__title').allTextContents(), ['Editor']);
+    await page.getByRole('button', { name: /^Editor/ }).click(); await send(page).click();
+    await page.waitForFunction(() => window.fixture.sent.length === 1);
+    assert.equal(await page.evaluate(() => window.fixture.sent[0].roomId), 'bot_room');
+  }, { room: true });
+  await check('closed request cannot close a newly opened sheet', async page => {
+    await page.evaluate(() => { window.fixture.delay = 1000; });
+    await open(page); await pick(page); await send(page).click();
+    await page.getByRole('button', { name: 'Close', exact: true }).click(); await open(page);
+    await page.waitForFunction(() => window.fixture.sent.length === 1);
+    assert.equal(await page.getByRole('dialog').count(), 1);
+  });
+  await check('viewer renders hostile titles as text and blocks unsafe URLs', async page => {
+    await page.evaluate(() => {
+      window.fixture.output.title = '<img src=x onerror=window.injected=true>';
+      window.fixture.output.parts.find(part => part.kind === 'link').url = 'javascript:window.injected=true';
+      window.refreshFixture();
+    });
+    await page.getByRole('heading', { name: '<img src=x onerror=window.injected=true>', exact: true }).waitFor();
+    assert.equal(await page.locator('h1 img').count(), 0);
+    assert.equal(await page.locator('a[href^="javascript:"]').count(), 0);
+    await page.getByText('Link unavailable', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.injected), undefined);
+  });
+  await check('settings global controls select a link sender', async page => {
+    await page.getByLabel('Links from').selectOption('bot_checker');
+    await page.waitForFunction(() => window.fixture.calls.some(call => call.path === '/api/handoff-links' && call.query.includes('bot_checker')));
+    await checkLayout(page); await checkAccessibility(page);
+  }, { global: true });
   for (const file of fs.readdirSync('web/src/handoffs').filter(file => /\.(tsx?|css)$/.test(file))) {
     assert.doesNotMatch(fs.readFileSync(path.join('web/src/handoffs', file), 'utf8'), /[\u2013\u2014]/, `${file}: no prohibited dash characters`);
   }

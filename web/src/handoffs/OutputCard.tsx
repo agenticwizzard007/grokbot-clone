@@ -9,9 +9,10 @@ import './handoffs.css';
 export interface OutputCardProps {
   output?: RunOutput | null; loading?: boolean; error?: string; onRetry?: () => void;
   onSend: (output: RunOutput, targetId?: string) => void;
+  openLabel?: string;
   suggestions?: { link: HandoffLink; name: string }[];
 }
-export function OutputCard({ output, loading, error, onRetry, onSend, suggestions = [] }: OutputCardProps) {
+export function OutputCard({ output, loading, error, onRetry, onSend, suggestions = [], openLabel = 'Open' }: OutputCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const summary = useRef<HTMLParagraphElement>(null);
@@ -35,7 +36,7 @@ export function OutputCard({ output, loading, error, onRetry, onSend, suggestion
         })}
       </div>
       <ButtonGroup><button className="ho-button ho-button--primary" onClick={() => onSend(output)}><Send size={16} aria-hidden="true" />Send to agent</button>
-        <a className="ho-button" href={outputHref(output.id)}>Open</a></ButtonGroup>
+        <a className="ho-button" href={outputHref(output.id)}>{openLabel}</a></ButtonGroup>
       {suggestions.filter(({ link }) => link.mode === 'suggest').map(({ link, name }) => <button key={link.id} className="ho-button ho-suggestion" onClick={() => onSend(output, link.toBotId)}>Send to {handoffText(name)}</button>)}
     </>}
   </Card>;

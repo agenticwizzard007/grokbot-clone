@@ -32,10 +32,14 @@ export function HandoffList({ botId }: { botId: string }) {
 }
 
 /** Exported here to stay within HO-D's exclusive files. HO-I mounts in Settings, Agents. */
-export function HandoffSettingsControls({ botId }: { botId: string }) {
-  const resource = useHandoffResource(`settings:${botId}`, async signal => {
-    const [policy, links, agents] = await Promise.all([handoffApi.settings(signal), handoffApi.links(botId, signal), handoffApi.agents(signal)]);
-    return { settings: policy.settings, links: links.links, agents: agents.bots };
+export function HandoffSettingsControls({ botId }: { botId?: string } = {}) {
+  const [selectedBotId, setSelectedBotId] = useState('');
+  const resource = useHandoffResource(`settings:${botId ?? selectedBotId}`, async signal => {
+    const [policy, agents] = await Promise.all([handoffApi.settings(signal), handoffApi.agents(signal)]);
+    const senders = agents.bots.filter(bot => bot.kind !== 'room' && !bot.hidden);
+    const senderId = botId || selectedBotId || senders[0]?.id;
+    const links = senderId ? (await handoffApi.links(senderId, signal)).links : [];
+    return { settings: policy.settings, links, agents: agents.bots, senders, senderId };
   });
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [saved, setSaved] = useState(false);
   const lock = useRef(false);
@@ -44,30 +48,35 @@ export function HandoffSettingsControls({ botId }: { botId: string }) {
     try {
       if ('settings' in change) await handoffApi.saveSettings(change.settings);
       else {
-        const current = (await handoffApi.links(botId)).links;
-        await handoffApi.saveLinks(botId, current.map(link => linkInput(link.id === change.link.id ? { ...link, ...change.patch } : link)));
+        if (!resource.data?.senderId) return;
+        const senderId = resource.data.senderId;
+        const current = (await handoffApi.links(senderId)).links;
+        await handoffApi.saveLinks(senderId, current.map(link => linkInput(link.id === change.link.id ? { ...link, ...change.patch } : link)));
       }
       setSaved(true); refreshHandoffs();
     } catch (reason) { setError(errorText(reason)); }
     finally { lock.current = false; setBusy(false); }
   }
   const data = resource.data;
+  const disabled = busy || resource.loading;
   return <div className="ho ho-settings">
     <HandoffState loading={!data && resource.loading} error={resource.error} retry={resource.retry} />
     {data && <>
       <Section title="Agent policy"><Card variant="list">
-        <Row title={<label className="ho-check"><input type="checkbox" checked={data.settings.enabled} disabled={busy} onChange={event => void save({ settings: { ...data.settings, enabled: event.target.checked } })} />Enable handoffs</label>} />
-        <Row title={<label className="ho-field">Agents can send to<select value={data.settings.agentHandoffs} disabled={busy} onChange={event => void save({ settings: { ...data.settings, agentHandoffs: event.target.value as HandoffSettings['agentHandoffs'] } })}>
+        <Row title={<label className="ho-check"><input type="checkbox" checked={data.settings.enabled} disabled={disabled} onChange={event => void save({ settings: { ...data.settings, enabled: event.target.checked } })} />Enable handoffs</label>} />
+        <Row title={<label className="ho-field">Agents can send to<select value={data.settings.agentHandoffs} disabled={disabled} onChange={event => void save({ settings: { ...data.settings, agentHandoffs: event.target.value as HandoffSettings['agentHandoffs'] } })}>
           <option value="team">Any agent on my team</option><option value="links_only">Linked agents only</option><option value="off">No agents</option>
         </select></label>} subtitle="20 per agent per hour, 100 per day" />
       </Card></Section>
-      <Section title="Standing links"><Card variant="list">
+      <Section title="Standing links">
+        {!botId && data.senders.length > 0 && <label className="ho-field">Links from<select value={data.senderId} disabled={disabled} onChange={event => setSelectedBotId(event.target.value)}>{data.senders.map(bot => <option key={bot.id} value={bot.id}>{handoffText(bot.name)}</option>)}</select></label>}
+        <Card variant="list">
         {!data.links.length && <HandoffState empty="No links yet" />}
         {data.links.map(link => {
           const name = handoffText(data.agents.find(bot => bot.id === link.toBotId)?.name ?? 'Agent');
           return <Row key={link.id} title={name}>
-            <label className="ho-field">Mode for {name}<select disabled={busy} value={link.mode} onChange={event => void save({ link, patch: { mode: event.target.value as HandoffLink['mode'] } })}><option value="off">Off</option><option value="suggest">Suggest</option><option value="auto">Auto</option></select></label>
-            <label className="ho-check"><input type="checkbox" disabled={busy} checked={link.autoApproveLoops} onChange={event => void save({ link, patch: { autoApproveLoops: event.target.checked } })} />Auto approve loops started by agents with {name}</label>
+            <label className="ho-field">Mode for {name}<select disabled={disabled} value={link.mode} onChange={event => void save({ link, patch: { mode: event.target.value as HandoffLink['mode'] } })}><option value="off">Off</option><option value="suggest">Suggest</option><option value="auto">Auto</option></select></label>
+            <label className="ho-check"><input type="checkbox" disabled={disabled} checked={link.autoApproveLoops} onChange={event => void save({ link, patch: { autoApproveLoops: event.target.checked } })} />Auto approve loops started by agents with {name}</label>
           </Row>;
         })}
       </Card></Section>

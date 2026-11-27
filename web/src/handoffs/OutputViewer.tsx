@@ -4,7 +4,7 @@ import { ButtonGroup, Card, Page, Row, Section } from '../components/layout';
 import { ProviderLabel } from '../components/ProviderMark';
 import { handoffApi, type OutputPart, type RunOutput } from './api';
 import { HandoffState } from './HandoffRow';
-import { errorText, handoffText, outputHref, useHandoffResource } from './useHandoffs';
+import { handoffText, outputHref, useHandoffResource } from './useHandoffs';
 import './handoffs.css';
 
 export function BackControl({ onBack = () => history.back() }: { onBack?: () => void }) {
