@@ -42,9 +42,18 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
   const storedTab = useConfigUI(state => state.detailsTab);
   const [flowEnabled, setFlowEnabled] = useState(true);
   const [flow, setFlow] = useState(() => bot.kind !== 'room' && (Boolean(flowLocation()) || (storedTab === 'activity' && (Date.now() - bot.createdAt < 3 * 86400_000 || !bot.lastActivityAt))));
+  const flowRoute = useRef(Boolean(flowLocation()));
   const choseTab = useRef(false);
   const tab = flow && storedTab === 'activity' && bot.kind !== 'room' ? 'flow' : storedTab;
-  useEffect(() => { const sync = () => { if (flowLocation()) setFlow(true); }; window.addEventListener('swarm:flow-location', sync); return () => window.removeEventListener('swarm:flow-location', sync); }, []);
+  useEffect(() => {
+    const sync = () => {
+      const next = Boolean(flowLocation());
+      if (next || flowRoute.current) setFlow(next);
+      flowRoute.current = next;
+    };
+    window.addEventListener('swarm:flow-location', sync);
+    return () => window.removeEventListener('swarm:flow-location', sync);
+  }, []);
   // An automatic default must not rewrite an explicit Activity URL or its Back trail.
   useEffect(() => {
     if (bot.kind === 'room') return;
