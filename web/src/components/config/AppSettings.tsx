@@ -123,6 +123,7 @@ export function AgentsSection() {
       .agents-settings .layout-row__trailing { align-self: center; }
       .agents-settings .settings-disclosure .layout-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; }
       .agents-settings .settings-disclosure .layout-row__text { min-width: 0; }
+      .agents-settings .settings-info__content { font: 400 var(--text-base)/var(--line-body) var(--font-stack); }
       .agents-settings .agents-saved { color: var(--color-success); background: var(--color-success-bg); }
     `}</style>
     <Section title="Handoffs" action={<InfoTip label="About handoffs">Send finished work to another agent. Team allows any available teammate; Links only follows standing links; Off stops agent sends. You can still send work yourself. Limits: 20 per agent per hour, 100 per account per day.</InfoTip>}>

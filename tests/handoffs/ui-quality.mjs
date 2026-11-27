@@ -24,7 +24,7 @@ export function inspectQuality({ selector, finished = false }) {
       const range = document.createRange(); range.selectNodeContents(node);
       if (![...range.getClientRects()].some(r => r.width > 0 && r.height > 0)) continue;
       const font = parseFloat(css.fontSize);
-      check('a.type', font >= (el.closest(chip) ? 12 : el.closest('p,pre,textarea') ? 14 : 13), el, `${font}px`);
+      check('a.type', font >= (el.closest(chip) ? 12 : el.closest('p,pre,textarea,[role="tooltip"]') ? 14 : 13), el, `${font}px`);
       check('h.copy', !forbidden.test(node.textContent), el);
     }
     if (el.matches('input,textarea')) check('h.copy', !forbidden.test(el.value) && !forbidden.test(el.getAttribute('placeholder') || ''), el);
