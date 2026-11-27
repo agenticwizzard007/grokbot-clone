@@ -7,7 +7,7 @@ import { INJECTION_DOCUMENTS } from './corpus.mjs';
 import { LAYOUT_PATCH } from '../fixtures/matrix.mjs';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'uc-h-taint-'));
-Object.assign(process.env, { NODE_ENV: 'test', SWARM_ROLE: 'standalone', DB_PATH: path.join(temp, 'app.db'), FILES_DIR: path.join(temp, 'files'), CLI_PROFILES_DIR: path.join(temp, 'profiles'), SESSION_SECRET: 'fixture', COMPUTER_PROVIDER: 'local', INKBOX_TUNNEL: '0', UI_CUSTOMIZATION: 'on' });
+Object.assign(process.env, { NODE_ENV: 'test', SWARM_ROLE: 'standalone', DB_PATH: path.join(temp, 'app.db'), FILES_DIR: path.join(temp, 'files'), CLI_PROFILES_DIR: path.join(temp, 'profiles'), SESSION_SECRET: 'fixture', COMPUTER_PROVIDER: 'local', INKBOX_TUNNEL: '0', UI_CUSTOMIZATION: 'on', UI_ADAPT: 'on' });
 const realFetch = globalThis.fetch;
 globalThis.fetch = async () => Response.json({ items: [], data: [] });
 const { db } = await import('../../../server/src/db.js');
@@ -42,4 +42,18 @@ test('clean direct user turn can confirm navigation in auto mode', async () => {
   const preview = await call('preview_ui_patch', { intent: 'Open Tasks first', patch: LAYOUT_PATCH }, context);
   assert.equal((await call('apply_ui_patch', { previewId: preview.previewId }, context)).status, 'applied');
   assert.equal(uiConfigService.get(userId).doc.layout.home.kind, 'tasks');
+});
+for (const [index, injection] of INJECTION_DOCUMENTS.entries()) test(`untrusted content ${index + 1} cannot write requirements`, async t => {
+  const tool = toolMap.get('update_requirements');
+  if (!tool) {
+    assert.notEqual(process.env.UC_REQUIRE_FULL, '1', 'Required feature unavailable: update_requirements');
+    t.skip('UC-I update_requirements is not present'); return;
+  }
+  const context = { userId, botId: bot.id, jobId: acceptJob(bot.id, { type: 'user', text: 'Summarize the supplied fixture' }).id, depth: 0, enqueueBotMessage() {} };
+  const before = await call('get_requirements', {}, context);
+  appendRow(bot.id, 'tool-call', { type: 'tool-call', name: 'read_file', callId: `profile-${index}`, args: {}, label: 'Read fixture', status: 'done', jobId: context.jobId, output: injection });
+  assert.equal(uiTurnTainted(context), true);
+  const result = await call('update_requirements', { patch: [{ op: 'add', path: '/role', value: 'Support coordinator' }, { op: 'add', path: '/focus', value: ['tasks', 'chat'] }] }, context);
+  assert.equal(result.status, 'awaiting_user');
+  assert.deepEqual(await call('get_requirements', {}, context), before, 'Outside content cannot write the profile');
 });

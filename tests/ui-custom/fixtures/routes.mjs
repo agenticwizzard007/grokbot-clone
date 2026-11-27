@@ -1,3 +1,4 @@
+import { seedWidgetData } from './widget-data.mjs';
 import assert from 'node:assert/strict';
 import { api, configAvailable, put, requireModules, open, agentPreview, until } from './harness.mjs';
 import { contracts } from './contracts.mjs';
@@ -16,6 +17,7 @@ export async function prepareRoute(page, context, server, route) {
   // UC-B is merged, so even a later feature's gate must not conceal a broken API.
   await configAvailable(context.request, server.base);
   requireModules(...route.modules);
+  if (route.fixture === 'dashboard-seeded') seedWidgetData(server);
   if (route.fixture === 'dashboard-empty') {
     await context.clearCookies();
     const login = await context.request.post(`${server.base}/api/auth/dev`, { data: { email: 'qa-temp-empty@example.test', name: 'QA-Temp-Empty' } });

@@ -1,6 +1,7 @@
+import { seedWidgetData } from '../fixtures/widget-data.mjs';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
-import { api, patch, configAvailable, requireModules, fixtureContext, open, agentPreview, button, until, snapshot, runSuite } from '../fixtures/harness.mjs';
+import { api, patch, configAvailable, requireModules, fixtureContext, open, agentPreview, button, until, runSuite } from '../fixtures/harness.mjs';
 import { LAYOUT_PATCH, dashboardPatch, corruptDocument, DASHBOARD_EDITS } from '../fixtures/matrix.mjs';
 import { requirementsUseCases, requirementsChangeReset } from './requirements-journeys.mjs';
 import { INJECTION_DOCUMENTS } from '../security/corpus.mjs';
@@ -12,6 +13,7 @@ export async function reset(context, server) {
 export async function saved(context, server) { return configAvailable(context.request, server.base); }
 export async function dashboardJourney({ page, context, server, capture = async () => {} }) {
   requireModules('server/src/agent/ui-tools.ts', 'web/src/dashboards/DashboardGrid.tsx', 'web/src/components/cards/UiPreviewCard.tsx', 'web/src/customization/layout/useHome.ts');
+  seedWidgetData(server);
   const card = await agentPreview(page, server, dashboardPatch(), 'I coordinate weekly operations. Propose a dashboard for task review and usage');
   await capture('dashboard-request-preview');
   const preview = await api(context.request, server.base, `/previews/${card.previewId}`);
@@ -63,7 +65,7 @@ export async function recoveryJourney({ page, context, server, capture = async (
   await capture('safe-mode-recovery');
   await button(page, 'Reset');
   await button(page, 'Confirm reset');
-  await until(async () => !(await saved(context, server)).doc.layout.sidebar.hidden.includes('settings'), 'Reset did not restore Settings');
+  await until(async () => { const restored = await saved(context, server); return restored.status === 'ready' && restored.revision > current.revision && !restored.doc.layout.sidebar.hidden.includes('settings'); }, 'Reset did not commit the restored navigation');
   await capture('safe-mode-reset');
 }
 const journeys = [

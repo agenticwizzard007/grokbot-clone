@@ -66,7 +66,7 @@ export async function open(page, base, hash = '#bots') {
 export async function agentPreview(page, server, ops, intent = 'Preview fixture navigation') {
   await open(page, server.base, `#bot/${server.fixture.bot.id}`);
   const composer = page.getByRole('textbox', { name: `Message ${server.fixture.bot.name}`, exact: true });
-  const previousIds = server.withDb(db => db.prepare("SELECT id FROM rows WHERE bot_id=? AND json_extract(body,'$.card')='ui_preview'").all(server.fixture.bot.id).map(row => row.id));
+  const previousIds = server.withDb(db => db.prepare("SELECT generation || ':' || seq AS id FROM rows WHERE bot_id=? AND json_extract(body,'$.card')='ui_preview'").all(server.fixture.bot.id).map(row => row.id));
   const payload = { intent, patch: ops, autofix: true };
   await composer.fill(`mock: preview_ui_patch ${JSON.stringify(payload)} | say ${intent}`);
   await composer.press('Enter');
@@ -78,7 +78,7 @@ export async function agentPreview(page, server, ops, intent = 'Preview fixture 
 export async function untilPreviewRow(server, previousIds = []) {
   let body;
   await until(() => {
-    body = server.withDb(db => db.prepare("SELECT id,body FROM rows WHERE bot_id=? AND json_extract(body,'$.card')='ui_preview' ORDER BY created_at DESC").all(server.fixture.bot.id).find(row => !previousIds.includes(row.id)));
+    body = server.withDb(db => db.prepare("SELECT generation || ':' || seq AS id,body FROM rows WHERE bot_id=? AND json_extract(body,'$.card')='ui_preview' ORDER BY created_at DESC").all(server.fixture.bot.id).find(row => !previousIds.includes(row.id)));
     return !!body;
   }, 'Agent did not create a ui_preview card');
   return JSON.parse(body.body);

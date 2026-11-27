@@ -1,4 +1,4 @@
-// Local seeded route audit. Other streams turn on enforcement as they migrate.
+// Local seeded route audit. LAYOUT_ROOT can point at an untouched baseline checkout.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -78,7 +78,7 @@ export function inspectAlignment({ selector = '.shell-content > :not(.shell-head
         if (!close(tr.top + tr.height / 2, ar.top + ar.height / 2)) issues.push(`Section action text not centered: ${label(el)} (${Math.abs(tr.top + tr.height / 2 - ar.top - ar.height / 2).toFixed(2)}px)`);
         if (!close(rect(action).right, rect(el.closest('[data-layout="section"]')).right)) issues.push(`Section action right edge: ${label(el)}`);
         const ts = getComputedStyle(title);
-        if (!close(parseFloat(ts.fontSize), 13) || !close(parseFloat(ts.lineHeight), 18) || ts.fontWeight !== '600') issues.push(`Section title style: ${label(el)}`);
+        if (ts.fontSize !== '13px' || ts.lineHeight !== '18px' || ts.fontWeight !== '600') issues.push(`Section title style: ${label(el)}`);
       }
     }
   }

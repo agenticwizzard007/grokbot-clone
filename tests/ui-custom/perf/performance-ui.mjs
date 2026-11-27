@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { gzipSync } from 'node:zlib';
 import { execFileSync } from 'node:child_process';
-import { runSuite, fixtureContext, configAvailable, api, patch, open, until, requireModules, requireFeature } from '../fixtures/harness.mjs';
+import { runSuite, fixtureContext, configAvailable, api, patch, open, requireModules, requireFeature } from '../fixtures/harness.mjs';
 import { ROOT } from '../fixtures/server.mjs';
 import { contracts } from '../fixtures/contracts.mjs';
 import { dashboardPatch } from '../fixtures/matrix.mjs';
@@ -66,7 +66,7 @@ const cases = [
     assert.ok(bytes > 0); measure('dashboardGzipBytes', bytes);
   } },
   { name: '24-request batch p95 with 10k tasks and 100 Bots', run: args => withConfig(args, async ({ context, server }) => {
-    requireModules('server/src/ui/sources/tasks.ts');
+    requireModules('server/src/ui/sources/executor.ts');
     details.load = seedLoad(server);
     const sources = [
       ['tasks.counts', {}], ['tasks.list', { limit: 25 }], ['bots.status', { limit: 12 }],

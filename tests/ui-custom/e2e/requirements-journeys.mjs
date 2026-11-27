@@ -13,7 +13,7 @@ async function chat(page, server, name, input, confirmation) {
 async function previewCommand(args, name, input, step) {
   const { page, context, server, capture = async () => {} } = args;
   const before = await configAvailable(context.request, server.base);
-  const previous = server.withDb(db => db.prepare("SELECT id FROM rows WHERE bot_id=? AND json_extract(body,'$.card')='ui_preview'").all(server.fixture.bot.id).map(row => row.id));
+  const previous = server.withDb(db => db.prepare("SELECT generation || ':' || seq AS id FROM rows WHERE bot_id=? AND json_extract(body,'$.card')='ui_preview'").all(server.fixture.bot.id).map(row => row.id));
   await chat(page, server, name, input, `Fixture ${step} ready`);
   const card = await untilPreviewRow(server, previous);
   await page.getByRole('status').filter({ hasText: /Previewing/ }).waitFor();
