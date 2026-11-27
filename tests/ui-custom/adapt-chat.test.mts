@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { agentFixture } from './agent-fixture.mjs';
-import { proposeChatWidgetEdit } from './e2e/adapt-ui.mjs';
+import { proposeChatWidgetEdit } from './e2e/suggest-dashboard-ui.mjs';
 import { adaptFromRequirements } from '../../server/src/ui-config/adapt.js';
 import { DEFAULT_CONFIG } from '../../server/src/ui-config/schema.js';
 
@@ -11,7 +11,7 @@ test('requirements dashboards support persistent widget edits through chat and t
     workflows: [{ name: 'Pipeline review', cadence: 'weekly' }], focus: ['tasks', 'routines', 'bots'],
     updatedAt: 1, revision: 1, updatedBy: 'user', managedPaths: [] }, DEFAULT_CONFIG);
   assert.ok(proposal.ok, JSON.stringify(proposal));
-  const preview = await fixture.request('POST', '/ui/patches/preview', { patch: proposal.patch, intent: 'Pipeline home' }, 0);
+  const preview = await fixture.request('POST', '/ui/patches/preview', { patch: proposal.patch, intent: 'Add dashboard: Sales' }, 0);
   assert.equal(preview.status, 200, JSON.stringify(preview));
   const applied = await fixture.request('POST', `/ui/previews/${preview.body.previewId}/apply`, {}, 0);
   assert.equal(applied.status, 200, JSON.stringify(applied));

@@ -56,6 +56,14 @@ test('input limits, metadata, cross-account fields, XSS and personal identifiers
   assert.equal(store.get('a').revision, 1);
 });
 
+test('profile endpoints cannot write layout, theme, components or pins', async () => {
+  const before = ui.get('a'), saved = store.get('a');
+  for (const path of ['/layout', '/layout/sidebar/order', '/layout/phoneTabs', '/layout/home', '/layout/pinned', '/theme', '/components', '/dashboards', '/managedPaths', '/lens']) {
+    assert.equal((await call('PUT', { patch: [{ op: 'add', path, value: [] }] }, saved.revision)).status, 422, path);
+    assert.deepEqual(ui.get('a'), before); assert.deepEqual(store.get('a'), saved);
+  }
+});
+
 test('suggestion and legacy endpoint only preview one dashboard, with identical layout for two profiles', async () => {
   const before = ui.get('a');
   assert.deepEqual(before.doc.layout, ui.get('b').doc.layout);

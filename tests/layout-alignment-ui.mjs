@@ -30,6 +30,13 @@ export const ROUTES = [
   { name: 'join', hash: '/join/layout-fixture', signedOut: true, owner: 'PB-E', enforce: true },
 ];
 
+// Kept separate from ROUTES because client-defaults-ui pins the original 208 views.
+export const SUGGESTION_ROUTES = [
+  { name: 'about-you', hash: '#settings/appearance/use' },
+  { name: 'suggestion-preview', hash: '#settings/appearance/use' },
+  { name: 'resulting-dashboard', hash: '#dash/{dashboard}' },
+];
+
 /** Browser-side geometry checks, also reused by the Settings matrix. */
 export function inspectAlignment({ selector = '.shell-content > :not(.shell-header):not(.phone-tabs), .signin, .access-signin, .join', requirePage = true } = {}) {
   const roots = [...document.querySelectorAll(selector)];
@@ -204,5 +211,9 @@ async function main() {
   fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   assert.equal(report.filter(r => r.enforce && r.issues.length).length, 0, 'Enforced routes follow the shared layout system');
   console.log(`${report.length} route views audited. Report: ${evidence}/report.json`);
+  if (!process.env.LAYOUT_OWNER && !process.env.LAYOUT_ROUTES || process.env.LAYOUT_OWNER === 'UC-Y') {
+    const { runSuggestionUi } = await import('./ui-custom/e2e/suggest-dashboard-ui.mjs');
+    await runSuggestionUi(path.join(evidence, 'suggestions'));
+  }
 }
 if (import.meta.url === pathToFileURL(process.argv[1]).href) await main();
