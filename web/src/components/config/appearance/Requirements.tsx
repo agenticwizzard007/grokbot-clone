@@ -4,6 +4,7 @@ import { EMPTY_REQUIREMENTS, type RequirementsFields, type RequirementsProfile }
 import { FOCUS_IDS, LENS_IDS } from '@shared/ui-config/adapt-keywords';
 import { ADAPT_LENSES } from '@shared/ui-config/adapt-lenses';
 import { ButtonGroup, Card, Row, Section } from '../../layout';
+import { SettingsMenu } from '../SettingsControls';
 import { UiPreviewCard } from '../../cards/UiPreviewCard';
 import { useUiConfig } from '../../../customization';
 import { appearanceRequest } from './api';
@@ -15,6 +16,18 @@ type Snapshot = { profile: RequirementsProfile | null; revision: number; lens: t
 type Proposal = { previewId: string; summary: string[]; warnings: { message: string }[]; undoToken?: string; kept?: { message: string }[] };
 const labels = { tasks: 'Tasks', bots: 'Bots', routines: 'Routines', usage: 'Usage', files: 'Files', chat: 'Chat', apps: 'Apps', team: 'Team' };
 const fieldStyle = { display: 'grid', gap: 8 };
+const requirementsStyles = `
+.requirements-settings { display: grid; gap: 24px; min-width: 0; font-size: 14px; line-height: 20px; color: var(--color-text-primary); }
+.requirements-settings p { margin: 0; }
+.requirements-settings :is(button, .cfg-btn) { gap: 8px; font-size: 14px; line-height: 20px; }
+.requirements-settings .settings-menu > button { width: 100%; }
+.requirements-settings .layout-row__subtitle { font-size: 13px; line-height: 20px; margin-top: 8px; }
+.requirements-settings .cfg-chip { font-size: 14px; line-height: 20px; }
+.app-settings .requirements-settings :is(input, select, textarea) { width: 100%; min-width: 0; min-height: 44px; font: 400 14px/20px var(--font-stack); }
+.requirements-settings .text-input::placeholder { color: var(--color-text-secondary); }
+.requirements-settings .requirements-focus[aria-pressed='true'] { box-shadow: inset 0 0 0 2px var(--color-primary); background: var(--color-bg-active); color: var(--color-text-primary); }
+@media (max-width: 760px) { .app-settings .requirements-settings :is(input, select, textarea) { font-size: 16px; } }
+`;
 
 export function Requirements() {
   const { revision: uiRevision } = useUiConfig();
@@ -58,13 +71,17 @@ export function Requirements() {
     const latest = await appearanceRequest<Snapshot>('/ui/requirements');
     if (reset) hydrate(latest); else setSaved(latest);
   };
-  if (!saved) return <Section role="region" title="About your use" aria-label="About your use"><p role={error ? 'alert' : 'status'}>{error || 'Loading your requirements...'}</p></Section>;
-  return <Section role="region" title="About your use" aria-label="About your use">
-    <p>Tell your agent what you need, or edit it here.</p>
+  if (!saved) return <Section role="region" aria-label="About your use"><p role={error ? 'alert' : 'status'}>{error || 'Loading your requirements...'}</p></Section>;
+  return <div role="region" aria-label="About your use" className="requirements-settings">
+    <style>{requirementsStyles}</style>
+    <p>Share your role, goals and routine work.</p>
     {error && <p role="alert">{error}</p>}
-    {message && <p role="status">{message}</p>}
+    {message && <p role="status"><span className="cfg-chip">{message}</span></p>}
     <fieldset disabled={busy || !saved} className="appearance-fields" aria-label="Your requirements" aria-busy={busy}>
       <Card style={{ display: 'grid', gap: 16, padding: 16 }}>
+        <Row title="Profile" trailing={<SettingsMenu ariaLabel="Manage requirements" disabled={!saved.profile} items={[
+          { label: 'Reset', danger: true, onSelect: () => void run(() => propose(true)) },
+        ]} />} />
         <label style={fieldStyle}>Role<input className="text-input" maxLength={60} value={fields.role} onChange={e => setFields({ ...fields, role: e.target.value })} /></label>
         <label style={fieldStyle}>Goals<textarea aria-label="Goals" className="text-input" rows={3} value={goals} placeholder="One goal per line, up to six" onChange={e => setGoals(e.target.value)} /></label>
         <Section title="Workflows">
@@ -73,15 +90,15 @@ export function Requirements() {
             <label style={fieldStyle}>Cadence<select aria-label={`Cadence ${i + 1}`} className="text-input" value={workflow.cadence} onChange={e => setFields({ ...fields, workflows: fields.workflows.map((w, n) => n === i ? { ...w, cadence: e.target.value as typeof w.cadence } : w) })}>
               <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="ad_hoc">As needed</option>
             </select></label>
-            <button type="button" className="cfg-btn" onClick={() => setFields({ ...fields, workflows: fields.workflows.filter((_, n) => n !== i) })}>Remove workflow {i + 1}</button>
+            <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setFields({ ...fields, workflows: fields.workflows.filter((_, n) => n !== i) })}>Remove workflow {i + 1}</button>
           </Card>)}
-          <button type="button" className="cfg-btn" disabled={fields.workflows.length >= 8} onClick={() => setFields({ ...fields, workflows: [...fields.workflows, { name: '', cadence: 'weekly' }] })}>Add workflow</button>
+          <button type="button" className="cfg-btn cfg-btn--secondary" disabled={fields.workflows.length >= 8} onClick={() => setFields({ ...fields, workflows: [...fields.workflows, { name: '', cadence: 'weekly' }] })}>Add workflow</button>
         </Section>
         <Section title="Focus"><div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-          {FOCUS_IDS.map(id => <button type="button" key={id} className="cfg-btn" aria-pressed={fields.focus.includes(id)} onClick={() => setFields({ ...fields, focus: fields.focus.includes(id) ? fields.focus.filter(f => f !== id) : [...fields.focus, id] })}>{labels[id]}</button>)}
+          {FOCUS_IDS.map(id => <button type="button" key={id} className="cfg-btn cfg-btn--secondary requirements-focus" aria-pressed={fields.focus.includes(id)} onClick={() => setFields({ ...fields, focus: fields.focus.includes(id) ? fields.focus.filter(f => f !== id) : [...fields.focus, id] })}>{labels[id]}</button>)}
         </div></Section>
         <label style={fieldStyle}>Lens<select aria-label="Lens" className="text-input" value={fields.lens ?? ''} onChange={e => { const next = { ...fields }; if (e.target.value) next.lens = e.target.value as RequirementsFields['lens']; else delete next.lens; setFields(next); }}>
-          <option value="">Choose from my requirements</option>{LENS_IDS.map(id => <option key={id} value={id}>{ADAPT_LENSES[id].label}</option>)}
+          <option value="">Automatic</option>{LENS_IDS.map(id => <option key={id} value={id}>{ADAPT_LENSES[id].label}</option>)}
         </select></label>
         <ButtonGroup stack>
           <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => void run(async () => {
@@ -92,14 +109,13 @@ export function Requirements() {
             await appearanceRequest('/ui/requirements', 'PUT', { patch }, saved!.revision);
             hydrate(await appearanceRequest<Snapshot>('/ui/requirements')); setMessage('Saved');
           })}>Save changes</button>
-          <button type="button" className="cfg-btn" disabled={!saved?.profile} onClick={() => void run(() => propose(false))}>Re-adapt</button>
-          <button type="button" className="cfg-btn" disabled={!saved?.profile} onClick={() => void run(() => propose(true))}>Reset</button>
+          <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!saved?.profile} onClick={() => void run(() => propose(false))}>Re-adapt</button>
         </ButtonGroup>
       </Card>
     </fieldset>
     {preview && <UiPreviewCard key={preview.previewId} body={preview} />}
     {kept.length > 0 && <Card>{kept.map(line => <p key={line}>{line}</p>)}</Card>}
-    {saved?.undoToken && <ButtonGroup><button type="button" className="cfg-btn" disabled={busy} onClick={() => void run(async () => {
+    {saved?.undoToken && <ButtonGroup><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void run(async () => {
       await appearanceRequest('/ui/requirements', 'PUT', { undoReset: saved.undoToken }, saved.revision);
       hydrate(await appearanceRequest<Snapshot>('/ui/requirements')); await refreshAppearance(); setPreview(null); setMessage('Reset undone');
     })}>Undo reset</button></ButtonGroup>}
@@ -107,8 +123,8 @@ export function Requirements() {
       {saved.rationale.map(line => <p key={line}>{line}</p>)}{saved.question && <p>{saved.question}</p>}
     </Section>}
     {saved?.suggestions && <>
-      <Section title="Suggested Bots">{saved.suggestions.bots.map(bot => <Card key={bot.name}><Row title={bot.name} subtitle={bot.purpose} /></Card>)}<a href="#new-bot">Create a Bot</a></Section>
-      <Section title="Suggested dashboards">{saved.suggestions.templates.map(template => <Card key={template.name}><Row title={template.name} /></Card>)}<a href="#settings/appearance">Choose a dashboard template</a></Section>
+      <Section title="Suggested Bots">{saved.suggestions.bots.map(bot => <Card key={bot.name}><Row title={bot.name} subtitle={bot.purpose} /></Card>)}<ButtonGroup><a className="cfg-btn cfg-btn--secondary" href="#new-bot">Create a Bot</a></ButtonGroup></Section>
+      <Section title="Suggested dashboards">{saved.suggestions.templates.map(template => <Card key={template.name}><Row title={template.name} /></Card>)}<ButtonGroup><a className="cfg-btn cfg-btn--secondary" href="#settings/appearance">Choose a template</a></ButtonGroup></Section>
     </>}
-  </Section>;
+  </div>;
 }

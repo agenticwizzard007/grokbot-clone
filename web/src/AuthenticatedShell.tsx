@@ -37,6 +37,7 @@ import './styles/paper-core.css'; // accepted shared shell and core responsive g
 import './components/sidebar-labels.css';
 
 const AllSections = lazy(() => import('./components/AllSections').then(m => ({ default: m.AllSections })));
+const AdaptiveHome = lazy(() => import('./components/AllSections').then(m => ({ default: m.AdaptiveHome })));
 const DashboardView = lazy(() => import('./dashboards/DashboardView'));
 const FirstRun = lazy(() => import('./components/FirstRun').then(m => ({ default: m.FirstRun })));
 const ChatView = lazy(() => import('./components/ChatView').then(m => ({ default: m.ChatView })));
@@ -134,7 +135,7 @@ function Shell() {
         <header className="shell-header" tabIndex={-1}>
           {hasBack && <button type="button" className="shell-back" aria-label={mobile ? 'Back' : backText} onClick={back}><ChevronLeft size={mobile ? 20 : 16} aria-hidden /><span>{backText}</span></button>}
           <div id="shell-chat-header" hidden={!chatHeader} />
-          {!chatHeader && (headerBot ? <><BotAvatarFor bot={headerBot} size={32} /><div className="shell-header__bot"><strong className="shell-header__title">{headerBot.name}</strong><span className="shell-header__subtitle">{botSubtitle}</span></div></> : <strong className="shell-header__title">{headerTitle}</strong>)}
+          {!chatHeader && (headerBot ? <><BotAvatarFor bot={headerBot} size={32} /><div className="shell-header__bot"><strong className="shell-header__title">{headerBot.name}</strong><span className="shell-header__subtitle">{botSubtitle}</span></div></> : <strong className="shell-header__title" role={mobile && (screen.kind === 'all' || screen.kind === 'dash') ? 'heading' : undefined} aria-level={mobile && (screen.kind === 'all' || screen.kind === 'dash') ? 1 : undefined}>{headerTitle}</strong>)}
           {mobile && <button type="button" className="shell-menu" aria-label="Open navigation" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}><Menu size={22} aria-hidden /></button>}
         </header>
       <div className={`main-pane${detailsOpen && hasBot && view === 'chat' && !botSettings && modal !== 'create' && modal !== 'group' ? ' has-bot-details' : ''}`} hidden={settingsOpen || routeModal}>
@@ -143,7 +144,7 @@ function Shell() {
         {rosterUnavailable && view !== 'tasks' ? <main className="boot boot--data"><RosterFeedback /></main>
           : ['loops', 'loop', 'handoff', 'output'].includes(screen.kind) ? <HandoffRoutes screen={screen as HandoffScreen} />
           : screen.kind === 'all' ? <AllSections routines={screen.routines} />
-          : screen.kind === 'dash' ? <DashboardView dashboardId={dashboard?.id ?? screen.dashboard} />
+          : screen.kind === 'dash' ? <AdaptiveHome><DashboardView dashboardId={dashboard?.id ?? screen.dashboard} /></AdaptiveHome>
           : screen.kind === 'first-run' ? <FirstRun />
           : modal === 'create' ? <CreateBotModal inline />
           : modal === 'group' ? <CreateGroupModal inline />
