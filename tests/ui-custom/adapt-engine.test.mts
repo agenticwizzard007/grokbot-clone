@@ -112,3 +112,14 @@ test('maximum profile engine warm p95 stays under 20 ms', () => {
   for (let i = 0; i < 100; i++) { const start = performance.now(); ok(adaptFromRequirements(input, DEFAULT_CONFIG)); timings.push(performance.now() - start); }
   timings.sort((a, b) => a - b); console.log(`Engine maximum-profile p95: ${timings[95].toFixed(2)} ms`); assert.ok(timings[95] < 20);
 });
+
+
+test('All sections cannot be hidden by a patch, while default arrangements stay valid', () => {
+  assert.ok(uiConfigSchema.safeParse(DEFAULT_CONFIG).success);
+  for (const lens of LENS_IDS) {
+    const adapted = ok(adaptFromRequirements(profile({ lens }), DEFAULT_CONFIG));
+    const result = previewPatch(adapted.result, [{ op: 'add', path: '/layout/sidebar/hidden/-', value: 'all' }], { ctx: {} });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.ok(result.errors.some(error => error.code === 'required_item' && error.message.includes('All sections')));
+  }
+});
