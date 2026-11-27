@@ -144,6 +144,7 @@
 }
 @media (max-width: 760px) {
   .dashboard-heading h1, .dashboard-heading > div:first-child:not(:has(p)) { display: none; }
+  .dashboard-page .dashboard-heading > div:first-child:has(p) { display: block; }
   .dashboard-heading:not(:has(.dashboard-actions, p)) { display: none; }
   .dashboard-heading { justify-content: stretch; }
   .dashboard-actions { width: 100%; max-width: none; flex: 1; }

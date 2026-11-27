@@ -67,6 +67,7 @@ try {
   ] }]);
   await patch(phone, [{ op: 'add', path: '/dashboards/0/description', value: 'Launch planning and daily progress.' }]);
   await phone.goto(`${server.base}/#dash/${dashboard.id}`);
+  await phone.getByText('Launch planning and daily progress.', { exact: true }).waitFor();
   for (const width of [320, 390, 500, 1280]) {
     await phone.setViewportSize({ width, height: 844 });
     assert.ok(await phone.getByText('Launch planning and daily progress.', { exact: true }).isVisible(), 'Hiding the duplicate title preserves the user description');
