@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
 import { inspectAlignment } from '../layout-alignment-ui.mjs';
+import { readableWords } from '../paper-label-geometry.mjs';
 import { runIntegrationDemo } from './integration-routes-ui.mjs';
 
 const paperResults = [];
@@ -78,6 +79,21 @@ async function paperMatrix({ page, width, server, check, screenshots, evidence }
     }
     paperResults.push({ name, width: testedWidth, theme, ...result });
     check(`Paper ${name} at ${testedWidth} ${theme}`, result);
+    if (name === 'settings-agents') {
+      if (testedWidth <= 760) await page.getByRole('button', { name: 'Back', exact: true }).click();
+      const nav = page.getByRole('navigation', { name: 'Settings sections', exact: true });
+      await nav.waitFor();
+      assert.deepEqual(await nav.locator('.layout-section__header h2').allTextContents(), ['Workspace', 'Connections']);
+      assert.equal(await nav.locator('.settings-nav__item').count(), 13);
+      const agents = nav.getByRole('button', { name: 'Agents', exact: true });
+      assert.equal(await agents.count(), 1);
+      assert.equal(await agents.locator('svg.lucide-users').count(), 1);
+      await readableWords(nav);
+      assert.deepEqual(await page.evaluate(inspectAlignment, { selector: '.app-settings' }), []);
+      await agents.click(); await page.getByLabel('Agent handoffs', { exact: true }).waitFor();
+      if (testedWidth <= 760) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1);
+      check(`Settings navigation has thirteen sections in two groups at ${testedWidth} ${theme}`);
+    }
   }
   await page.setViewportSize({ width, height: 1000 }); await setTheme(page, 'light');
 }
