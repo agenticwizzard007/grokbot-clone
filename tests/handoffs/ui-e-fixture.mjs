@@ -7,7 +7,7 @@ import { chromium } from 'playwright';
 import { tsImport } from 'tsx/esm/api';
 import { layoutServer } from '../layout-fixture.mjs';
 
-export const bots = [{ id: 'bot_maker', name: 'Draft agent' }, { id: 'bot_checker', name: 'Review agent' }, { id: 'bot_judge', name: 'Judge agent' }, { id: 'bot_room', name: 'Test room', kind: 'room' }, { id: 'bot_setup', name: 'Setup agent', isConfiguring: true }, { id: 'bot_hidden', name: 'Hidden agent', hidden: true }];
+export const bots = [{ id: 'bot_maker', name: 'Draft agent' }, { id: 'bot_checker', name: 'Review agent' }, { id: 'bot_judge', name: 'Judge agent' }, { id: 'bot_room', name: 'Test room', kind: 'room' }, { id: 'bot_setup', name: 'Setup agent', onboarding: { status: 'interviewing' } }, { id: 'bot_hidden', name: 'Hidden agent', hidden: true }];
 export const goal = 'Write a release note with a version, benefits, migration steps, a link and a call to action.';
 export const baseSpec = {
   name: 'Release note review', goal, kind: 'maker_checker',

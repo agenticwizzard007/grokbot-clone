@@ -5,7 +5,11 @@ import { useStore } from '../../store';
 
 export type { Loop, LoopSpec, LoopStatus };
 export type LoopAction = 'start' | 'pause' | 'resume' | 'stop' | 'approve' | 'decline' | 'extend';
-export interface LoopBot { id: string; name: string; kind?: string; hidden?: boolean; isConfiguring?: boolean }
+export interface LoopBot {
+  id: string; name: string; kind?: string; hidden?: boolean; isConfiguring?: boolean;
+  onboarding?: { status: 'interviewing' | 'review' | 'active' };
+  avatarShape?: string; avatarColor?: string;
+}
 export interface LoopTask { id: string; title: string }
 export interface OutputLink { id: string; title: string; partId?: string }
 export interface LoopStepRun {
@@ -85,7 +89,7 @@ export const loopsApi: LoopApi = {
   subscribe: subscribeLoopEvents,
 };
 
-export const eligibleBot = (bot: LoopBot) => bot.kind !== 'room' && !bot.hidden && !bot.isConfiguring;
+export const eligibleBot = (bot: LoopBot) => bot.kind !== 'room' && !bot.hidden && !bot.isConfiguring && (!bot.onboarding || bot.onboarding.status === 'active');
 export const outputHref = (output: Pick<OutputLink, 'id' | 'partId'>) => `#output/${encodeURIComponent(output.id)}${output.partId ? `?part=${encodeURIComponent(output.partId)}` : ''}`;
 export const statusLabel: Record<LoopStatus, string> = {
   draft: 'Draft', awaiting_approval: 'Needs approval', running: 'Running', paused: 'Paused',
