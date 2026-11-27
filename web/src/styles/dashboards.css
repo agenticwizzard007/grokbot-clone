@@ -122,6 +122,7 @@
 .dashboard-empty .layout-button-group { max-width: 400px; }
 .dashboard-widget-body:has(.dashboard-empty-data) { display: flex; justify-content: center; }
 .dashboard-widget--list .dashboard-widget-body { margin-inline: calc(-1 * var(--card-pad)); scrollbar-gutter: auto; }
+.dashboard-widget--list .dashboard-widget-body > :is(.dashboard-empty-data, .dashboard-widget-error, .dashboard-skeleton) { margin-inline: var(--card-pad); }
 .dashboard-list li { min-height: 44px; padding: 8px var(--card-pad); }
 .dashboard-list li:first-child { padding-top: 8px; }
 .dashboard-list-title { font-size: 14px; color: var(--color-text-primary); text-decoration: none; }

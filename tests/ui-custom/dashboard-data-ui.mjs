@@ -6,6 +6,8 @@ const server = await dashboardFixture(); let passed = 0; const batches = [], met
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 try {
   const page = await server.page(), doc = exampleDashboard();
+  // Keep the chart below the fold independently of the dashboard header height.
+  await page.setViewportSize({ width: 1280, height: 720 });
   doc.widgets[0].source = { id: 'tasks.counts', params: {} }; doc.widgets[0].options = { field: 'working' };
   doc.widgets.forEach(widget => widget.refreshSec = 0); doc.widgets[2].refreshSec = 30;
   doc.widgets.splice(3, 0, { id: '$new7', type: 'note', title: 'Weekly focus', span: 12, rows: 6, options: { text: 'Weekly focus' } });
@@ -14,6 +16,7 @@ try {
   await server.open(page, dashboard.id); await pause(250);
   assert.equal(batches[0].body.requests.filter(row => row.source === 'tasks.counts').length, 1);
   assert.ok(batches[0].body.requests.some(row => row.source === 'usage.summary'));
+  assert.ok(await page.locator('[data-widget-type="chart"]').evaluate(el => el.getBoundingClientRect().top >= innerHeight), 'Chart starts outside the viewport');
   assert.ok(!batches.some(batch => batch.body.requests.some(row => row.source === 'usage.series'))); passed += 2;
   const working = page.getByRole('region', { name: 'Working now', exact: true }).locator('output');
   assert.equal(await working.textContent(), '4');

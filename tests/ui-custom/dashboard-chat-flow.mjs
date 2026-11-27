@@ -18,10 +18,12 @@ export async function waitDashboard(page, dashboard, revision) {
 }
 export async function agentEdit(server, account, chat, watchers, tool, args) {
   const before = (await server.request(account, 'GET', '/ui/config')).body;
+  // Applying a dashboard preview opens that dashboard; return to chat for the next edit.
+  await chat.goto(`${server.base}/#bot/${account.bot.id}`);
   const proposed = await server.propose(account, tool, args, chat);
   assert.equal((await server.request(account, 'GET', '/ui/config')).body.revision, before.revision, 'preview waits for user approval');
-  const banner = chat.getByRole('status', { name: 'Appearance preview', exact: true });
-  await banner.getByRole('button', { name: 'Apply', exact: true }).click();
+  const card = chat.locator('.ui-preview-card').last();
+  await card.getByRole('button', { name: 'Apply', exact: true }).click();
   const saved = await server.wait(async () => {
     const saved = (await server.request(account, 'GET', '/ui/config')).body;
     return saved.revision === before.revision + 1 ? saved : undefined;
