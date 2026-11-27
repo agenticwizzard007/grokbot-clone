@@ -34,4 +34,23 @@ for (const preset of ['swarm', 'midnight', 'paper', 'contrast']) for (const mode
     } finally { await context.close(); }
   } });
 }
+for (const width of [390, 1280]) cases.push({ name: `colorblind status cues ${width}`, run: async ({ server, browser }) => {
+  const { context } = await fixtureContext(browser, server, width);
+  try {
+    await configAvailable(context.request, server.base);
+    requireModules('web/src/customization/applier.ts');
+    const { presetPatch } = await contracts();
+    await patch(context, server.base, presetPatch('colorblind'));
+    const page = await context.newPage();
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Emulation.setEmulatedVisionDeficiency', { type: 'deuteranopia' });
+    await open(page, server.base, '#tasks');
+    const cues = page.locator('.task-filters button:visible');
+    assert.ok(await cues.count() >= 3, 'Seeded task status controls must exist');
+    for (const cue of await cues.all()) {
+      assert.ok((await cue.innerText()).trim(), 'Status must have a text cue');
+      assert.ok(await cue.locator('svg').count(), 'Status must have an icon cue');
+    }
+  } finally { await context.close(); }
+} });
 await runSuite('accessibility', cases);
