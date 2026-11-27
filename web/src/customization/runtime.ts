@@ -1,6 +1,6 @@
 import { useStore } from '../store';
 import { applyAppearance } from './applier';
-import { DEFAULT_CONFIG } from '@shared/ui-config/schema';
+import { DEFAULT_CONFIG } from '../../../server/src/ui-config/schema';
 import { CACHE_KEY, USER_KEY, clearPreview, readCachedConfig, refreshUiConfig, setUiPhone, setUiUser, useCustomization, patchUiConfig } from './store';
 import { installSafeMode } from './safeMode';
 
@@ -11,7 +11,10 @@ export function renderAppearance() {
   const state = useCustomization.getState();
   applyAppearance(state.effective, state.safe ? 'system' : !state.userId || state.status === 'disabled' ? legacyTheme() : undefined);
 }
-export function applyLegacyTheme() { renderAppearance(); }
+export function applyLegacyTheme(mode = legacyTheme()) {
+  const state = useCustomization.getState();
+  if (!state.userId || state.status === 'disabled') applyAppearance(DEFAULT_CONFIG, mode); else renderAppearance();
+}
 export async function setTheme(mode: 'system' | 'light' | 'dark') {
   const state = useCustomization.getState();
   if (state.userId && state.status !== 'disabled') {

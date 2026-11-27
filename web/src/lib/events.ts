@@ -60,8 +60,10 @@ export function startEvents(): () => void {
         // A proxy can accept headers/hello, then immediately reset the stream.
         // Keep backoff until a heartbeat interval of actual delivery has survived.
         if (Date.now() - openedAt >= 10_000) retry = 1000;
-        const state = useStore.getState(), screen = parseScreen(window.location.hash);
-        void handleUiEvent(event, screen?.kind === 'chat' ? routeBot(screen.bot, state.bots)?.id ?? null : null);
+        if (event.type === 'ui_config' || event.type === 'ui_preview') {
+          const state = useStore.getState(), screen = parseScreen(window.location.hash);
+          void handleUiEvent(event, screen?.kind === 'chat' ? routeBot(screen.bot, state.bots)?.id ?? null : null);
+        }
         useStore.getState().handleEvent(event);
       } catch (e) { console.warn('bad event', e); }
     };

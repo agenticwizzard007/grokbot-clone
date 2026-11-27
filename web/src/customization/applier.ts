@@ -1,8 +1,8 @@
-import { effectiveTokens } from '@shared/ui-config/derive';
-import { TOKENS } from '@shared/ui-config/registry-tokens';
-import { FONTS, SCALES, DENSITIES, RADII } from '@shared/ui-config/registry-fonts';
-import { SIDEBAR_WIDTHS, CHAT_WIDTHS } from '@shared/ui-config/registry-nav';
-import type { UiConfig } from '@shared/ui-config/schema';
+import { effectiveTokens } from '../../../server/src/ui-config/derive';
+import { TOKENS } from '../../../server/src/ui-config/registry-tokens';
+import { FONTS, SCALES, DENSITIES, RADII } from '../../../server/src/ui-config/registry-fonts';
+import { SIDEBAR_WIDTHS, CHAT_WIDTHS } from '../../../server/src/ui-config/registry-nav';
+import type { UiConfig } from '../../../server/src/ui-config/schema';
 import { ensureFonts } from './fonts';
 
 const colors = new Set(TOKENS.flatMap(token => token.cssVars));

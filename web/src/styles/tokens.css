@@ -11,18 +11,23 @@
   --space-8: 48px;
   --space-9: 64px;
   --control-h: 44px;
+  --font-scale: 1;
+  --stack-gap: 16px;
+  --card-pad: 16px;
+  --ui-sidebar-width: 272px;
+  --ui-content-width: 752px;
   --color-text-2: var(--color-text-secondary);
   --color-border: var(--color-border-secondary);
   --color-elevated: var(--color-bg-elevated);
-  --sidebar-width: 272px;
+  --sidebar-width: var(--ui-sidebar-width);
   --sidebar-collapsed-width: 76px;
-  --content-width: 752px;
+  --content-width: var(--ui-content-width);
   --page-gutter: 32px;
   --font-heading: 'Instrument Sans', var(--font-stack);
-  --line-caption: 16px;
-  --line-body: 20px;
-  --line-message: 24px;
-  --line-title: 32px;
+  --line-caption: calc(16px * var(--font-scale));
+  --line-body: calc(20px * var(--font-scale));
+  --line-message: calc(24px * var(--font-scale));
+  --line-title: calc(32px * var(--font-scale));
 
   --color-bg-chrome: rgb(255 255 255);
   --color-bg-sidebar: #FBFAF7;
@@ -50,17 +55,17 @@
   --color-bot-purple: rgb(143 89 249);
   --color-bot-brown: rgb(160 107 57);
   --color-bot-gray: rgb(153 153 153);
-  --text-tab: 11px;
-  --line-tab: 14px;
-  --text-xs: 12px;
-  --text-sm: 13px;
-  --text-base: 14px;
-  --text-message: 15px;
-  --text-lg: 17px;
+  --text-tab: calc(11px * var(--font-scale));
+  --line-tab: calc(14px * var(--font-scale));
+  --text-xs: calc(12px * var(--font-scale));
+  --text-sm: calc(13px * var(--font-scale));
+  --text-base: calc(14px * var(--font-scale));
+  --text-message: calc(15px * var(--font-scale));
+  --text-lg: calc(17px * var(--font-scale));
   /* Type hierarchy shared by every surface: page title, panel or card title, section heading. */
-  --text-page-title: 24px;
-  --text-panel-title: 17px;
-  --text-section: 13px;
+  --text-page-title: calc(24px * var(--font-scale));
+  --text-panel-title: calc(17px * var(--font-scale));
+  --text-section: calc(13px * var(--font-scale));
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
@@ -169,5 +174,5 @@
 
 /* Phones: page titles step down so they fit beside the back control. */
 @media (max-width: 760px) {
-  :root { --text-page-title: 22px; --line-title: 28px; --page-gutter: 16px; }
+  :root { --text-page-title: calc(22px * var(--font-scale)); --line-title: calc(28px * var(--font-scale)); --page-gutter: 16px; }
 }

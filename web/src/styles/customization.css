@@ -1,0 +1,41 @@
+@font-face {
+  font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/fonts/atkinson-regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 700; font-display: swap;
+  src: url('/fonts/atkinson-bold.woff2') format('woff2');
+}
+/* Recovery controls keep a stable palette, type size and target size. */
+#root:has(> .ui-runtime-banner) { display: flex; flex-direction: column; }
+#root:has(> .ui-runtime-banner) > .app { flex: 1; min-height: 0; height: auto; }
+.ui-runtime-banner {
+  --control-h: 44px;
+  flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+  padding: 8px 16px; color: #18202A; background: #FFFFFF; border-bottom: 2px solid #3043AB;
+  font: 400 14px/20px system-ui, sans-serif; overflow-wrap: anywhere;
+}
+.ui-runtime-banner__copy { flex: 1 1 200px; min-width: 0; }
+.ui-runtime-banner .layout-button-group { flex: 0 1 360px; }
+.ui-runtime-banner button {
+  min-height: 44px; padding: 8px 12px; border: 1px solid #525B5E; border-radius: 8px;
+  color: #18202A; background: #FFFFFF; font: inherit; white-space: normal; overflow-wrap: anywhere;
+}
+.ui-runtime-banner button:hover, .ui-runtime-banner button[aria-pressed='true'] { background: #EDEFFA; }
+.ui-runtime-banner button:focus-visible { outline: 2px solid #3043AB; outline-offset: 2px; }
+.ui-runtime-banner p { margin: 0; }
+:root[data-contrast='high'] a { text-decoration: underline; }
+:root[data-contrast='high'] :focus-visible { outline-width: 3px; }
+:root[data-motion='reduced'] *, :root[data-motion='reduced'] *::before, :root[data-motion='reduced'] *::after {
+  animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+@media (max-width: 760px), (pointer: coarse) {
+  :root[data-density='compact'] { --control-h: 44px !important; }
+}
+@media (forced-colors: active) {
+  .ui-runtime-banner, .ui-runtime-banner button { color: CanvasText; background: Canvas; border-color: ButtonText; }
+}

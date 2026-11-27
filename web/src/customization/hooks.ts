@@ -1,4 +1,4 @@
-import { COMPONENTS, type ComponentId } from '@shared/ui-config/registry-components';
+import { COMPONENTS, type ComponentId } from '../../../server/src/ui-config/registry-components';
 import { useCustomization, patchUiConfig, applyPreview, discardPreview, setShowBefore } from './store';
 export function useUiConfig() {
   const saved = useCustomization(s => s.saved), revision = useCustomization(s => s.revision), status = useCustomization(s => s.status);

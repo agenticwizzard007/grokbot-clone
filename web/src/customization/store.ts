@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import { DEFAULT_CONFIG, uiConfigSchema, type UiConfig } from '@shared/ui-config/schema';
-import { effectiveConfig } from '@shared/ui-config/presets';
-import type { PatchOp, StoredPreview, Violation, ApplyResult } from '@shared/ui-config/service';
+import { DEFAULT_CONFIG, uiConfigSchema, type UiConfig } from '../../../server/src/ui-config/schema';
+import { effectiveTokens } from '../../../server/src/ui-config/derive';
+import { effectiveConfig } from '../../../server/src/ui-config/presets';
+import type { PatchOp, StoredPreview, Violation, ApplyResult } from '../../../server/src/ui-config/service';
 import type { ServerEvent } from '@shared/types';
 import { uiRequest, UiApiError } from './api';
 
@@ -11,15 +12,17 @@ export type UiStatus = 'loading' | 'ready' | 'offline' | 'disabled';
 interface UiState {
   userId: string | null; saved: UiConfig; effective: UiConfig; revision: number; status: UiStatus;
   preview: StoredPreview | null; showBefore: boolean; safe: boolean; phone: boolean; invalidStored: boolean;
-  errors: Violation[];
+  errors: Violation[]; undoUntil: number;
 }
-const initial: UiState = { userId: null, saved: DEFAULT_CONFIG, effective: DEFAULT_CONFIG, revision: 0, status: 'loading', preview: null, showBefore: false, safe: false, phone: false, invalidStored: false, errors: [] };
+const initial: UiState = { userId: null, saved: DEFAULT_CONFIG, effective: DEFAULT_CONFIG, revision: 0, status: 'loading', preview: null, showBefore: false, safe: false, phone: false, invalidStored: false, errors: [], undoUntil: 0 };
 export const useCustomization = create<UiState>(() => initial);
 let generation = 0;
 let previewRequest = 0;
 let expiry: ReturnType<typeof setTimeout> | undefined;
 let refresh: Promise<void> | null = null;
 let refreshAgain = false;
+let undoTimer: ReturnType<typeof setTimeout> | undefined;
+function offerUndo() { clearTimeout(undoTimer); update({ undoUntil: Date.now() + 30_000 }); undoTimer = setTimeout(() => update({ undoUntil: 0 }), 30_000); }
 
 function update(partial: Partial<UiState>) {
   const next = { ...useCustomization.getState(), ...partial };
@@ -40,7 +43,7 @@ export function readCachedConfig(userId: string): { doc: UiConfig; revision: num
 }
 function cacheSaved() {
   const { userId, saved: doc, revision, status } = useCustomization.getState();
-  if (userId && status !== 'disabled') storage(store => store.setItem(CACHE_KEY, JSON.stringify({ userId, revision, doc })));
+  if (userId && status !== 'disabled') storage(store => store.setItem(CACHE_KEY, JSON.stringify({ userId, revision, doc, boot: { light: effectiveTokens(effectiveConfig(doc), 'light'), dark: effectiveTokens(effectiveConfig(doc), 'dark'), phoneLight: effectiveTokens(effectiveConfig(doc, true), 'light'), phoneDark: effectiveTokens(effectiveConfig(doc, true), 'dark') } })));
 }
 function accept(value: { doc: UiConfig; revision: number; status?: string }) {
   const parsed = uiConfigSchema.safeParse(value.doc);
@@ -96,7 +99,7 @@ export async function patchUiConfig(ops: PatchOp[], _intent?: string): Promise<U
     const result = await uiRequest<ApplyResult>('/config', { method: 'PATCH', body: { patch: ops }, revision });
     if (epoch !== generation) return { ok: false, errors: [{ path: '/', code: 'not_found', message: 'Your session has changed.' }] };
     if (!result?.ok) return result ?? { ok: false, errors: [] };
-    clearPreview(); accept(result); return { ok: true, revision: result.revision };
+    clearPreview(); accept(result); offerUndo(); return { ok: true, revision: result.revision };
   } catch (error) {
     const errors = error instanceof UiApiError ? error.errors : [{ path: '/', code: 'invalid_value' as const, message: 'Could not save appearance. Try again when connected.' }];
     if (epoch === generation) { update({ errors }); if (error instanceof UiApiError && error.status === 409) await refreshUiConfig(); }
@@ -121,7 +124,7 @@ export async function applyPreview() {
   if (!preview) return;
   const result = await uiRequest<ApplyResult>(`/previews/${encodeURIComponent(preview.id)}/apply`, { method: 'POST', body: {}, revision });
   if (epoch !== generation) return;
-  if (result?.ok) { clearPreview(); accept(result); }
+  if (result?.ok) { clearPreview(); accept(result); offerUndo(); }
 }
 export async function discardPreview() {
   const { preview, revision } = useCustomization.getState();
@@ -138,4 +141,10 @@ export async function handleUiEvent(event: ServerEvent, conversationBotId: strin
     else if (event.previewId === useCustomization.getState().preview?.id) clearPreview();
     if (event.state === 'applied') await refreshUiConfig();
   }
+}
+
+export async function recoverAppearance(action: 'reset' | 'undo') {
+  const { revision } = useCustomization.getState(), epoch = generation;
+  const result = await uiRequest<ApplyResult>(`/${action}`, { method: 'POST', body: action === 'reset' ? { scope: 'appearance' } : { steps: 1 }, revision });
+  if (epoch === generation && result?.ok) { clearPreview(); accept(result); offerUndo(); }
 }

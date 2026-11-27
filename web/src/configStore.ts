@@ -1,4 +1,6 @@
 import './lib/legacy-storage'; // before reading saved preferences
+import { applyLegacyTheme, setTheme as setAppearanceTheme } from './customization/runtime';
+import { useCustomization } from './customization/store';
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import type { ServerEvent } from '@shared/types';
@@ -123,13 +125,7 @@ const initialSection = (): AppSection | null => {
   return linked ?? resumed?.section ?? null;
 };
 
-const darkQuery = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
-
-export function applyTheme(t: Theme) {
-  const resolved = t === 'system' ? (darkQuery?.matches ? 'dark' : 'light') : t;
-  document.documentElement.dataset.theme = resolved;
-  document.documentElement.style.colorScheme = resolved;
-}
+export function applyTheme(t: Theme) { applyLegacyTheme(t); }
 
 const initialAppSection = initialSection();
 
@@ -218,9 +214,7 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
     else set({ workRoute: route });
   },
   setTheme: (theme) => {
-    try { localStorage.setItem(LS_THEME, theme); } catch { /* ignore */ }
-    applyTheme(theme);
-    set({ theme });
+    void setAppearanceTheme(theme).then(() => set({ theme: useCustomization.getState().status === 'disabled' ? readTheme() : useCustomization.getState().effective.theme.mode }));
   },
   bump: (key) => set({ versions: { ...get().versions, [key]: (get().versions[key] ?? 0) + 1 } }),
 }));
@@ -362,7 +356,7 @@ useStore.subscribe((state, previous) => {
   }
 });
 applyTheme(readTheme());
-darkQuery?.addEventListener?.('change', () => { if (useConfigUI.getState().theme === 'system') applyTheme('system'); });
+useCustomization.subscribe(state => { if (state.userId && state.status !== 'disabled') useConfigUI.setState({ theme: state.effective.theme.mode }); });
 
 // store.ts forwards events it doesn't handle itself as a DOM event.
 window.addEventListener('swarm:event', (e) => {

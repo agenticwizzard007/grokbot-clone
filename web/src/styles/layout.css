@@ -10,6 +10,7 @@
   padding: var(--layout-padding);
 }
 .layout-page[data-page-type='list'] { --layout-width: 880px; }
+.layout-page[data-page-type='wide'] { --layout-width: 1120px; }
 .layout-page[data-page-type='chat'] { --layout-width: 760px; }
 .layout-page__content { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
 .layout-page__header { display: grid; gap: var(--space-2); }
@@ -17,19 +18,19 @@
 .layout-page__header p { margin: 0; color: var(--color-text-2); }
 .layout-section { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; width: 100%; }
 .layout-section__header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 24px; }
-.layout-section__header h2 { margin: 0; font: 600 13px/18px var(--font-stack); color: var(--color-text-2); }
-.layout-section__content { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.layout-section__header h2 { margin: 0; font: 600 var(--text-section)/calc(18px * var(--font-scale)) var(--font-stack); color: var(--color-text-2); }
+.layout-section__content { display: flex; flex-direction: column; gap: var(--stack-gap); min-width: 0; }
 .layout-section__footer { display: flex; align-items: center; }
 .layout-section__header > .link-btn, .layout-section__footer > .link-btn { align-items: center; padding-inline: 0; }
-.layout-card { box-sizing: border-box; width: 100%; min-width: 0; align-self: stretch; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-elevated); }
-.layout-card--list { padding: 0 var(--space-3); }
+.layout-card { box-sizing: border-box; width: 100%; min-width: 0; align-self: stretch; padding: var(--card-pad); border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-elevated); }
+.layout-card--list { padding: 0 var(--card-pad); }
 .layout-card--warning { color: var(--color-warn-text); background: var(--color-warn-bg); }
 .layout-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; min-height: var(--control-h); padding-block: var(--space-2); border-bottom: 1px solid var(--color-border); }
 .layout-row:last-child { border-bottom: 0; }
 .layout-row__leading { display: flex; align-items: center; justify-content: center; width: 20px; flex: 0 0 20px; }
 .layout-row__text { flex: 1 1 160px; min-width: 0; }
-.layout-row__title { font-size: 14px; line-height: 20px; font-weight: 500; }
-.layout-row__subtitle { color: var(--color-text-2); font-size: 12px; line-height: 16px; margin-top: var(--space-1); }
+.layout-row__title { font-size: var(--text-base); line-height: var(--line-body); font-weight: 500; }
+.layout-row__subtitle { color: var(--color-text-2); font-size: var(--text-xs); line-height: var(--line-caption); margin-top: var(--space-1); }
 .layout-row__trailing { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; max-width: 100%; }
 .layout-button-group { display: flex; gap: var(--space-2); width: 100%; min-width: 0; }
 .layout-button-group > * { flex: 1 1 0; min-width: 0; }
@@ -54,10 +55,10 @@
 .layout-page.layout-page .toggle .toggle__knob { position: absolute; width: 20px; height: 20px; top: 12px; left: 4px; transform: none; background: var(--color-text-tertiary); }
 .layout-page.layout-page .toggle.is-on .toggle__knob { left: 20px; background: var(--color-on-primary); }
 @media (max-width: 760px) {
-  .layout-page__header h1 { font-size: 22px; }
+  .layout-page__header h1 { font-size: var(--text-page-title); }
 }
 
-.layout-section.layout-section > .layout-section__header > h2 { font: 600 13px/18px var(--font-stack); color: var(--color-text-2); margin: 0; }
+.layout-section.layout-section > .layout-section__header > h2 { font: 600 var(--text-section)/calc(18px * var(--font-scale)) var(--font-stack); color: var(--color-text-2); margin: 0; }
 .layout-page .cfg-btn--primary { color: var(--color-on-primary); }
 
 .layout-page.layout-page a.cfg-btn--primary { color: var(--color-on-primary); }

@@ -1,4 +1,4 @@
-import type { Violation } from '@shared/ui-config/service';
+import type { Violation } from '../../../server/src/ui-config/service';
 
 export class UiApiError extends Error {
   constructor(readonly status: number, readonly errors: Violation[]) {
