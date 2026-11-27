@@ -22,7 +22,7 @@ export function Manage({ doc, revision, run, onPreview, onChange }: { doc: UiCon
   const change = async (save: () => Promise<unknown>) => { setBusy(true); setError(''); try { await save(); await onChange(); setDialog(null); } catch (failure) { setError((failure as Error).message); throw failure; } finally { setBusy(false); } };
   const mutate = (path: string, body: unknown) => change(() => appearanceRequest(path, 'POST', body, revision));
   return <AppearanceSection title="Manage">
-    <Row title="Layout" trailing={<ButtonGroup><button type="button" className="cfg-btn cfg-btn--secondary" disabled={revision === 0} onClick={() => void run(() => mutate('/ui/undo', { steps: 1 }))}>Undo</button><SettingsMenu ariaLabel="Manage layout" items={[
+    <Row title="Layout" trailing={<ButtonGroup><span className="appearance-button"><button type="button" className="cfg-btn cfg-btn--secondary" disabled={revision === 0} onClick={() => void run(() => mutate('/ui/undo', { steps: 1 }))}>Undo</button></span><SettingsMenu ariaLabel="Manage layout" items={[
       { label: 'Export', onSelect: () => void run(exportAppearance) },
       { label: 'Import', onSelect: () => input.current?.click() },
       { label: 'History', onSelect: () => void run(async () => { const result = await appearanceRequest<{ history: HistoryEntry[] }>('/ui/history'); setHistory(result.history.slice(0, 50)); setDialog('history'); }) },

@@ -109,7 +109,7 @@
 
 /* Match Settings controls while keeping dashboard geometry in the shared primitives. */
 .dashboard-page .cfg-btn, .dashboard-dialog .cfg-btn {
-  min-height: 44px; padding: 8px 16px; border-radius: var(--radius-sm);
+  border: 1px solid transparent; min-height: 44px; padding: 8px 16px; border-radius: var(--radius-sm);
   font-size: 14px; line-height: 20px; gap: 8px; text-decoration: none;
 }
 .dashboard-page .cfg-btn--secondary, .dashboard-dialog .cfg-btn--secondary {

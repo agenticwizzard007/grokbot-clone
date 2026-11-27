@@ -22,15 +22,15 @@ try {
         const widget = { ...defaultWidget(type), id: `w_${String(typeIndex * 4 + stateIndex).padStart(8, '0')}`, title: `${type} ${state}`, span: 6, rows: 4 };
         if (state === 'empty' && type === 'note') widget.options.text = '';
         if (state === 'empty' && type === 'shortcuts') widget.options.items = [];
-        if (state === 'data' && type === 'note') widget.options.text = '## Fixture note\n**Bold** and *italic*.\n[Read](https://example.test/report)\n- First\n- Next';
+        if (state === 'data' && type === 'note') widget.options.text = '## Weekly notes\n**Bold** and *italic*.\n[Read](https://example.test/report)\n- First\n- Next';
         widgets.push(widget);
         let data = { ok: true, count: 3, value: { total: 12, working: 4 }, rows: [
-          { id: 'fixture-1', title: 'Fixture first task', name: 'Fixture Bot', state: 'working', status: 'ready', botName: 'Fixture Bot', botId: 'fixture-bot', openTasks: 3, day: '2026-01-01', value: 1, created: 2, done: 1, at: Date.now() + 100000, routineId: 'r1', label: 'Weekly', usedPercent: 37, resetsAt: null },
-          { id: 'fixture-2', title: 'Fixture next task', name: 'Fixture routine', state: 'needs_input', status: 'needs_you', botName: 'Fixture Bot', botId: 'fixture-bot', openTasks: 1, day: '2026-01-02', value: 3, created: 3, done: 2, at: Date.now() + 200000, routineId: 'r2' },
-          { id: 'fixture-3', title: 'Fixture finished task', name: 'Fixture ready', state: 'done', status: 'ready', botName: 'Fixture Bot', botId: 'fixture-bot', openTasks: 0, day: '2026-01-03', value: 2, created: 1, done: 1, at: Date.now() + 300000, routineId: 'r3' },
+          { id: 'fixture-1', title: 'Draft the launch email', name: 'Project assistant', state: 'working', status: 'ready', botName: 'Project assistant', botId: 'fixture-bot', openTasks: 3, day: '2026-01-01', value: 1, created: 2, done: 1, at: Date.now() + 100000, routineId: 'r1', label: 'Weekly', usedPercent: 37, resetsAt: null },
+          { id: 'fixture-2', title: 'Review the launch plan', name: 'Daily summary', state: 'needs_input', status: 'needs_you', botName: 'Project assistant', botId: 'fixture-bot', openTasks: 1, day: '2026-01-02', value: 3, created: 3, done: 2, at: Date.now() + 200000, routineId: 'r2' },
+          { id: 'fixture-3', title: 'Publish the weekly update', name: 'Planning assistant', state: 'done', status: 'ready', botName: 'Project assistant', botId: 'fixture-bot', openTasks: 0, day: '2026-01-03', value: 2, created: 1, done: 1, at: Date.now() + 300000, routineId: 'r3' },
         ], available: true };
         if (state === 'empty') data = { ok: true, count: 0, value: {}, rows: [], available: false };
-        states[widget.id] = state === 'loading' ? { status: 'loading' } : state === 'error' ? { status: 'error', error: 'Fixture error' } : { status: 'ready', data };
+        states[widget.id] = state === 'loading' ? { status: 'loading' } : state === 'error' ? { status: 'error', error: 'Data is unavailable.' } : { status: 'ready', data };
       }
       window.renderDashboardHarness = (nextWidgets = widgets, nextStates = states) => root.render(React.createElement(Page, { type: 'wide', className: 'dashboard-page' }, React.createElement(DashboardGrid, { widgets: nextWidgets, states: nextStates, refresh: () => { window.dashboardRetries++; } })));
       window.renderDashboardHarness();

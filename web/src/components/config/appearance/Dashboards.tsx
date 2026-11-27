@@ -14,7 +14,7 @@ export function Dashboards({ doc, patch, readSaved, error }: { error: string; do
   return <Section title="Dashboards" aria-label="Dashboards" className="appearance-section">
     <Card variant="list">
       {doc.dashboards.map(d => <Row className="appearance-dashboard-row" key={d.id} title={d.name} subtitle={`${d.widgets.length} widget${d.widgets.length === 1 ? '' : 's'}`} trailing={<ButtonGroup>
-        <button type="button" className="cfg-btn cfg-btn--secondary" aria-label={`Open ${d.name}`} onClick={() => open(d.id)}>Open</button>
+        <span className="appearance-button"><button type="button" className="cfg-btn cfg-btn--secondary" aria-label={`Open ${d.name}`} onClick={() => open(d.id)}>Open</button></span>
         <SettingsMenu ariaLabel={`Manage ${d.name}`} items={[
           { label: 'Set as home', onSelect: () => void patch(setValue('/layout/home', { kind: 'dashboard', dashboardId: d.id })) },
           { label: 'Rename', onSelect: () => { setName(d.name); setDialog({ kind: 'rename', id: d.id }); } },

@@ -29,7 +29,7 @@
 
 .appearance-settings .layout-row__text { flex: 1 1 0; }
 .appearance-settings .layout-row__subtitle { font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }
-.appearance-settings .cfg-btn, .appearance-dialog .cfg-btn { font-size: 14px; line-height: 20px; padding: 8px 16px; min-height: 44px; border-radius: var(--radius-sm); gap: 8px; }
+.appearance-settings .cfg-btn, .appearance-dialog .cfg-btn { border: 1px solid transparent; font-size: 14px; line-height: 20px; padding: 8px 16px; min-height: 44px; border-radius: var(--radius-sm); gap: 8px; }
 .appearance-settings .cfg-btn--secondary, .appearance-dialog .cfg-btn--secondary { background: var(--color-elevated); border: 1px solid var(--color-border); box-shadow: none; }
 .appearance-row-actions .layout-button-group { flex: none; width: 96px; }
 .appearance-row-actions .cfg-btn { width: 44px; padding: 0; }
@@ -41,3 +41,8 @@
 @media (max-width: 760px) {
   .appearance-dashboard-row > .layout-row__text, .appearance-dashboard-row > .layout-row__trailing { flex: 1 1 100%; width: 100%; }
 }
+
+.appearance-button { display: flex; }
+.appearance-button > button { width: 100%; }
+.layout-page.layout-page .appearance-settings .toggle .toggle__knob { width: 20px; height: 20px; left: 4px; top: 12px; transform: none; }
+.layout-page.layout-page .appearance-settings .toggle.is-on .toggle__knob { left: 20px; transform: none; }

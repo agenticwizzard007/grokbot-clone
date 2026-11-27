@@ -58,12 +58,12 @@ try {
   // Seed only the private local transcript, using real preview lifecycle endpoints.
   const context = await appearanceContext(browser, fixture, 390, 'light');
   const page = await context.newPage(); page.setDefaultTimeout(15000); await page.goto('/#bots'); await reset(page);
-  const title = 'Fixture dashboard request '.repeat(7).trim();
+  const title = 'Weekly dashboard update '.repeat(7).trim();
   const current = await saved(page);
   const response = await page.request.post('/api/ui/patches/preview', { headers: { 'If-Match': `"${current.revision}"` }, data: { intent: title, patch: [{ op: 'add', path: '/layout/home', value: { kind: 'tasks' } }] } });
   assert.equal(response.status(), 200, await response.text()); const preview = await response.json();
   const bot = fixture.db.prepare('SELECT generation, next_seq, rev FROM bots WHERE id=?').get(fixture.fixture.bot.id);
-  const body = { type: 'card', card: 'ui_preview', previewId: preview.previewId, title, lines: Array.from({ length: 6 }, (_, i) => `QA-Temp change ${i + 1}`), moreCount: 3, warnings: [], status: 'pending' };
+  const body = { type: 'card', card: 'ui_preview', previewId: preview.previewId, title, lines: Array.from({ length: 6 }, (_, i) => `Layout change ${i + 1}`), moreCount: 3, warnings: [], status: 'pending' };
   fixture.db.prepare('INSERT INTO rows(bot_id,generation,seq,updated_seq,kind,body,created_at) VALUES(?,?,?,?,?,?,?)').run(fixture.fixture.bot.id, bot.generation, bot.next_seq, bot.rev + 1, 'card', JSON.stringify(body), Date.now());
   fixture.db.prepare('UPDATE bots SET next_seq=next_seq+1,rev=rev+1 WHERE id=?').run(fixture.fixture.bot.id);
   await page.goto(`/#bot/${fixture.fixture.bot.id}`);
