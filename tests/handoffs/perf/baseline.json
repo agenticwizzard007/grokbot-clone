@@ -1,30 +1,30 @@
 {
-  "measuredAt": "2026-11-27T20:30:04.172Z",
+  "measuredAt": "2026-11-27T21:14:29.541Z",
   "environment": "linux x64 v24.22.1",
   "metrics": {
     "outputCreation": {
-      "p95": 3.5263680000000477,
+      "p95": 3.4382160000000113,
       "budget": 20,
       "unit": "ms",
       "samples": 50,
       "pass": true
     },
     "handoffPost": {
-      "p95": 28.171198000000004,
+      "p95": 35.44705799999997,
       "budget": 80,
       "unit": "ms",
       "samples": 50,
       "pass": true
     },
     "flowCold": {
-      "p95": 2.8463509999999133,
+      "p95": 5.081116999999722,
       "budget": 150,
       "unit": "ms",
       "samples": 50,
       "pass": true
     },
     "flowWarm": {
-      "p95": 1.7917869999998857,
+      "p95": 1.7736429999999928,
       "budget": 15,
       "unit": "ms",
       "samples": 50,
@@ -37,53 +37,53 @@
     "apps": 40
   },
   "bundle": {
-    "entry": "assets/index-BFk98zSv.js",
-    "entryGzipBytes": 120463,
-    "baseRevision": "3cf57e0e43b0b4866d2aec33ba06f165dfaab12e",
+    "entry": "assets/index-BINyAl64.js",
+    "entryGzipBytes": 120450,
+    "baseRevision": "56e65ba529c6c26d798bc4a4542a5ff2eed38551",
     "comparison": "Verified unchanged web source and lockfile versus main after HO integration. This measures HO-H additions, not the total historical HO feature cost.",
     "addedEntryGzipBytes": 0,
     "budgetBytes": 40960,
     "pass": true,
     "lazyRoutes": [
       {
-        "name": "_flow-BoCp4kTS.js",
-        "file": "assets/flow-BoCp4kTS.js",
+        "name": "_flow-J-uzfyGc.js",
+        "file": "assets/flow-J-uzfyGc.js",
         "gzipBytes": 802
       },
       {
-        "name": "_flow-DgQUdeLe.css",
-        "file": "assets/flow-DgQUdeLe.css",
-        "gzipBytes": 1066
+        "name": "_flow-d4LykZt3.css",
+        "file": "assets/flow-d4LykZt3.css",
+        "gzipBytes": 1675
       },
       {
         "name": "src/flow/FlowCompact.tsx",
-        "file": "assets/FlowCompact-8JfQ9WGo.js",
+        "file": "assets/FlowCompact-B-8xpJIS.js",
         "gzipBytes": 406
       },
       {
         "name": "src/flow/FlowTab.tsx",
-        "file": "assets/FlowTab-CDIpLlg5.js",
-        "gzipBytes": 4076
+        "file": "assets/FlowTab-6ducE1mY.js",
+        "gzipBytes": 4054
       },
       {
         "name": "src/handoffs/HandoffDetail.tsx",
-        "file": "assets/HandoffDetail-BJ3LsYwz.js",
-        "gzipBytes": 1515
+        "file": "assets/HandoffDetail-GJrNV-E-.js",
+        "gzipBytes": 1568
       },
       {
         "name": "src/handoffs/OutputCard.tsx",
-        "file": "assets/OutputCard-C9-frjJI.js",
+        "file": "assets/OutputCard-RhCd1eaY.js",
         "gzipBytes": 66
       },
       {
         "name": "src/handoffs/OutputViewer.tsx",
-        "file": "assets/OutputViewer-DidtJYGk.js",
+        "file": "assets/OutputViewer-CsG7vbs4.js",
         "gzipBytes": 68
       },
       {
         "name": "src/handoffs/SendSheet.tsx",
-        "file": "assets/SendSheet-DxheKGx1.js",
-        "gzipBytes": 3524
+        "file": "assets/SendSheet-DT3luBCW.js",
+        "gzipBytes": 3525
       },
       {
         "name": "src/handoffs/api.ts",
@@ -92,61 +92,61 @@
       },
       {
         "name": "src/handoffs/loops/LoopRun.tsx",
-        "file": "assets/LoopRun-DEWMQ6ca.js",
-        "gzipBytes": 5966
+        "file": "assets/LoopRun-DHMa05cH.js",
+        "gzipBytes": 5980
       },
       {
         "name": "src/handoffs/loops/LoopSheet.tsx",
-        "file": "assets/LoopSheet-DT_7BUrz.js",
+        "file": "assets/LoopSheet-DihLBpgS.js",
         "gzipBytes": 109
       },
       {
         "name": "src/handoffs/loops/LoopsPage.tsx",
-        "file": "assets/LoopsPage-CVMvSRQ9.js",
+        "file": "assets/LoopsPage-CMWrdSCP.js",
         "gzipBytes": 1516
       }
     ]
   },
   "browser": {
-    "measuredAt": "2026-11-27T20:30:19.039Z",
+    "measuredAt": "2026-11-27T21:14:45.758Z",
     "metrics": {
       "loopRender12Steps-390": {
-        "p95": 38.800000000046566,
+        "p95": 37.6999999997206,
         "budget": 300,
         "samples": 11,
         "unit": "ms",
         "pass": true
       },
       "flowPaint-390": {
-        "p95": 27.0999999998603,
+        "p95": 27.300000000279397,
         "budget": 50,
         "samples": 11,
         "unit": "ms",
         "pass": true
       },
       "timelineSse-390": {
-        "p95": 66.69999999995343,
+        "p95": 65.5,
         "budget": 100,
         "samples": 6,
         "unit": "ms",
         "pass": true
       },
       "loopRender12Steps-1280": {
-        "p95": 40.300000000046566,
+        "p95": 32.60000000009313,
         "budget": 300,
         "samples": 11,
         "unit": "ms",
         "pass": true
       },
       "flowPaint-1280": {
-        "p95": 27.700000000186265,
+        "p95": 30.700000000186265,
         "budget": 50,
         "samples": 11,
         "unit": "ms",
         "pass": true
       },
       "timelineSse-1280": {
-        "p95": 40.300000000046566,
+        "p95": 42.200000000186265,
         "budget": 100,
         "samples": 6,
         "unit": "ms",

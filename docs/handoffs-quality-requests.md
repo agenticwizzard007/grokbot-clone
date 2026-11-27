@@ -10,6 +10,8 @@ Request to HO-I and the runtime owner: pass the stable call ID into registered h
 
 Reproduce: `node scripts/handoffs-demo.mjs`. The headless demo supplies a context directly and therefore does not catch this missing runtime argument. The live demo must reach both exact three-pass result sentences without a test-only runtime patch.
 
+The post-polish demo records 32 distinct refused `submit_verdict` calls across 16 loop attempts. The mock provider emits the verdict, including the real checklist IDs; the runtime returns the missing-context refusal. Evidence: `.context/handoffs/demo-h/provider-requests.json` and `.context/handoffs/runtime-refusals-polish.json`.
+
 ## Room and task event projection
 
 Request to HO-B: invoke `projectHandoffEvent` for committed handoff and loop transitions, with idempotent recovery and no side effects after rollback.
@@ -36,7 +38,7 @@ The current quality gate is blocked. Do not treat passing component fixtures or 
 
 - `.context/handoffs/demo-h/report.json` contains the actual loop records, events, screenshot quality records and explicit failures. The scripted drafts use realistic release notes, and each handoff selects the output from its newly completed job.
 - `.context/handoffs/demo-h/inspection.json` records the inspection of receipt, running and finished timeline, Graph, Flow and cap-scenario views at 320, 390, 500 and 1280 in both themes. The cap scenario fails before the limit; its images are failure evidence, not a capped success substitute.
-- `.context/handoffs/e2e-h/report.json` contains the full journey matrix at both required widths. Earlier pre-polish runs are retained under `.context/handoffs/pre-polish/` and `e2e-refresh/`.
+- `.context/handoffs/e2e-polish-final/report.json` contains the refreshed journey matrix at both required widths. The later historical-message and Settings regression is recorded under `menu-pagination-smoke/`, including its fixture variation that forces pagination. Earlier attempts remain under `e2e-h/`, `pre-polish/` and `e2e-refresh/`.
 - `.context/handoffs/quality-polish/` preserves the candidate regression results; `.context/handoffs/baseline-polish/` preserves main `56e65ba` results. Existing tests are compared separately from the new acceptance failures.
 
 The deployed `BASE_URL` mode is implemented and documented, but has not been exercised without an isolated deployed test account configured for the scripted provider. The bundle comparison measures HO-H additions against the integrated main baseline; a historical pre-feature bundle comparison remains separate.
