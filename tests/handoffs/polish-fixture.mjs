@@ -8,7 +8,7 @@ import { fixture as handoffFixture } from './ui-d-fixture.mjs';
 import { agentsSettingsScreens, agentsSettingsState } from './agents-settings-fixture.mjs';
 
 export const screens = [
-  'receipt', 'output-card', 'send-sheet', 'handoff-detail', 'output-viewer', 'handoff-list',
+  'receipt', 'receipt-expanded', 'receipt-running', 'message-actions', 'output-card', 'send-sheet', 'handoff-detail', 'output-viewer', 'handoff-list',
   'loops-list', 'loop-timeline', 'loop-graph', 'loop-sheet', 'gate-card', 'flow-tab', 'flow-compact', 'link-sheet', 'sidebar-loops',
   ...Object.keys(scenarios).filter(x => !['converged', 'gated'].includes(x)).map(x => `loop-${x}`),
   ...['loading', 'empty', 'error'].flatMap(x => [`output-${x}`, `handoffs-${x}`, `loops-${x}`, `flow-${x}`]),
@@ -17,7 +17,7 @@ export const screens = [
   ...agentsSettingsScreens,
 ];
 export async function polishFixture() {
-  const root = path.resolve('.context/ho-p'); fs.mkdirSync(root, { recursive: true });
+  const root = path.resolve('.context/ho-q'); fs.mkdirSync(root, { recursive: true });
   const dir = fs.mkdtempSync(path.join(root, 'fixture-'));
   const server = await integrationServer(dir);
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
@@ -55,6 +55,26 @@ export async function polishFixture() {
         data.output.parts.push({ id: 'p_release', kind: 'link', url: 'https://example.test/releases/2', title: 'Release details', relation: 'reference' });
         await route.fulfill({ response, json: data });
       });
+      const receiptView = name.startsWith('receipt');
+      let liveLoop;
+      if (receiptView) {
+        await page.route(`**/api/bots/${botId}/rows*`, async route => {
+          const response = await route.fetch(), data = await response.json();
+          const last = data.rows.at(-1), template = data.rows.find(row => row.kind === 'handoff');
+          // Real seeded loop receipts plus one independent handoff and the output.
+          data.rows.splice(-1, 0, { ...template, seq: last.seq, updatedSeq: last.updatedSeq, createdAt: last.createdAt - 1,
+            body: { ...template.body, handoffId: 'ho_standalone', direction: 'sent', otherBotId: server.fixture.checker, title: 'Release note', loopId: undefined, iteration: undefined } });
+          last.seq++;
+          await route.fulfill({ response, json: data });
+        });
+        if (name === 'receipt-running') {
+          const response = await context.request.get(`${server.base}/api/loops/${server.fixture.loopId}`);
+          liveLoop = await response.json();
+          Object.assign(liveLoop.loop, { status: 'running', iteration: 2, finishedAt: null, stopReason: null });
+          liveLoop.loop.spec.limits.maxIterations = 4;
+          await page.route(`**/api/loops/${server.fixture.loopId}`, route => route.fulfill({ json: liveLoop }));
+        }
+      }
       let hash = name === 'sidebar-loops' ? '#bots' : `#bot/${botId}`, selector = name === 'output-card' ? '.ho-output-card' : '.ho-receipt, .ho-output-card, .ho-message-actions';
       const settings = name.startsWith('settings-agents') ? await agentsSettingsState(page, server.fixture, name) : null;
       if (settings) { hash = settings.hash; selector = settings.selector; }
@@ -92,6 +112,11 @@ export async function polishFixture() {
       if (name === 'link-sheet' || name === 'link-edit') { await page.getByRole('button', { name: 'Add handoff', exact: true }).click(); selector = '.flow-sheet'; if (name === 'link-edit') await page.getByRole('button', { name: /^Edit handoff/ }).first().click(); }
       if (name === 'sidebar-loops') { if (width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click(); await page.getByRole('button', { name: 'Account & settings', exact: true }).click(); selector = '.sidebar .menu__item:has(.lucide-git-branch)'; }
       await page.locator(selector).first().waitFor();
+      if (receiptView && process.env.HO_POLISH_PHASE !== 'before') {
+        await page.locator('.ho-receipt--loop').getByRole('status').filter({hasText: name === 'receipt-running' ? 'Running' : 'Completed'}).waitFor();
+        if (name === 'receipt-expanded') await page.getByRole('button', {name:'Show passes',exact:true}).click();
+      }
+      if (name === 'message-actions') await page.getByRole('button', {name:'Message actions',exact:true}).first().waitFor();
       // Audit the requested state, never its transient loading fallback.
       if (name === 'loops-list') await page.locator('.ho-loop-title-link').first().waitFor();
       if (name === 'loops-empty') await page.getByText('Nothing here yet', {exact:true}).waitFor();
@@ -105,7 +130,10 @@ export async function polishFixture() {
       if (name.startsWith('link-')) await page.getByRole('combobox', {name:'Agent',exact:true}).waitFor();
       await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(200);
       await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
-      return { page, selector, close: () => page.close() };
+      return { page, selector, async advanceLoop() {
+        liveLoop.loop.iteration++; liveLoop.loop.revision++;
+        await page.evaluate(id => window.dispatchEvent(new CustomEvent('swarm:event', {detail:{type:'loop',id}})), server.fixture.loopId);
+      }, close: () => page.close() };
     },
     async close() { await d.close(); await browser.close(); await server.close(); },
   };

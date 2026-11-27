@@ -8,7 +8,7 @@ import { ShellHeaderSlot } from './ShellHeaderSlot';
 import { userFacingLive } from '../lib/audience';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { Bot, Row } from '@shared/types';
-import { ChevronDown, Send } from 'lucide-react';
+import { ChevronDown, MoreHorizontal, Send } from 'lucide-react';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { backToList, sortedRows, useSelectedBot, useStore } from '../store';
 import { navigation, useConfigUI } from '../configStore';
@@ -44,7 +44,7 @@ function MessageHandoff({ row, final, onSend }: { row: Row; final: boolean; onSe
     finally { setBusy(false); }
   };
   return <div className="ho" style={{ position: 'relative' }}>
-    {output.data?.output?.status !== 'final' && <button ref={trigger} type="button" className="ho-button ho-button--quiet ho-message-actions" aria-label="Message actions" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}>Actions</button>}
+    {output.data?.output?.status !== 'final' && <button ref={trigger} type="button" className="ho-button ho-button--quiet ho-message-actions" aria-label="Message actions" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}><MoreHorizontal size={20} aria-hidden="true" /></button>}
     {open && <Menu triggerRef={trigger} onClose={() => setOpen(false)} items={[{ label: 'Send to agent', icon: Send, onSelect: () => void send() }]} />}
     {output.data?.output?.status === 'final' && <CardRow row={row} output={output.data.output} onSend={onSend} />}
   </div>;

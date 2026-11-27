@@ -26,6 +26,8 @@ export function inspectQuality({ selector, finished = false }) {
       const font = parseFloat(css.fontSize);
       check('a.type', font >= (el.closest(chip) ? 12 : el.closest('p,pre,textarea,[role="tooltip"]') ? 14 : 13), el, `${font}px`);
       check('h.copy', !forbidden.test(node.textContent), el);
+      check('h.count-copy', !/\b1 reports\b|\bto \d+ (files|reports)\b/.test(node.textContent), el);
+      if (el.closest('.ho-receipt-meta') && !el.closest(chip)) check('a.receipt-meta', font >= 13, el, `${font}px`);
     }
     if (el.matches('input,textarea')) check('h.copy', !forbidden.test(el.value) && !forbidden.test(el.getAttribute('placeholder') || ''), el);
     if (el.matches('.ho-output-summary')) { const title = el.closest('.ho')?.querySelector('.ho-heading'); if (title) check('g.viewer-title', !el.textContent.trim().toLowerCase().startsWith(title.textContent.trim().toLowerCase()), el); }
@@ -46,7 +48,13 @@ export function inspectQuality({ selector, finished = false }) {
     if (el.matches(chip)) { check('e.chip', [el, el.closest('a')].filter(Boolean).every(node => getComputedStyle(node).textDecorationLine === 'none'), el); check('e.chip-size', close(r.height,20) && close(parseFloat(css.fontSize),12) && close(parseFloat(css.lineHeight),16) && css.fontWeight === '500', el); }
     if (el.matches('label,button,a,h1,h2,h3,.layout-row__title,.layout-row__subtitle,.flow-node__text')) check('e.label', el.scrollWidth <= el.clientWidth + 1 && css.textOverflow !== 'ellipsis' && !['hidden','clip'].includes(css.overflowY), el);
     check('e.overflow', r.left >= -1 && r.right <= innerWidth + 1, el);
-    if (el.matches('.ho-receipt') && el.closest('.transcript__col')) { const column = el.closest('.transcript__col').getBoundingClientRect(); check('d.receipt-column', close(r.width,column.width) && close(r.right,column.right),el); }
+    if (el.matches('.ho-receipt') && el.closest('.transcript__col') && !el.closest('.ho-receipt-passes')) { const column = el.closest('.transcript__col').getBoundingClientRect(); check('d.receipt-column', close(r.width,column.width) && close(r.right,column.right),el); }
+    if (el.matches('.ho-receipt')) {
+      const meta = el.querySelector('.ho-receipt-meta');
+      if (meta && meta.getBoundingClientRect().height <= 21) check('f.receipt-height', r.height <= 80, el, `${r.height}px`);
+      check('b.receipt-target', r.height >= 44, el);
+      for (const action of el.querySelectorAll('a,button')) { const a = action.getBoundingClientRect(); check('b.receipt-target', a.height >= 44 && a.width >= 44, action); }
+    }
     if (el.matches('[data-layout="row"]')) {
       const leading = el.querySelector(':scope > .layout-row__leading'), title = el.querySelector(':scope > .layout-row__text > .layout-row__title');
       if (leading && title) { const icon = leading.getBoundingClientRect(), text = title.getBoundingClientRect(); check('j.icon', Math.abs(icon.top + icon.height/2 - text.top - parseFloat(getComputedStyle(title).lineHeight)/2) <= 2, el); }
@@ -63,17 +71,24 @@ export function inspectQuality({ selector, finished = false }) {
     const rows = children.filter(x => x.matches('[data-layout="row"], .ho-loop-timeline > li, .flow-nodes > li'));
     if (rows.length > 1) { const rects=rows.map(x=>x.getBoundingClientRect()), gaps=rects.slice(1).map((x,i)=>x.top-rects[i].bottom); check('f.spacing', gaps.every(x=>close(x,gaps[0]) && close(x,Math.round(x/8)*8)), el, gaps.join(',')); }
   }
-  const receipts = all.filter(el => el.matches('.ho-receipt') && el.closest('.ho-receipt-wrap'));
-  const gaps = receipts.slice(1).flatMap((el,index) => el.parentElement.previousElementSibling === receipts[index].parentElement ? [el.getBoundingClientRect().top - receipts[index].getBoundingClientRect().bottom] : []);
-  if (gaps.length) check('f.spacing', gaps.every(gap => close(gap,gaps[0]) && close(gap,Math.round(gap/8)*8)),receipts[0],gaps.join(','));
+  for (const el of document.querySelectorAll('.ho-receipt-wrap + .ho-receipt-wrap, .ho-receipt-passes > div + div')) {
+    if (!visible(el)) continue;
+    const gap = el.getBoundingClientRect().top - el.previousElementSibling.getBoundingClientRect().bottom;
+    check('f.receipt-gap', gap >= 8 && gap <= 16, el, `${gap}px`);
+  }
   check('coverage.surface', roots.length > 0 && all.length > 0, document.documentElement);
-  if (finished) for (const el of document.querySelectorAll('[aria-label="Message actions"]')) check('i.action-label', el.textContent.trim() === 'Actions', el);
+  for (const el of document.querySelectorAll('.ho-message-actions')) {
+    if (!visible(el)) continue;
+    check('i.action-label', el.textContent.trim() === '' && el.getAttribute('aria-label') === 'Message actions', el);
+    check('b.message-target', el.getBoundingClientRect().width >= 44 && el.getBoundingClientRect().height >= 44, el);
+  }
+  for (const el of document.querySelectorAll('.group button')) if (visible(el)) check('i.no-actions-copy', el.innerText.trim() !== 'Actions', el);
   check('e.document', document.documentElement.scrollWidth <= innerWidth + 1, document.documentElement);
   if (finished) check('i.finished', !document.querySelector('.first-response, .is-streaming, .pb-room-typing, .first-response__mark, .load-feedback[aria-busy="true"]'), roots[0]);
   return { issues, counts };
 }
 export async function runQuality() {
-  const out = path.resolve('.context/ho-p/quality'); fs.mkdirSync(out,{recursive:true});
+  const out = path.resolve(process.env.HO_QUALITY_OUTPUT || '.context/ho-q/quality'); fs.mkdirSync(out,{recursive:true});
   const fixture = await polishFixture(), report = [];
   try {
     await checkQualityGuards(fixture, inspectQuality);
@@ -81,7 +96,38 @@ export async function runQuality() {
       let state;
       try {
         state = await fixture.open(name,width,theme);
-        const result = await state.page.evaluate(inspectQuality,{ selector: state.selector, finished: name === 'receipt' });
+        const result = await state.page.evaluate(inspectQuality,{ selector: state.selector, finished: name.startsWith('receipt') || name === 'message-actions' });
+        if (name.startsWith('receipt')) {
+          const group = state.page.locator('.ho-loop-receipt');
+          assert.equal(await group.count(), 1, 'one group for the loop');
+          assert.equal(await state.page.locator('.transcript__col > .ho-receipt-wrap:not(.ho-loop-receipt)').count(), 1, 'one independent handoff');
+          const expanded = name === 'receipt-expanded';
+          const toggle = group.locator('.ho-receipt-expand');
+          assert.equal(await toggle.getAttribute('aria-label'), expanded ? 'Hide passes' : 'Show passes');
+          assert.equal(await toggle.getAttribute('aria-expanded'), String(expanded));
+          assert.equal(await group.locator('.ho-receipt-passes .ho-receipt:visible').count(), expanded ? 6 : 0);
+          await toggle.click();
+          assert.equal(await toggle.getAttribute('aria-expanded'), String(!expanded));
+          assert.equal(await group.locator('.ho-receipt-passes .ho-receipt:visible').count(), expanded ? 0 : 6);
+          assert.equal(await toggle.getAttribute('aria-label'), expanded ? 'Show passes' : 'Hide passes');
+          if (!expanded) {
+            const open = await state.page.evaluate(inspectQuality, { selector: state.selector, finished: true });
+            result.issues.push(...open.issues);
+          }
+          await toggle.click();
+          const href = await group.getByRole('link', {name:'View loop',exact:true}).getAttribute('href');
+          assert.match(href, /^#loop\//);
+          if (name === 'receipt-running') {
+            assert.equal(await group.locator('.ho-chip').innerText(), 'Loop, pass 2 of 4');
+            await state.advanceLoop();
+            await group.getByText('Loop, pass 3 of 4', {exact:true}).waitFor();
+            assert.equal(await toggle.getAttribute('aria-expanded'), 'false', 'live updates preserve collapsed state');
+          }
+          await group.getByRole('link', {name:'View loop',exact:true}).click();
+          await state.page.locator('[data-loop-revision]').waitFor();
+          assert.equal(new URL(state.page.url()).hash, href);
+          result.counts['k.loop-group'] = 1;
+        }
         report.push({name,width,theme,...result});
         if (result.issues.length) await state.page.screenshot({path:path.join(out,`${name}-${width}-${theme}.png`),fullPage:true});
         console.log(`${result.issues.length ? 'FAIL' : 'PASS'} ${name} ${width} ${theme}: ${result.issues.length} issues`);
