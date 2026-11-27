@@ -193,7 +193,8 @@ try {
   await historyFlows();
   await dismissals();
   assert.deepEqual(errors, [], `${width} ${theme}: no browser errors`);
-  assert.deepEqual(writes, [], 'Navigation does not mutate account data');
+  // Suggestions use POST to query draft context, without saving Bot changes.
+  assert.deepEqual(writes.filter(({ method, path }) => method !== 'POST' || !/^\/api\/bots\/[^/]+\/suggested-apps$/.test(path)), [], 'Navigation does not mutate account data');
   // Opening a route must retain the unsaved Bot settings guard.
   await page.goto(`${process.env.UI_ORIGIN}/#bot/coordinator/settings/general`);
   const name = page.getByRole('textbox', { name: 'Name', exact: true });
