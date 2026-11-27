@@ -56,7 +56,7 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
   const operationsFixture = await agentFixture();
   const evidence = path.resolve(directory); fs.mkdirSync(evidence, { recursive: true });
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-  const report = [], screenshots = [], chatEdits = [];
+  const report = [], screenshots = [], chatEdits = [], browserErrors = [];
   let active;
   const pass = (name, width, details = {}) => { report.push({ name, width, ...details }); console.log(`PASS UC-I ${width}: ${name}`); };
   const accounts = {
@@ -82,6 +82,11 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
     const filename = `${width}-${name}.png`;
     await page.screenshot({ path: path.join(evidence, filename), fullPage: true }); screenshots.push(filename);
   };
+  const openChat = async (page, botId) => {
+    await page.goto(`/#bot/${botId}`);
+    await page.locator('.composer__input:not([disabled])').waitFor();
+    await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().transcripts[id]?.loaded, botId);
+  };
   try {
     for (const width of [390, 1280]) {
       const contexts = [];
@@ -95,8 +100,8 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
           await context.route('**/*', route => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort());
           await context.addInitScript(id => { if (location.origin !== 'null') { localStorage.setItem(`swarm.ui.migrated:${id}`, '1'); localStorage.setItem('swarm.sidebarCollapsed', '0'); } }, account.id);
           const page = await context.newPage(); pages[kind] = page; active = page; page.setDefaultTimeout(20000);
-          const errors = []; page.on('pageerror', e => errors.push(e.message));
-          await page.goto(`/#bot/${account.fixture.fixture.bot.id}`);
+          const errors = []; page.on('pageerror', e => { errors.push(e.message); browserErrors.push({ width, kind, message: e.message }); });
+          await openChat(page, account.fixture.fixture.bot.id);
           const fields = kind === 'sales'
             ? { role: 'Sales', goals: ['Outreach and pipeline'], workflows: [{ name: 'Pipeline review', cadence: 'weekly' }], focus: ['tasks', 'routines', 'bots'] }
             : { role: 'Operations manager', goals: ['Daily report', 'Usage review'], workflows: [{ name: 'Daily report', cadence: 'daily' }], focus: ['routines', 'usage', 'apps'] };
@@ -145,7 +150,7 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
         const widget = dashboard.widgets.find(item => item.type === 'list');
         assert.ok(widget, 'The sales home has a data list to resize');
         await capture(salesPage, 'chat-widget-before', width);
-        await salesPage.goto(`/#bot/${fixture.fixture.bot.id}`);
+        await openChat(salesPage, fixture.fixture.bot.id);
         const chat = await proposeChatWidgetEdit(fixture, 'update_widget', {
           dashboardId: dashboard.id, widgetId: widget.id, set: { span: 12, rows: 2 },
         }, 'Make the follow ups widget full width and two rows tall.');
@@ -171,7 +176,7 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
           { op: 'replace', path: '/layout/sidebar/order', value: handOrder },
           { op: 'replace', path: '/layout/sidebar/width', value: 'wide' },
         ], ops.revision);
-        await page.goto(`/#bot/${operationsFixture.fixture.bot.id}`);
+        await openChat(page, operationsFixture.fixture.bot.id);
         const changed = await proposeChatAdaptation(operationsFixture, { role: 'Support team', goals: ['Response queue'],
           workflows: [{ name: 'Queue review', cadence: 'daily' }], focus: ['tasks', 'chat', 'team'] }, 'Actually I now lead a support team. I need a daily response queue review.');
         assert.ok(changed.toolResults.some(item => {
@@ -272,13 +277,15 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
         throw error;
       } finally { for (const context of contexts) await context.close(); }
     }
+    assert.deepEqual(browserErrors, [], 'The complete adaptation journey has no browser errors');
   } catch (error) {
     if (active && !active.isClosed()) await active.screenshot({ path: path.join(evidence, 'failure.png'), fullPage: true });
     fs.writeFileSync(path.join(evidence, 'failure.txt'), String(error.stack)); throw error;
   } finally {
     await browser.close(); await fixture.close(); await operationsFixture.close();
-    fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify({ passed: report.length, checks: report, screenshots, chatEdits }, null, 2));
+    fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify({ passed: report.length, checks: report, screenshots, chatEdits, browserErrors }, null, 2));
   }
+  for (const file of ['failure.png', 'failure.txt']) fs.rmSync(path.join(evidence, file), { force: true });
   console.log(`${report.length} passed, 0 failed. Demo: ${evidence}`);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) await runAdaptUi();
