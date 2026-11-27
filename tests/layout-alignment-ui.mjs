@@ -253,6 +253,9 @@ async function main() {
           }
 
           if (route.dashboard) issues.push(...await page.evaluate(inspectDashboardGrid));
+          if (route.name === 'settings-appearance' || route.dashboard) {
+            try { await readableWords(page.locator('[data-layout="page"]').first()); } catch (error) { issues.push(error.message); }
+          }
           if (route.preview || route.safe) {
             const bannerIssues = await page.evaluate(inspectAlignment, { selector: '[role="status"], [role="alert"]', requirePage: false });
             issues.push(...bannerIssues);

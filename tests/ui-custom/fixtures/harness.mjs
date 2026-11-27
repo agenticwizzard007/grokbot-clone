@@ -16,7 +16,9 @@ export function requireModules(...files) {
     requireFeature(fs.existsSync(path.join(ROOT, file)) || fs.existsSync(path.join(ROOT, alternate)), file);
   }
 }
+function localOnly(base) { assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(new URL(base).hostname), 'Quality checks only target loopback fixture servers'); }
 export async function configAvailable(request, base) {
+  localOnly(base);
   const response = await request.get(`${base}/api/ui/config`);
   if (response.status() === 404) requireFeature(false, 'GET /api/ui/config is absent or disabled (UC-B)');
   assert.equal(response.status(), 200, `Config probe failed: ${response.status()} ${await response.text()}`);
@@ -25,6 +27,7 @@ export async function configAvailable(request, base) {
   return body;
 }
 export async function api(request, base, route, method = 'GET', data, expected = 200, revision) {
+  localOnly(base);
   if (method !== 'GET' && route !== '/data' && revision === undefined) revision = (await configAvailable(request, base)).revision;
   if (method !== 'GET' && data === undefined) data = {};
   const headers = { Origin: base, ...(revision === undefined ? {} : { 'If-Match': `"${revision}"` }) };

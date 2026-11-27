@@ -4,6 +4,7 @@ import path from 'node:path';
 import { runSuite, fixtureContext, configAvailable, api, open, until, requireModules } from '../fixtures/harness.mjs';
 import { ROOT } from '../fixtures/server.mjs';
 import { contracts } from '../fixtures/presets.mjs';
+import { fuzzTargets } from './fuzz-targets.mjs';
 import { XSS, cssFuzz, HOSTILE_PATCHES } from './corpus.mjs';
 import { widgets, corruptDocument } from '../fixtures/matrix.mjs';
 
@@ -32,18 +33,27 @@ const cases = [
     files.push(path.join(ROOT, 'web/src/components/config/AppearanceSettings.tsx'));
     for (const file of files) assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /dangerouslySetInnerHTML|\.innerHTML\s*=|insertAdjacentHTML|new\s+Function\s*\(/, file);
   } },
-  { name: '5000 CSS strings in every registered color and primary enum field', run: async () => {
-    const { DEFAULT_CONFIG, REGISTRY, uiConfigSchema } = await contracts();
-    const tokens = Array.isArray(REGISTRY.tokens) ? REGISTRY.tokens : Object.values(REGISTRY.tokens);
-    const paths = ['theme.mode', 'theme.font.ui', 'theme.font.heading', 'theme.font.scale', 'theme.density', 'theme.radius', 'theme.motion', 'theme.contrast', 'layout.sidebar.width', 'layout.chat.width', 'layout.home.kind'];
-    for (const mode of ['light', 'dark']) for (const token of tokens) paths.push(`theme.${token.kind === 'derived' ? 'overrides' : 'colors'}.${mode}.${token.id}`);
-    assert.ok(tokens.length > 0, 'Token registry must be populated');
+  { name: '5000 CSS strings in every registered color and enum field', run: async () => {
+    const shared = await contracts(), { uiConfigSchema } = shared;
+    const { doc: template, paths, parameterSchemas } = fuzzTargets(shared);
+    assert.equal(uiConfigSchema.safeParse(template).success, true, 'Fuzz starts from a valid document');
+    assert.ok(paths.length > 40, 'Colors and enums must be discovered from registries');
     let assertions = 0;
-    for (const pointer of paths) for (const value of cssFuzz()) {
-      const doc = structuredClone(DEFAULT_CONFIG), keys = pointer.split('.'); let target = doc;
+    const values = cssFuzz();
+    console.log(`Fuzzing ${values.length} inputs in ${paths.length} contract paths`);
+    for (const keys of paths) {
+      const doc = structuredClone(template); let target = doc;
       for (const key of keys.slice(0, -1)) target = target[key] ??= {};
-      target[keys.at(-1)] = value;
-      assert.equal(uiConfigSchema.safeParse(doc).success, false, pointer); assertions++;
+      for (const value of values) {
+        target[keys.at(-1)] = value;
+        assert.equal(uiConfigSchema.safeParse(doc).success, false, keys.join('/')); assertions++;
+      }
+    }
+    for (const { name, schema, data, paths: sourcePaths } of parameterSchemas) {
+      assert.equal(schema.safeParse(data).success, true, name);
+      for (const keys of sourcePaths) for (const value of values) {
+        assert.equal(schema.safeParse({ ...data, [keys[0]]: value }).success, false, name); assertions++;
+      }
     }
     console.log(`CSS fuzz: ${assertions} rejected inputs across ${paths.length} fields`);
   } },
@@ -93,6 +103,56 @@ const cases = [
     await page.getByText(/safe mode/i).first().waitFor();
     assert.ok(await page.getByRole('button', { name: 'Reset', exact: true }).count());
     await api(context.request, server.base, '/reset', 'POST', { scope: 'all' }, 200, fallback.revision);
+  }) },
+  { name: 'required controls cannot be registered as hideable widgets', run: async () => {
+    const { REGISTRY } = await contracts();
+    const components = Array.isArray(REGISTRY.components) ? REGISTRY.components : Object.values(REGISTRY.components);
+    for (const id of ['settings', 'chat.composer', 'chat.approvals', 'chat.questions', 'preview.banner', 'safeMode.banner', 'errors', 'signOut']) assert.equal(components.some(item => item.id === id), false, id);
+    const widgetIds = (Array.isArray(REGISTRY.widgets) ? REGISTRY.widgets : Object.values(REGISTRY.widgets)).map(item => item.id);
+    for (const id of ['html', 'iframe', 'image', 'script', 'approval', 'connect', 'question']) assert.equal(widgetIds.includes(id), false, id);
+  } },
+  { name: 'two-user config, preview, preset, history, export and source isolation', run: args => withContext(args, async ({ context, server, current, browser }) => {
+    requireModules('server/src/ui/sources/executor.ts');
+    const other = await browser.newContext();
+    try {
+      assert.ok((await other.request.post(`${server.base}/api/auth/dev`, { data: { email: 'qa-temp-isolation-b@example.test', name: 'QA-Temp-Isolation-B' } })).ok());
+      const foreignUser = server.withDb(db => db.prepare('SELECT id FROM users WHERE email=?').get('qa-temp-isolation-b@example.test'));
+      const response = await other.request.post(`${server.base}/api/bots`, { data: { name: 'Fixture foreign Bot', mode: 'personal' } });
+      assert.ok(response.ok()); const { bot: foreignBot } = await response.json();
+      server.withDb(db => db.prepare('INSERT INTO tasks(id,bot_id,title,state,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
+        .run('task_foreign_sentinel', foreignBot.id, 'FOREIGN_TASK_SENTINEL', 'done', 'PRIVATE_FOREIGN_NOTE', Date.now(), Date.now()));
+      const beforeB = await configAvailable(other.request, server.base);
+      const preview = await api(context.request, server.base, '/patches/preview', 'POST', { intent: 'PRIVATE_PREVIEW_SENTINEL', patch: [{ op: 'replace', path: '/theme/mode', value: 'dark' }] });
+      for (const [method, suffix] of [['GET', ''], ['POST', '/apply'], ['POST', '/discard']]) {
+        const denied = await api(other.request, server.base, `/previews/${preview.previewId}${suffix}`, method, undefined, 404);
+        assert.equal(denied.code, 'not_found');
+      }
+      const preset = await api(context.request, server.base, '/presets', 'POST', { name: 'PRIVATE_PRESET_SENTINEL' });
+      const presets = await api(other.request, server.base, '/presets');
+      assert.doesNotMatch(JSON.stringify(presets), /PRIVATE_PRESET_SENTINEL/);
+      assert.equal((await api(other.request, server.base, `/presets/${preset.presetId}`, 'DELETE', {}, 404)).code, 'not_found');
+      assert.doesNotMatch(JSON.stringify(await api(other.request, server.base, '/history')), /PRIVATE_PREVIEW_SENTINEL|PRIVATE_PRESET_SENTINEL/);
+      assert.deepEqual((await configAvailable(other.request, server.base)).doc, beforeB.doc);
+      const exported = await api(context.request, server.base, '/export');
+      const allowed = new Set([...Object.keys(current.doc), 'exportedAt']);
+      for (const key of Object.keys(exported)) assert.ok(allowed.has(key), `Export key ${key}`);
+      assert.doesNotMatch(JSON.stringify(exported), /PRIVATE_|FOREIGN_TASK_SENTINEL/);
+      const { REGISTRY } = await contracts();
+      const sources = Array.isArray(REGISTRY.sources) ? REGISTRY.sources : Object.values(REGISTRY.sources);
+      const requests = sources.map(source => ({ key: source.id, source: source.id, params: {
+        ...(['tasks.series', 'usage.summary', 'usage.series', 'runs.counts', 'runs.series'].includes(source.id) ? { range: '7d' } : {}),
+        ...(source.id === 'usage.series' ? { metric: 'cost' } : {}), ...(source.id === 'runs.series' ? { group: 'day' } : {}),
+      } }));
+      const result = await api(context.request, server.base, '/data', 'POST', { requests });
+      assert.doesNotMatch(JSON.stringify(result), /FOREIGN_TASK_SENTINEL|PRIVATE_|"(?:instructions|prompt|memory|apiKey|note)"/);
+      for (const source of sources) {
+        const entry = result.results[source.id]; assert.equal(entry.ok, true, source.id);
+        for (const row of entry.rows || []) for (const key of Object.keys(row)) assert.ok(source.fields.includes(key), `${source.id}.${key}`);
+      }
+      const denied = await api(context.request, server.base, '/data', 'POST', { requests: [{ key: 'foreign', source: 'tasks.list', params: { botId: foreignBot.id } }] });
+      assert.equal(denied.results.foreign.ok, false); assert.match(JSON.stringify(denied.results.foreign), /not_found/);
+      assert.ok(foreignUser.id !== server.fixture.userId);
+    } finally { await other.close(); }
   }) },
   { name: 'network and CSP retain same-origin asset boundaries', run: args => withContext(args, async ({ context, server, external }) => {
     requireModules('web/public/ui-boot.js', 'web/src/dashboards/DashboardGrid.tsx');

@@ -113,8 +113,17 @@ const cases = [
     await page.waitForTimeout(1000); measure('dashboardCLS', await page.evaluate(() => window.__ucPerf.cls));
     const batches = await page.evaluate(() => window.__ucPerf.batches);
     assert.ok(batches.length, 'Instrumented the real applier');
-    details.tokens = batches;
-    measure('applyTokensMs', Math.max(...batches.map(batch => batch.end - batch.start)));
+    const { REGISTRY } = await contracts();
+    const names = REGISTRY.tokens.flatMap(token => token.cssVars);
+    const sixtyWrites = await page.evaluate(names => {
+      const root = document.documentElement, css = getComputedStyle(root);
+      const values = names.map(name => [name, css.getPropertyValue(name)]);
+      const start = performance.now();
+      for (let i = 0; i < 60; i++) root.style.setProperty(...values[i % values.length]);
+      return performance.now() - start;
+    }, names);
+    details.tokens = { actualBatches: batches, registryWriteCount: 60, registryWriteMs: sixtyWrites };
+    measure('applyTokensMs', Math.max(sixtyWrites, ...batches.map(batch => batch.end - batch.start)));
   }) },
 ];
 const result = await runSuite('performance', cases);

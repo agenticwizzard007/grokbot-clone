@@ -35,3 +35,24 @@ test('development absence skips but full gate fails; available feature always ru
     assert.doesNotThrow(() => requireFeature(true, 'fixture present'));
   } finally { if (previous === undefined) delete process.env.UC_REQUIRE_FULL; else process.env.UC_REQUIRE_FULL = previous; }
 });
+
+test('all fourteen matrix documents pass the shared schema and contrast checker', async t => {
+  const { contracts, presetDocument } = await import('../fixtures/presets.mjs');
+  let shared;
+  try { shared = await contracts(); } catch (error) { if (error instanceof MissingFeature) { t.skip(error.message); return; } throw error; }
+  for (const fixture of MATRIX) for (const mode of ['light', 'dark']) {
+    const doc = matrixDocument(shared.DEFAULT_CONFIG, fixture, mode, await presetDocument(fixture === 'hostile' ? 'swarm' : fixture));
+    const parsed = shared.uiConfigSchema.safeParse(doc);
+    assert.equal(parsed.success, true, `${fixture} ${mode}: ${parsed.success ? '' : JSON.stringify(parsed.error.issues)}`);
+    assert.deepEqual(shared.checkAccessibility(doc), [], `${fixture} ${mode}`);
+  }
+});
+
+test('feature probes never skip authentication failures or server errors', async () => {
+  const { configAvailable } = await import('../fixtures/harness.mjs');
+  for (const status of [401, 403, 500]) {
+    const request = { get: async () => ({ status: () => status, text: async () => 'fixture failure' }) };
+    await assert.rejects(configAvailable(request, 'http://127.0.0.1:1234'), error => !(error instanceof MissingFeature));
+  }
+  await assert.rejects(configAvailable({ get: async () => { throw new Error('Must not request a remote host'); } }, 'https://example.invalid'), /loopback/);
+});
