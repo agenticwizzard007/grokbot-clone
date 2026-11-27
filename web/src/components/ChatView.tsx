@@ -6,12 +6,12 @@ import { Mic } from 'lucide-react';
 import { startCall, endCall, useVoice } from '../voice/call';
 import { ShellHeaderSlot } from './ShellHeaderSlot';
 import { userFacingLive } from '../lib/audience';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Bot } from '@shared/types';
-import { ChevronDown } from 'lucide-react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import type { Bot, Row } from '@shared/types';
+import { ChevronDown, MoreHorizontal, Send } from 'lucide-react';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { backToList, sortedRows, useSelectedBot, useStore } from '../store';
-import { useConfigUI } from '../configStore';
+import { navigation, useConfigUI } from '../configStore';
 import { Composer } from './Composer';
 import { Menu } from './Menu';
 import { Transcript } from './Transcript';
@@ -20,6 +20,37 @@ import { useFreshConversation } from '../lib/useFreshConversation';
 import { shortcutLabel } from '../lib/shortcuts';
 import { RosterFeedback } from './LoadFeedback';
 import { SetupBanner } from './SetupBanner';
+import { handoffApi, type RunOutput } from '../handoffs/api';
+import { useHandoffResource } from '../handoffs/useHandoffs';
+import { api } from '../lib/api';
+import { toast } from '../lib/toast';
+const OutputCard = lazy(() => import('../handoffs/OutputCard').then(m => ({ default: m.OutputCard })));
+const SendSheet = lazy(() => import('../handoffs/SendSheet').then(m => ({ default: m.SendSheet })));
+
+function MessageHandoff({ row, final, onSend }: { row: Row; final: boolean; onSend: (output: RunOutput, targetId?: string) => void }) {
+  const [open, setOpen] = useState(false), [busy, setBusy] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const jobId = row.body.jobId;
+  const output = useHandoffResource(`message-output:${jobId}`, signal => handoffApi.outputByJob(jobId!, signal), !!jobId && final);
+  const links = useHandoffResource(`message-links:${row.botId}`, signal => handoffApi.links(row.botId, signal), !!output.data?.output);
+  const bots = useStore(state => state.bots);
+  const send = async () => {
+    if (busy) return;
+    if (output.data?.output) { onSend(output.data.output); return; }
+    setBusy(true);
+    try {
+      const response = await fetch('/api/outputs/from-message', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ botId: row.botId, generation: row.generation, seq: row.seq }) });
+      const result = await response.json(); if (!response.ok) throw new Error();
+      onSend(result.output);
+    } catch { toast('Could not prepare this message. Try again.', { tone: 'error' }); }
+    finally { setBusy(false); }
+  };
+  return <div className="ho" style={{ position: 'relative' }}>
+    <button ref={trigger} type="button" className="ho-button ho-button--quiet" aria-label="Message actions" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}><MoreHorizontal size={18} aria-hidden /></button>
+    {open && <Menu triggerRef={trigger} onClose={() => setOpen(false)} items={[{ label: 'Send to agent', icon: Send, onSelect: () => void send() }]} />}
+    {output.data?.output?.status === 'final' && <Suspense fallback={null}><OutputCard output={output.data.output} onSend={onSend} suggestions={links.data?.links.map(link => ({ link, name: bots.find(bot => bot.id === link.toBotId)?.name ?? 'Agent' }))} /></Suspense>}
+  </div>;
+}
 
 /** PD-03: no Share control until a real share feature exists. */
 const FEATURE_SHARE = false;
@@ -49,6 +80,11 @@ function BotChat({ bot }: { accountId: string; bot: Bot }) {
   const [menu, setMenu] = useState(false);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const rows = useMemo(() => sortedRows(currentTranscript), [currentTranscript]);
+  const policy = useHandoffResource('chat-handoff-settings', signal => handoffApi.settings(signal));
+  const members = useHandoffResource(`handoff-room:${bot.id}`, () => api.roomMembers(bot.id), bot.kind === 'room');
+  const [send, setSend] = useState<{ output: RunOutput; targetId?: string } | null>(null);
+  const lastReplies = useMemo(() => new Map(rows.filter(row => row.body.type === 'message' && row.body.role === 'assistant').map(row => [row.body.jobId, row.seq])), [rows]);
+  const onSend = (output: RunOutput, targetId?: string) => setSend({ output, targetId });
   const voice = useVoice();
   const fresh = useFreshConversation(bot.id);
   return <main className="chat" data-ui-id="chat.avatars" data-ui-visibility={avatars}>
@@ -80,7 +116,10 @@ function BotChat({ bot }: { accountId: string; bot: Bot }) {
     </header></ShellHeaderSlot>
     {bot.kind === 'room' && <RoomMembersHeader room={bot} />}
     <RosterFeedback />
-    <Transcript key={generation} bot={bot} generation={generation} rows={rows} live={live} loaded={!!currentTranscript?.loaded} />
+    <Transcript key={generation} bot={bot} generation={generation} rows={rows} live={live} loaded={!!currentTranscript?.loaded}
+      messageActions={policy.data?.settings?.enabled ? row => <MessageHandoff row={row} final={lastReplies.get(row.body.jobId) === row.seq} onSend={onSend} /> : undefined} />
+    {send && <Suspense fallback={null}><SendSheet open senderId={send.output.botId} output={send.output} roomId={bot.kind === 'room' ? bot.id : undefined} roomMemberIds={bot.kind === 'room' ? members.data?.members.map(member => member.id) ?? [] : undefined} initialTargetId={send.targetId} onClose={() => setSend(null)}
+      onSent={() => { void useStore.getState().loadRows(bot.id, { resync: true }); }} onLoopStarted={id => { setSend(null); navigation.navigate({ kind: 'loop', id }); }} /></Suspense>}
     <Page type="chat" className="chat-dock">
       <VoiceCallBar />
       <SetupBanner bot={bot} />

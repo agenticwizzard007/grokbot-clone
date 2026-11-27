@@ -5,7 +5,7 @@ import { Fragment } from 'react';
 import { RosterFeedback } from './LoadFeedback';
 import { userFacingLive } from '../lib/audience';
 import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { Blocks, Folder, Gauge, House, LayoutDashboard, LogOut, Settings, Terminal, X } from 'lucide-react';
+import { Blocks, Folder, Gauge, GitBranch, House, LayoutDashboard, LogOut, Settings, Terminal, X } from 'lucide-react';
 import { navigation, openConversation, useConfigUI } from '../configStore';
 import { TasksIsland } from './config/TasksIsland';
 import type { Bot } from '@shared/types';
@@ -193,6 +193,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                 items={[
                   { label: 'Settings', icon: Settings, hint: shortcutLabel('settings'), onSelect: () => { useConfigUI.getState().openAppSettings(); onClose?.(); } },
                   { label: 'Usage', icon: Gauge, onSelect: () => { useConfigUI.getState().openAppSettings('usage'); onClose?.(); } },
+                  { label: 'Loops', icon: GitBranch, onSelect: () => { navigation.navigate({ kind: 'loops' }); onClose?.(); } },
                   { label: 'Models and access', icon: Terminal, onSelect: () => { useConfigUI.getState().openAppSettings('subscriptions'); onClose?.(); } },
                   { label: 'Connect apps', icon: Blocks, separatorBefore: true, onSelect: () => setModal('apps') },
                   { label: 'Log out', icon: LogOut, danger: true, separatorBefore: true, onSelect: logout },

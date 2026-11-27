@@ -1,10 +1,16 @@
 // npm run test:navigation. NAV_SIZES=390,500 selects widths. Local fixtures only.
 import assert from 'node:assert/strict';
-import { cp, mkdir, writeFile } from 'node:fs/promises';
+import { cp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { preview } from '../web/node_modules/vite/dist/node/index.js';
 import { chromium } from 'playwright';
 import { APP_SECTIONS, BOT_TABS, parseScreen, parentScreen, resolveScreen, screenHash } from '../web/src/lib/navigation.ts';
+import { output, handoff, events as handoffEvents } from './handoffs/ui-d-fixture.mjs';
+import { recordedRun } from './handoffs/ui-e-fixture.mjs';
+const flow = JSON.parse(await readFile(new URL('./flow/golden/empty.json', import.meta.url), 'utf8'));
+const run = recordedRun();
 const routes = [
+ '#loops', '#loop/lp_converged', '#handoff/ho_fixture', `#output/${output.id}`, `#output/${output.id}?part=p_body`,
+ '#bot/coordinator/details/flow',
  '',
  '#bots', '#bot/coordinator', '#bot/project-room', '#bot/coordinator/details',
  ...['activity','tasks','files','files/reports','setup','setup/responsibilities','setup/harness','setup/files','setup/history'].map(tab => `#bot/coordinator/details/${tab}`),
@@ -31,6 +37,22 @@ let last;
 try {
  async function checkCase(width, theme) {
   const { page, fixture, errors, writes } = await shellFixture(browser, width, theme); last = page; page.on('pageerror', e => console.error(page.url(), e.message));
+  // Established Bots keep the Activity bookmark stable; explicit Flow routes use the same model.
+  for (const bot of fixture.bots) { bot.createdAt = 1; bot.lastActivityAt = Date.now(); }
+  const baseRespond = fixture.respond;
+  fixture.respond = request => {
+   const path = request.path;
+   if (/^\/api\/bots\/[^/]+\/flow$/.test(path)) return { headers: { 'X-Flow-Has-Runs': '1' }, json: { ...flow, botId: path.split('/')[3] } };
+   if (path === '/api/handoff-settings') return { json: { settings: { enabled: true, agentHandoffs: 'team' } } };
+   if (path === '/api/handoff-links') return { json: { links: [] } };
+   if (path === '/api/loops') return { json: { loops: [run.detail.loop], next: null } };
+   if (path === '/api/loops/lp_converged') return { json: run.detail };
+   if (path === '/api/loops/lp_converged/events') return { json: { events: run.events, next: null } };
+   if (path === '/api/handoffs/ho_fixture') return { json: { handoff, events: handoffEvents } };
+   if (/^\/api\/outputs\/[^/]+$/.test(path)) return { json: { output } };
+   if (path.includes('/parts/')) return { json: { output, part: output.parts[0], text: 'Placeholder output body.', next: null } };
+   return baseRespond(request);
+  };
   // Cold documents may reuse this immutable local build, as bookmarks do.
   // Playwright routing otherwise disables caching for every static asset too.
   const network = await page.context().newCDPSession(page);
@@ -43,6 +65,7 @@ try {
    await page.locator('.shell-header').waitFor();
    if (parseScreen(hash)) await hashIs(canonical(hash));
    else await page.waitForFunction(() => location.hash.startsWith('#') && location.hash !== '#unknown');
+   if (parseScreen(hash)?.flow) await page.locator('.flow-header').waitFor();
    assert.deepEqual(await page.evaluate(() => history.state?.swarmNavigation?.trail), [], `${hash}: cold entry has no app history`);
   };
   const snapshot = name => page.screenshot({ path: `.context/pb-b/navigation-${name}-${width}-${theme}.png` });
@@ -172,14 +195,15 @@ try {
    const phoneRoot = width <= 760 && (['bots', 'search'].includes(current.kind)
     || current.kind === 'settings' && !current.section || current.kind === 'work' && !current.route.botSlug);
    if (current.kind === 'details' || current.kind === 'bot-settings') {
-    assert.equal(await page.locator('.shell-header > .bot-avatar').count(), 1, `${hash}: Bot avatar in top bar`);
-    assert.equal(await page.locator('.shell-header > .bot-avatar').evaluate(el => el.getBoundingClientRect().width), 32);
-    assert.equal(await page.locator('.shell-header__subtitle').innerText() !== '', true);
+    const avatar = page.locator('.shell-header > .bot-avatar:visible, .flow-header > .bot-avatar:visible');
+    assert.equal(await avatar.count(), 1, `${hash}: Bot avatar in top bar`);
+    assert.equal(await avatar.evaluate(el => el.getBoundingClientRect().width), 32);
+    assert.equal(await page.locator('.shell-header__subtitle:visible, .flow-header > div > span:visible').innerText() !== '', true);
    }
    assert.equal(await page.locator('.shell-header').evaluate(el => el.scrollWidth <= el.clientWidth), true, `${hash}: header fits`);
    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1 && document.body.scrollWidth <= innerWidth + 1), true, `${hash}: no horizontal page overflow`);
    assert.deepEqual(await page.locator('.shell-header').evaluate(header => [...header.querySelectorAll('*')].filter(el => el.checkVisibility() && [...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim()) && parseFloat(getComputedStyle(el).fontSize) < 11).map(el => el.textContent)), [], `${hash}: header text at least 11px`);
-   const back = page.locator('.shell-back');
+   const back = page.locator('.shell-back:visible');
    assert.ok(await back.isVisible() || await page.locator('.sidebar').isVisible() || await page.locator('.phone-tabs').isVisible(), `${hash}: visible navigation`);
    if (width > 760) {
     assert.equal(await page.locator('.sidebar').isVisible(), true, `${hash}: desktop app navigation stays visible`);

@@ -19,6 +19,7 @@ export function startEvents(): () => void {
 
   const resync = () => {
     const st = useStore.getState();
+    window.dispatchEvent(new CustomEvent('swarm:event', { detail: { type: 'reconnect' } }));
     void refreshUiConfig();
     st.loadBots({ silent: true }).catch(() => {});
     st.loadComputer().catch(() => {});
@@ -63,6 +64,9 @@ export function startEvents(): () => void {
         if (event.type === 'ui_config' || event.type === 'ui_preview') {
           const state = useStore.getState(), screen = parseScreen(window.location.hash);
           void handleUiEvent(event, screen?.kind === 'chat' ? routeBot(screen.bot, state.bots)?.id ?? null : null);
+        }
+        if (event.type === 'handoff' || event.type === 'output' || event.type === 'loop' || event.type === 'flow') {
+          window.dispatchEvent(new CustomEvent('swarm:event', { detail: event }));
         }
         useStore.getState().handleEvent(event);
       } catch (e) { console.warn('bad event', e); }

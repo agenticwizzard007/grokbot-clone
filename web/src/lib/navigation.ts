@@ -14,8 +14,11 @@ export type SetupTab = 'responsibilities' | 'harness' | 'files' | 'history';
 export type Screen =
   | { kind: 'bots' }
   | { kind: 'dash'; dashboard: string }
+  | { kind: 'loops' }
+  | { kind: 'loop' | 'handoff'; id: string }
+  | { kind: 'output'; id: string; part?: string; send?: boolean }
   | { kind: 'chat'; bot: string }
-  | { kind: 'details'; bot: string; tab: DetailTab; setup?: SetupTab; reports?: boolean }
+  | { kind: 'details'; bot: string; tab: DetailTab; setup?: SetupTab; reports?: boolean; flow?: boolean; link?: string }
   | { kind: 'bot-settings'; bot: string; tab: BotSettingsTab }
   | { kind: 'settings'; section?: AppSection }
   | { kind: 'work'; route: WorkRoute }
@@ -25,6 +28,17 @@ export function parseScreen(hash: string): Screen | null {
   if (!hash.startsWith('#')) return null;
   if (hash === '#first-run') return { kind: 'first-run' };
   if (hash === '#bots') return { kind: 'bots' };
+  if (hash === '#loops') return { kind: 'loops' };
+  const item = hash.match(/^#(loop|handoff|output)\/([A-Za-z0-9_-]{1,256})(?:\?([^#]*))?$/);
+  if (item) {
+    const kind = item[1] as 'loop' | 'handoff' | 'output';
+    if (kind !== 'output') return item[3] ? null : { kind, id: item[2] };
+    const query = new URLSearchParams(item[3]);
+    if ([...query.keys()].some(key => !['part', 'send'].includes(key))) return null;
+    const part = query.get('part');
+    if (part && !/^[A-Za-z0-9_-]{1,256}$/.test(part)) return null;
+    return { kind, id: item[2], ...(part ? { part } : {}), ...(query.get('send') === '1' ? { send: true } : {}) };
+  }
   if (hash === '#new-bot') return { kind: 'create' };
   if (hash === '#new-bot/group') return { kind: 'group' };
   if (hash === '#search' || hash === '#apps/connect') return { kind: hash === '#search' ? 'search' : 'apps' };
@@ -43,6 +57,10 @@ export function parseScreen(hash: string): Screen | null {
   let bot: string;
   try { bot = decodeURIComponent(match[1]); } catch { return null; }
   if (!bot) return null;
+  const flow = match[2]?.match(/^details\/flow(?:\?link=([A-Za-z0-9_%.-]{1,768}))?$/);
+  if (flow) {
+    try { return { kind: 'details', bot, tab: 'activity', flow: true, ...(flow[1] ? { link: decodeURIComponent(flow[1]) } : {}) }; } catch { return null; }
+  }
   const parts = match[2]?.split('/') ?? [];
   if (!parts.length) return { kind: 'chat', bot };
   if (parts[0] === 'settings' && parts.length <= 2 && BOT_TABS.includes((parts[1] ?? 'general') as BotSettingsTab))
@@ -65,8 +83,16 @@ export function screenHash(screen: Screen): string {
     case 'first-run': return '#first-run';
     case 'bots': return '#bots';
     case 'dash': return `#dash/${encodeURIComponent(screen.dashboard)}`;
+    case 'loops': return '#loops';
+    case 'loop': case 'handoff': return `#${screen.kind}/${encodeURIComponent(screen.id)}`;
+    case 'output': {
+      const query = new URLSearchParams();
+      if (screen.part) query.set('part', screen.part);
+      if (screen.send) query.set('send', '1');
+      return `#output/${encodeURIComponent(screen.id)}${query.size ? `?${query}` : ''}`;
+    }
     case 'chat': return `#bot/${encodeURIComponent(screen.bot)}`;
-    case 'details': return `#bot/${encodeURIComponent(screen.bot)}/details/${({ activity: 'activity', tasks: 'tasks', library: 'files', configuration: 'setup' })[screen.tab]}${screen.setup ? `/${screen.setup}` : screen.reports ? '/reports' : ''}`;
+    case 'details': return `#bot/${encodeURIComponent(screen.bot)}/details/${screen.flow ? `flow${screen.link ? `?link=${encodeURIComponent(screen.link)}` : ''}` : ({ activity: 'activity', tasks: 'tasks', library: 'files', configuration: 'setup' })[screen.tab]}${screen.setup ? `/${screen.setup}` : screen.reports ? '/reports' : ''}`;
     case 'bot-settings': return `#bot/${encodeURIComponent(screen.bot)}/settings/${screen.tab}`;
     case 'settings': return `#settings${screen.section ? `/${screen.section}` : ''}`;
     case 'work': return workHash(screen.route);
@@ -80,9 +106,13 @@ export function screenHash(screen: Screen): string {
 /** Structural parents never depend on how a screen was opened. */
 export function parentScreen(screen: Screen): Screen | null {
   switch (screen.kind) {
+    case 'loops': return { kind: 'work', route: { tab: 'Tasks' } };
+    case 'loop': return { kind: 'loops' };
+    case 'handoff': case 'output': return { kind: 'bots' };
     case 'first-run': case 'chat': case 'create': case 'dash': return { kind: 'bots' };
     case 'group': return { kind: 'create' };
     case 'details':
+      if (screen.flow && screen.link) return { ...screen, link: undefined };
       if (screen.reports) return { kind: 'details', bot: screen.bot, tab: 'library' };
       if (screen.setup) return { kind: 'details', bot: screen.bot, tab: 'configuration' };
       return { kind: 'chat', bot: screen.bot };
@@ -118,9 +148,10 @@ type NavigationBot = { id: string; name: string; kind?: string };
 export function backLabel(screen: Screen, bots: NavigationBot[] = []): string {
   if (screen.kind === 'work') return `Back to ${workTabLabel(screen.route.tab)}`;
   if (screen.kind === 'chat') return `Back to ${routeBot(screen.bot, bots)?.name ?? 'Bot'} chat`;
-  if (screen.kind === 'details') return screen.tab === 'library' ? 'Back to files' : screen.tab === 'configuration' ? 'Back to setup' : 'Back to details';
+  if (screen.kind === 'details') return screen.flow ? 'Back to Flow' : screen.tab === 'library' ? 'Back to files' : screen.tab === 'configuration' ? 'Back to setup' : 'Back to details';
   const names: Record<Screen['kind'], string> = {
     'first-run': 'model setup',
+    loops: 'Loops', loop: 'loop', handoff: 'handoff', output: 'output',
     dash: 'dashboard', work: 'Tasks', details: 'details', bots: 'Bots', create: 'create a Bot', group: 'new group chat',
     'bot-settings': 'Bot settings', settings: 'Settings', chat: 'chat', search: 'search', apps: 'apps',
   };
@@ -140,6 +171,10 @@ export function screenTitle(screen: Screen, bots: NavigationBot[] = [], loaded =
   switch (screen.kind) {
     case 'bots': title = 'Bots'; break;
     case 'dash': title = 'Dashboard'; break;
+    case 'loops': title = 'Loops'; break;
+    case 'loop': title = 'Loop'; break;
+    case 'handoff': title = 'Handoff'; break;
+    case 'output': title = 'Output'; break;
     case 'chat': title = name; break;
     case 'settings': title = screen.section ? `Settings · ${SETTINGS_LABELS[screen.section]}` : 'Settings'; break;
     case 'work': {
@@ -157,7 +192,7 @@ export function screenTitle(screen: Screen, bots: NavigationBot[] = [], loaded =
     case 'details': {
       const tab = screen.tab === 'configuration' ? screen.setup ?? 'responsibilities' : screen.reports ? 'reports' : screen.tab;
       const label = { activity: 'Activity', tasks: 'Tasks', library: 'Files', reports: 'Files', responsibilities: 'Setup', harness: 'Harness', files: 'Configuration files', history: 'History' }[tab];
-      title = `${name} · ${label}`;
+      title = `${name} · ${screen.flow ? 'Flow' : label}`;
       break;
     }
   }
