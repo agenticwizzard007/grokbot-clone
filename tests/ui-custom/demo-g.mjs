@@ -16,6 +16,11 @@ try {
   for (const width of [390, 1280]) for (const scheme of ['light', 'dark']) {
     const context = await appearanceContext(browser, fixture, width, scheme);
     const page = await context.newPage(); page.setDefaultTimeout(20000); activePage = page;
+    const previewEvents = [], client = await context.newCDPSession(page);
+    await client.send('Network.enable');
+    client.on('Network.eventSourceMessageReceived', event => {
+      try { const data = JSON.parse(event.data); if (data.type === 'ui_preview') previewEvents.push(data); } catch {}
+    });
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     const screen = page.locator('.appearance-settings'), card = screen.locator('.ui-preview-card');
     const shot = async name => page.screenshot({ path: path.join(evidence, `${width}-${scheme}-${name}.png`) });
@@ -49,17 +54,17 @@ try {
     await screen.getByRole('button', { name: 'Move Tasks up', exact: true }).focus(); await page.keyboard.press('Enter');
     await waitForSaved(page, c => c.doc.layout.sidebar.order[0] === 'tasks', 'sidebar reorder');
     await screen.getByRole('button', { name: 'Move Tasks up', exact: true }).scrollIntoViewIfNeeded(); await shot('sidebar-reordered'); pass('sidebar reorder by keyboard');
-    const board = await create('QA-Temp-Board'); assert.ok(board.id.startsWith('d_'));
-    await screen.getByRole('button', { name: 'Manage QA-Temp-Board', exact: true }).scrollIntoViewIfNeeded(); await shot('dashboard-created'); pass('dashboard create opens its route');
-    await boardMenu('QA-Temp-Board', 'Rename');
+    const board = await create('Launch plan'); assert.ok(board.id.startsWith('d_'));
+    await screen.getByRole('button', { name: 'Manage Launch plan', exact: true }).scrollIntoViewIfNeeded(); await shot('dashboard-created'); pass('dashboard create opens its route');
+    await boardMenu('Launch plan', 'Rename');
     let dialog = page.getByRole('dialog', { name: 'Rename dashboard', exact: true });
-    await dialog.getByRole('textbox', { name: 'Name' }).fill('QA-Temp-Renamed'); await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-    const renamed = await waitForSaved(page, c => c.doc.dashboards[0].name === 'QA-Temp-Renamed', 'rename'); pass('dashboard rename');
-    await boardMenu('QA-Temp-Renamed', 'Set as home');
+    await dialog.getByRole('textbox', { name: 'Name' }).fill('Weekly priorities'); await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    const renamed = await waitForSaved(page, c => c.doc.dashboards[0].name === 'Weekly priorities', 'rename'); pass('dashboard rename');
+    await boardMenu('Weekly priorities', 'Set as home');
     await waitForSaved(page, c => c.doc.layout.home.dashboardId === board.id, 'dashboard home');
     await screen.getByLabel('Tab 5', { exact: true }).selectOption(`dashboard:${board.id}`);
     await waitForSaved(page, c => c.doc.layout.phoneTabs.includes(`dashboard:${board.id}`), 'dashboard phone tab');
-    await screen.getByRole('button', { name: 'Open QA-Temp-Renamed', exact: true }).click(); await page.waitForURL(new RegExp(`#dash/${board.id}$`));
+    await screen.getByRole('button', { name: 'Open Weekly priorities', exact: true }).click(); await page.waitForURL(new RegExp(`#dash/${board.id}$`));
     await page.reload(); assert.equal((await saved(page)).doc.layout.home.dashboardId, board.id); await open();
     await shot('dashboard-home'); pass('dashboard home, phone tab and Open persist');
     await manage.click(); const downloadPromise = page.waitForEvent('download'); await page.getByRole('menuitem', { name: 'Export', exact: true }).click();
@@ -69,10 +74,28 @@ try {
     const importPath = path.join(evidence, `${width}-${scheme}-import.json`); fs.writeFileSync(importPath, JSON.stringify(imported));
     pass('export downloads the saved workspace');
     const before = await saved(page);
+    const importResponse = page.waitForResponse(response => response.url().endsWith('/api/ui/import/preview') && response.request().method() === 'POST');
     await screen.getByLabel('Import layout file').setInputFiles(importPath); await card.getByRole('button', { name: 'Apply', exact: true }).waitFor();
-    assert.equal((await saved(page)).revision, before.revision, 'import waits for Apply');
-    await page.waitForTimeout(400); await card.scrollIntoViewIfNeeded(); await shot('import-preview');
-    integration(await page.locator('.ui-runtime-banner[aria-label="Appearance preview"]').isVisible(), 'manual import preview survives pending SSE');
+    const { previewId } = await (await importResponse).json();
+    const receivedPending = () => previewEvents.some(event => event.previewId === previewId && event.state === 'pending');
+    for (let attempt = 0; !receivedPending() && attempt < 100; attempt++) await page.waitForTimeout(20);
+    assert.ok(receivedPending(), 'The import emits a pending SSE event');
+    await card.scrollIntoViewIfNeeded();
+    const banner = page.getByRole('status', { name: 'Appearance preview', exact: true });
+    // X2 gives the visible review card ownership of Apply/Discard. Hiding the
+    // duplicate banner must not discard the unsaved, effective import preview.
+    await banner.waitFor({ state: 'hidden' });
+    assert.equal(await page.getByRole('button', { name: 'Apply', exact: true }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: 'Discard', exact: true }).count(), 1);
+    await card.getByText('Pending', { exact: true }).waitFor();
+    const effectiveHome = await screen.getByLabel('Start on', { exact: true }).inputValue();
+    const pendingSaved = await saved(page);
+    integration(effectiveHome === 'tasks' && pendingSaved.revision === before.revision && pendingSaved.doc.layout.home.dashboardId === board.id, 'manual import preview survives pending SSE', { effectiveHome, revision: pendingSaved.revision });
+    await manage.scrollIntoViewIfNeeded(); await banner.waitFor({ state: 'visible' });
+    assert.ok(await banner.getByRole('button', { name: 'Apply', exact: true }).isEnabled());
+    assert.ok(await banner.getByRole('button', { name: 'Discard', exact: true }).isEnabled());
+    await card.scrollIntoViewIfNeeded(); await banner.waitFor({ state: 'hidden' });
+    await shot('import-preview');
     const geometry = await page.evaluate(() => {
       const shell = document.querySelector('.app').getBoundingClientRect();
       const banners = [...document.querySelectorAll('#root > .ui-runtime-banner')].filter(el => el.checkVisibility()).map(el => el.getBoundingClientRect());
@@ -94,13 +117,13 @@ try {
     const restores = dialog.getByRole('button', { name: /^Restore revision/ }); await restores.first().waitFor(); assert.ok(await restores.count() <= 50);
     await shot('history'); await dialog.getByRole('button', { name: `Restore revision ${renamed.revision}`, exact: true }).click(); await dialog.waitFor({ state: 'hidden' });
     await waitForSaved(page, c => c.doc.layout.home.kind === 'default', 'history restore'); pass('history restores a selected revision');
-    await boardMenu('QA-Temp-Renamed', 'Set as home'); await waitForSaved(page, c => c.doc.layout.home.dashboardId === board.id, 'home before delete');
-    await boardMenu('QA-Temp-Renamed', 'Delete'); dialog = page.getByRole('dialog', { name: 'Delete dashboard', exact: true });
+    await boardMenu('Weekly priorities', 'Set as home'); await waitForSaved(page, c => c.doc.layout.home.dashboardId === board.id, 'home before delete');
+    await boardMenu('Weekly priorities', 'Delete'); dialog = page.getByRole('dialog', { name: 'Delete dashboard', exact: true });
     assert.match(await dialog.innerText(), /0 widgets/); await shot('delete-confirm');
     await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
     const deleted = await waitForSaved(page, c => !c.doc.dashboards.length, 'delete');
     assert.equal(deleted.doc.layout.home.kind, 'default'); assert.ok(!deleted.doc.layout.phoneTabs.includes(`dashboard:${board.id}`)); pass('dashboard Delete confirms count and clears references');
-    await create('QA-Temp-Kept');
+    await create('Daily summary');
     await screen.getByLabel('Start on', { exact: true }).selectOption('tasks'); await waitForSaved(page, c => c.doc.layout.home.kind === 'tasks', 'home before reset');
     await screen.getByRole('button', { name: 'Change Focus composer shortcut', exact: true }).click(); await page.keyboard.press('Alt+j');
     await waitForSaved(page, c => c.doc.keybindings.focusComposer === 'Alt+J', 'shortcut before reset');

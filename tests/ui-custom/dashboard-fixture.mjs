@@ -16,17 +16,20 @@ export function exampleDashboard() {
 }
 export function seedDashboardData(db, fixture) {
   const { userId, bot } = fixture, at = Date.now(), prefix = userId === 'layout-owner' ? 'qa-dashboard' : userId;
+  db.prepare('UPDATE users SET name=? WHERE id=?').run('Test User', userId);
+  db.prepare('UPDATE bots SET name=? WHERE id=?').run('Project assistant', bot.id);
+  const titles = ['Draft the launch email', 'Review the launch plan', 'Publish the weekly update', 'Prepare the meeting agenda', 'Review the project brief', 'Send the daily summary', 'Plan the next milestone', 'Approve the release notes', 'Update the project timeline', 'Write the team update', 'Review the draft proposal', 'Share the launch checklist'];
   db.prepare('DELETE FROM tasks WHERE bot_id IN (SELECT id FROM bots WHERE user_id=?)').run(userId);
   for (let n = 0; n < 12; n++) db.prepare('INSERT INTO tasks(id,bot_id,title,state,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
-    .run(`${prefix}-task-${n}`, bot.id, `Fixture task ${n + 1}`, ['working', 'needs_input', 'done'][n % 3], 'PRIVATE_FIXTURE_NOTE', at - 1000, at);
+    .run(`${prefix}-task-${n}`, bot.id, titles[n], ['working', 'needs_input', 'done'][n % 3], 'PRIVATE_FIXTURE_NOTE', at - 1000, at);
   db.prepare("DELETE FROM rows WHERE bot_id=? AND kind='card'").run(bot.id);
   db.prepare('INSERT INTO rows(bot_id,generation,seq,updated_seq,kind,body,created_at) VALUES(?,?,?,?,?,?,?)')
-    .run(bot.id, bot.generation, 100, 100, 'card', JSON.stringify({ type: 'card', card: 'question', status: 'pending', question: 'Choose the next task', options: ['Fixture choice'], private: 'PRIVATE_FIXTURE_QUESTION' }), at);
+    .run(bot.id, bot.generation, 100, 100, 'card', JSON.stringify({ type: 'card', card: 'question', status: 'pending', question: 'Choose the next task', options: ['Review the launch plan'], private: 'PRIVATE_FIXTURE_QUESTION' }), at);
   db.prepare('UPDATE bots SET next_seq=101,rev=100 WHERE id=?').run(bot.id);
   for (let day = 0; day < 30; day++) db.prepare('INSERT INTO usage_events(user_id,bot_id,kind,provider,model,input_tokens,output_tokens,cost_usd,cost_source,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
-    .run(userId, bot.id, 'chat', 'direct', 'fixture-model', 100, 20, .25, 'provider', at - day * 86400_000);
+    .run(userId, bot.id, 'chat', 'direct', 'gpt-4.1', 100, 20, .25 + (day % 5) * .1, 'provider', at - day * 86400_000);
   for (let n = 0; n < 2; n++) db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES(?,?,?,?,?,?,?,?)')
-    .run(`${prefix}-routine-${n}`, bot.id, `Fixture routine ${n + 1}`, 'PRIVATE_FIXTURE_PROMPT', '0 9 * * *', 'UTC', 1, at);
+    .run(`${prefix}-routine-${n}`, bot.id, ['Daily summary', 'Weekly review'][n], 'PRIVATE_FIXTURE_PROMPT', '0 9 * * *', 'UTC', 1, at);
   for (let n = 0; n < 8; n++) db.prepare('INSERT INTO agent_jobs(id,user_id,bot_id,trigger,state,created_at,started_at,finished_at) VALUES(?,?,?,?,?,?,?,?)')
     .run(`${prefix}-job-${n}`, userId, bot.id, JSON.stringify({ type: 'user', text: 'PRIVATE_FIXTURE_MESSAGE' }), n % 2 ? 'uncertain' : 'completed', at - 1000, at - 900, at);
 }
@@ -43,7 +46,7 @@ export async function dashboardFixture() {
     },
     async open(page, id) {
       await page.goto(`${server.base}/#dash/${id}`);
-      await page.getByRole('heading', { name: 'My week', exact: true }).waitFor();
+      await page.locator('.dashboard-page[aria-label="My week"]').waitFor();
       await page.locator('[data-widget-type="stat"] output').first().waitFor();
       await page.evaluate(() => document.fonts.ready);
     },

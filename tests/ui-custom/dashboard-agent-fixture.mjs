@@ -30,7 +30,7 @@ import {createCliPairing,selectCli} from ${JSON.stringify(path.join(root,'server
 import {refreshCli} from ${JSON.stringify(path.join(root,'server/src/cli/bridge.ts'))};
 import {platformState} from ${JSON.stringify(path.join(root,'server/src/agent/platform-state.ts'))};
 process.on('message',async ({id,op,userId,botId})=>{try {let result;
-if(op==='bot')result=createBot(userId,{name:'Fixture assistant',isPrimary:true});
+if(op==='bot')result=createBot(userId,{name:'Project assistant',isPrimary:true});
 if(op==='pair')result=createCliPairing(userId);
 if(op==='meter'){await refreshCli(userId);selectCli(userId,'claude');await platformState(userId,botId);result=true;}
 process.send?.({id,result});}catch(error){process.send?.({id,error:String(error)});}});`);
@@ -68,7 +68,7 @@ await server.listen();`);
     return { base, api, model, db, logs, browser, transcript, request, wait,
       async account({ bot = false } = {}) {
         const userId = `qa-temp-dashboard-${++accountId}`, token = `fixture-session-${accountId}`, at=Date.now();
-        db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(userId,`${userId}@example.test`,'QA-Temp-Dashboard',at);
+        db.prepare('INSERT INTO users(id,email,name,created_at) VALUES(?,?,?,?)').run(userId,`${userId}@example.test`,'Test User',at);
         db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at) VALUES(?,?,?,?)').run(createHash('sha256').update(token).digest('hex'),userId,at,at+3600000);
         return { userId, token, ...(bot ? { bot: await control({op:'bot',userId}) } : {}) };
       },
@@ -86,7 +86,7 @@ await server.listen();`);
         const token=await control({op:'pair',userId:account.userId});
         const socket=new WebSocket(`${api.replace('http:','ws:')}/api/cli-bridge`); sockets.push(socket);
         socket.on('message',raw=>{const message=JSON.parse(String(raw)); if(!message.id)return;
-          socket.send(JSON.stringify({id:message.id,result:message.method==='status' ? {claude:{installed:true,authenticated:true,subscription:true},codex:{installed:false,authenticated:false,subscription:false}} : {models:[],defaultModel:null,plan:null,usage:{available:true,checkedAt:Date.now(),windows:[{label:'Fixture weekly limit',usedPercent:37,resetsAt:null}]}}}));
+          socket.send(JSON.stringify({id:message.id,result:message.method==='status' ? {claude:{installed:true,authenticated:true,subscription:true},codex:{installed:false,authenticated:false,subscription:false}} : {models:[],defaultModel:null,plan:null,usage:{available:true,checkedAt:Date.now(),windows:[{label:'Weekly limit',usedPercent:37,resetsAt:null}]}}}));
         });
         await once(socket,'open'); socket.send(JSON.stringify({type:'hello',version:1,codexExecOnly:true,token,device:'QA-Temp-Fixture'}));
         await new Promise(resolve=>setTimeout(resolve,100)); await control({op:'meter',userId:account.userId,botId:account.bot.id});

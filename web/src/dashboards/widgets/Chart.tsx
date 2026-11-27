@@ -8,7 +8,13 @@ export default function Chart({ widget, data }: WidgetProps) {
   if (!rows.length || (!data?.count && !values.some(series => series.some(value => value > 0)))) return <Empty widget={widget} text="No activity in this period." />;
   const max = Math.max(...values.flat()) || 1, width = 480, height = 160, step = width / Math.max(1, rows.length);
   const y = (value: number) => height - value / max * (height - 12);
+  const formatValue = (value: number) => widget.source?.id === 'usage.series' && widget.source.params.metric === 'cost'
+    ? new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
+    : new Intl.NumberFormat(undefined, { maximumFractionDigits: 1, notation: 'compact' }).format(value);
+  const formatDay = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : String(value ?? '');
   return <div className="dashboard-chart">
+    <div className="dashboard-chart-values"><span>{formatValue(max)}</span></div>
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${widgetLabel(widget)}. Data table follows.`} preserveAspectRatio="none">
       <line x1="0" y1={height} x2={width} y2={height} className="dashboard-chart-axis" />
       {values.map((series, seriesIndex) => {
@@ -19,9 +25,10 @@ export default function Chart({ widget, data }: WidgetProps) {
         </g>;
       })}
     </svg>
-    <div className="dashboard-chart-labels"><span>{String(rows[0].day ?? rows[0].state ?? '')}</span><span>{String(rows.at(-1)?.day ?? rows.at(-1)?.state ?? '')}</span></div>
+    <div className="dashboard-chart-values"><span>{formatValue(0)}</span></div>
+    <div className="dashboard-chart-labels"><span>{formatDay(rows[0].day ?? rows[0].state)}</span><span>{formatDay(rows.at(-1)?.day ?? rows.at(-1)?.state)}</span></div>
     {fields.length > 1 && <div className="dashboard-chart-legend">{fields.map(field => <span key={field}>{fieldLabel(field)}</span>)}</div>}
-    <table className="dashboard-sr-only"><caption>{widgetLabel(widget)} data</caption><thead><tr><th scope="col">Day or state</th>{fields.map(field => <th scope="col" key={field}>{fieldLabel(field)}</th>)}</tr></thead>
+    <table className="dashboard-sr-only sr-only"><caption>{widgetLabel(widget)} data</caption><thead><tr><th scope="col">Day or state</th>{fields.map(field => <th scope="col" key={field}>{fieldLabel(field)}</th>)}</tr></thead>
       <tbody>{rows.map((row, index) => <tr key={index}><th scope="row">{String(row.day ?? row.state)}</th>{fields.map(field => <td key={field}>{String(row[field] ?? 0)}</td>)}</tr>)}</tbody></table>
   </div>;
 }

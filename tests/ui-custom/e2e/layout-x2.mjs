@@ -37,7 +37,32 @@ export async function auditDashboardRoutes(evidence, inspectAlignment) {
           if (route.state === 'switcher') await page.getByRole('button', { name: 'Switch dashboard: Operations' }).click();
           await page.evaluate(() => document.fonts.ready);
           issues.push(...await page.evaluate(inspectAlignment, { selector: await page.locator('dialog[open]').count() ? 'dialog[open]' : '.dashboard-page, .dashboard-switcher' }));
-          for (const group of await page.locator('.dashboard-agent-fieldset:visible').all()) await readableWords(group);
+          const surface = await page.locator('dialog[open]').count() ? page.locator('dialog[open]') : page.locator('.dashboard-page');
+          await readableWords(surface);
+          issues.push(...await surface.evaluate(root => {
+            const issues = [];
+            for (const el of root.querySelectorAll('p, label, button, span, strong, h2')) {
+              if (!el.checkVisibility() || !el.textContent.trim() || el.closest('svg')) continue;
+              const minimum = el.matches('.dashboard-caption, .dashboard-library-item > span') ? 13 : 14;
+              if (parseFloat(getComputedStyle(el).fontSize) < minimum) issues.push(`Text below ${minimum}px: ${el.textContent.trim()}`);
+            }
+            for (const toolbar of root.querySelectorAll('.dashboard-toolbar')) {
+              const card = toolbar.closest('.dashboard-widget')?.getBoundingClientRect(), box = toolbar.getBoundingClientRect();
+              if (!card || box.left < card.left + 15 || box.right > card.right - 15 || box.bottom > card.bottom) issues.push('Edit toolbar must stay inside its card padding');
+              const controls = [...toolbar.querySelectorAll('button')].filter(el => el.checkVisibility());
+              if (controls.length !== (innerWidth <= 760 ? 4 : 5)) issues.push('Compact edit controls, plus desktop drag');
+              if (innerWidth <= 760) {
+                const rows = new Map();
+                for (const control of controls) { const top = Math.round(control.getBoundingClientRect().top); rows.set(top, (rows.get(top) ?? 0) + 1); }
+                if (rows.size > 1 && (rows.size !== 2 || [...rows.values()].some(count => count !== 2))) issues.push('Phone edit icons need one row or a balanced two-by-two grid');
+              }
+              for (const control of controls) {
+                const target = control.getBoundingClientRect();
+                if (target.width < 44 || target.height < 44 || !control.title || !control.getAttribute('aria-label')) issues.push('Edit controls need 44px targets, names and tooltips');
+              }
+            }
+            return issues;
+          }));
           if (route.name === 'dashboards') issues.push(...await page.locator('.dashboard-manager-row').evaluateAll(rows => rows.flatMap(row => {
             const box = row.getBoundingClientRect(), button = row.querySelector('.layout-row__trailing button').getBoundingClientRect(), card = row.closest('.layout-card').getBoundingClientRect();
             const count = getComputedStyle(row.querySelector('.dashboard-caption'));

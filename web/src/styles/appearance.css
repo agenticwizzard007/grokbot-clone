@@ -22,7 +22,41 @@
   .appearance-control { flex-wrap: wrap; }
   .appearance-control > .layout-row__text, .appearance-control > .layout-row__trailing { flex: 1 1 100%; width: 100%; }
 }
-.appearance-settings .layout-button-group > * { flex: 0 1 calc((100% - 8px) / 2); box-sizing: border-box; }
+.appearance-settings .layout-button-group > * { flex: 1 1 0; min-width: 0; box-sizing: border-box; }
 .appearance-settings .settings-menu > button { width: 100%; }
 .appearance-errors { position: sticky; top: 0; z-index: 2; }
 .appearance-settings :is(input:not([type='file']), select), .appearance-dialog input { min-height: var(--control-h); }
+
+.appearance-settings .layout-row__text { flex: 1 1 96px; }
+.appearance-settings .layout-row__subtitle, .appearance-dialog .layout-row__subtitle { font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }
+.appearance-settings .cfg-btn, .appearance-dialog .cfg-btn { border: 1px solid transparent; font-size: 14px; line-height: 20px; padding: 8px 16px; min-height: 44px; border-radius: var(--radius-sm); gap: 8px; }
+.appearance-settings .cfg-btn--secondary, .appearance-dialog .cfg-btn--secondary { background: var(--color-elevated); border: 1px solid var(--color-border); box-shadow: none; }
+.appearance-row-actions .layout-button-group { flex: none; width: 96px; }
+.appearance-row-actions .cfg-btn { width: 44px; padding: 0; }
+.layout-page.layout-page .appearance-settings .toggle { flex: 0 0 44px; width: 44px; min-width: 44px; min-height: 44px; height: 44px; padding: 0; background: transparent; border: 0; }
+.appearance-dashboard-row > .layout-row__trailing, .appearance-section[aria-label='Manage'] .layout-row__trailing { width: 208px; }
+.appearance-settings .cfg-seg { padding: 4px; gap: 4px; border-radius: var(--radius-sm); }
+.appearance-settings .cfg-seg button { font-size: 14px; min-height: 44px; border-radius: var(--radius-sm); }
+.appearance-helper { font-size: 14px; line-height: 20px; padding-block: 8px; }
+@media (max-width: 760px) {
+  .appearance-dashboard-row > .layout-row__text, .appearance-dashboard-row > .layout-row__trailing, .appearance-section[aria-label='Manage'] .layout-row__text, .appearance-section[aria-label='Manage'] .layout-row__trailing { flex: 1 1 100%; width: 100%; }
+}
+
+.appearance-button { display: flex; }
+.appearance-button > button { width: 100%; }
+.layout-page.layout-page .appearance-settings .toggle .toggle__knob { width: 20px; height: 20px; left: 4px; top: 12px; transform: none; }
+.layout-page.layout-page .appearance-settings .toggle.is-on .toggle__knob { left: 20px; transform: none; }
+
+.appearance-settings .menu__item { font-size: 14px; line-height: 20px; padding: 8px; gap: 8px; }
+
+.appearance-settings :is(input:not([type='file']), select), .appearance-dialog input, .appearance-dialog .modal-page-back button { font-size: 14px; }
+.appearance-settings kbd { font-size: inherit; }
+.appearance-dialog .layout-button-group > * { flex: 1 1 0; min-width: 0; }
+.appearance-dialog .cfg-btn--danger, .appearance-dialog .cfg-btn--danger:hover:not(:disabled) { background: var(--color-danger-bg); color: var(--color-danger-text); }
+
+/* The optional profile is one compact card with one action. */
+.requirements-card { display: grid; gap: 8px; font-size: 14px; line-height: 20px; }
+.requirements-card p { margin: 0; }
+.requirements-card .layout-row__title { font-size: 14px; line-height: 20px; }
+.requirements-card .layout-row__subtitle { margin-top: 8px; font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }
+.requirements-card .cfg-btn { gap: 8px; min-height: 44px; border-radius: var(--radius-sm); padding: 8px 16px; font-size: 14px; line-height: 20px; }
