@@ -17,7 +17,9 @@ const tasks = (title: string) => widget(3, 'list', title, 6, 3, { id: 'tasks.lis
 const schedule = () => widget(4, 'routineSchedule', 'Upcoming routines', 6, 3, { id: 'routines.upcoming', params: { days: 7 } }, { days: 7 });
 const bots = () => widget(4, 'botStatus', 'Bot activity', 6, 3, { id: 'bots.status', params: { limit: 6 } }, { limit: 6 });
 const recipe = (id: LensId, label: string, promoted: string[], focus: FocusId[], widgets: Widget[], suggestions: [string, string][], template: 'overview' | 'tasks' | 'usage' | 'bot', rationale: string): Lens => ({
-  version: 1, id, label, promoted, focus, landing: 'home', home: { name: label, icon: 'layout-dashboard', description: '', widgets },
+  version: 1, id, label, promoted, focus, landing: 'home', home: { name: label, icon: 'layout-dashboard', description: '', widgets: [
+    ...widgets, widget(5, 'note', 'Suggested Bots', 12, 4, undefined, { text: suggestions.map(([name, purpose]) => `**${name}**\n\n${purpose}`).join('\n\n') }),
+  ] },
   bots: suggestions.map(([name, purpose]) => ({ name, purpose })),
   templates: [{ name: `${label} overview`, template }, { name: 'Weekly review', template: 'overview' }],
   shortcuts: [{ route: 'tasks', binding: 'Alt+T' }, { route: 'bots', binding: 'Alt+B' }], rationale,
