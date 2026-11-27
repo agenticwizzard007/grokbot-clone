@@ -1,0 +1,24 @@
+.plan-usage { display: flex; flex-direction: column; gap: 8px; min-width: 0; width: 100%; color: var(--color-text-primary); }
+.plan-usage__name, .plan-usage__amount { font-size: 14px; line-height: 20px; font-weight: 500; }
+.plan-usage__quota { display: flex; flex-direction: column; gap: 8px; min-height: 32px; }
+.plan-usage__status { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 8px; min-height: 18px; }
+.plan-usage__status, .plan-usage__reset, .plan-usage__own, .plan-usage__note { font-size: 13px; line-height: 18px; color: var(--color-text-secondary); }
+.plan-usage__reset { min-height: 18px; }
+.plan-usage :is(strong, span) { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+.plan-usage progress { appearance: none; border: 0; width: 100%; height: 6px; border-radius: 4px; overflow: hidden; background: var(--color-bg-active); }
+.plan-usage progress::-webkit-progress-bar { background: var(--color-bg-active); }
+.plan-usage progress::-webkit-progress-value { background: var(--usage-color, var(--color-primary)); }
+.plan-usage progress::-moz-progress-bar { background: var(--usage-color, var(--color-primary)); }
+.plan-usage[data-level='warning'] { --usage-color: var(--color-warn-text); }
+.plan-usage[data-level='critical'] { --usage-color: var(--color-danger-text); }
+.plan-usage[data-level='warning'] .plan-usage__status, .plan-usage[data-level='critical'] .plan-usage__status { color: var(--usage-color); }
+.paper-shell .sidebar-usage { min-height: 164px; padding: 16px; }
+.paper-shell .sidebar-usage strong { font-size: 14px; line-height: 20px; }
+.paper-shell .sidebar-usage progress { height: 6px; }
+.paper-shell .sidebar.is-collapsed .sidebar-usage { position: relative; width: 40px; height: 40px; min-height: 40px; }
+/* The rail keeps its 40px visible control and a 44px pointer target. */
+.paper-shell .sidebar.is-collapsed .sidebar-usage::before { content: ''; position: absolute; inset: -2px; }
+@media (max-height: 550px) {
+  .paper-shell .sidebar-usage { min-height: 138px; }
+  .sidebar-usage .plan-usage__reset { display: none; }
+}

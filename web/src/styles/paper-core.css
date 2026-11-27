@@ -67,7 +67,7 @@
   .app .chat__header { padding-bottom: 8px; }
   .sidebar__titlebar { margin-bottom: 10px; }
   .sidebar-usage { padding-block: 8px; }
-  .sidebar-usage__detail { display: none; }
+
 }
 
 .setup-pane { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }

@@ -438,6 +438,7 @@ export const useStore = create<State>((set, get) => ({
       case 'routines':
         if (s.routines[ev.botId] || ev.botId === s.selectedBotId) s.loadRoutines(ev.botId).catch(console.error);
         return;
+      case 'usage':
       case 'native':
       case 'tasks':
       case 'memories':
