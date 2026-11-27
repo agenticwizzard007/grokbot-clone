@@ -50,10 +50,13 @@ export function UiPreviewCard({ body }: { body: UiPreviewCardBody }) {
   const lines = current?.summary ?? body.lines;
   const warnings = current?.warnings.map(w => w.message) ?? body.warnings;
   return <Card className="ui-preview-card" role="region" aria-label={body.title}>
-    <strong className="ui-preview-card__title">{body.title}</strong>
-    <p ref={statusRef} tabIndex={-1} role="status" aria-live="polite"><span className="cfg-chip">{undone ? 'Undone' : status[0].toUpperCase() + status.slice(1)}</span></p>
+    <header className="ui-preview-card__header">
+      <strong className="ui-preview-card__title">{body.title}</strong>
+      <p ref={statusRef} tabIndex={-1} role="status" aria-live="polite"><span className="cfg-chip">{undone ? 'Undone' : status[0].toUpperCase() + status.slice(1)}</span></p>
+    </header>
     <ul>{lines.slice(0, 6).map((line, i) => <li key={i}>{line}</li>)}</ul>
-    {Math.max(body.moreCount, lines.length - 6) > 0 && <p>and {Math.max(body.moreCount, lines.length - 6)} more</p>}
+    {lines.length > 6 ? <details className="ui-preview-card__details"><summary>More changes ({lines.length - 6})</summary><ul>{lines.slice(6).map((line, i) => <li key={i}>{line}</li>)}</ul></details>
+      : body.moreCount > 0 && <p>{body.moreCount} more changes</p>}
     {warnings.length > 0 && <ul aria-label="Warnings">{warnings.map((line, i) => <li key={i}>{line}</li>)}</ul>}
     {status === 'pending' && <ButtonGroup>
       <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={() => void run(() => decide('apply'))}>Apply</button>

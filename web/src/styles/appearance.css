@@ -53,3 +53,32 @@
 .appearance-settings kbd { font-size: inherit; }
 .appearance-dialog .layout-button-group > * { flex: 1 1 0; min-width: 0; }
 .appearance-dialog .cfg-btn--danger, .appearance-dialog .cfg-btn--danger:hover:not(:disabled) { background: var(--color-danger-bg); color: var(--color-danger-text); }
+
+/* Requirements use the same sibling sections and controls as Appearance. */
+.requirements-settings { display: grid; gap: 24px; min-width: 0; font-size: 14px; line-height: 20px; color: var(--color-text-primary); }
+.requirements-settings p { margin: 0; }
+.requirements-field { display: grid; gap: 8px; min-width: 0; }
+.requirements-form-card { display: grid; gap: 16px; }
+.requirements-focus-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.requirements-settings .layout-row__subtitle { font-size: 13px; line-height: 20px; margin-top: 8px; color: var(--color-text-secondary); }
+.requirements-settings .layout-row__title { font-size: 14px; line-height: 20px; }
+.requirements-settings .settings-menu > button { width: 100%; }
+.app-settings .requirements-settings :is(input, select, textarea) { width: 100%; min-width: 0; min-height: 44px; padding: 8px 16px; font: 400 14px/20px var(--font-stack); }
+.app-settings .requirements-settings select { padding-right: 32px; }
+.requirements-settings .text-input::placeholder { color: var(--color-text-secondary); }
+.requirements-settings .requirements-focus[aria-pressed='true'] { box-shadow: inset 0 0 0 2px var(--color-primary); background: var(--color-bg-active); color: var(--color-text-primary); }
+.requirements-list > .layout-button-group { margin-top: 16px; }
+.requirements-list > .layout-row { margin-inline: -16px; padding-inline: 16px; }
+.requirements-details summary, .ui-preview-card__details summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--color-primary); }
+.requirements-details ul { margin: 0; padding-left: 24px; }
+
+/* A preview is a standard card in both chat and Settings. */
+.ui-preview-card { gap: 16px; font-size: 14px; line-height: 20px; color: var(--color-text-primary); }
+.ui-preview-card__header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.ui-preview-card__title { font-size: 14px; line-height: 20px; }
+.ui-preview-card ul { display: grid; gap: 8px; }
+.ui-preview-card .cfg-chip, .requirements-settings .cfg-chip { height: auto; padding: 0 8px; font-size: 13px; line-height: 24px; color: var(--color-text-secondary); background: var(--color-bg-tertiary); }
+.ui-preview-card .cfg-btn, .requirements-settings .cfg-btn { border: 1px solid transparent; min-height: 44px; border-radius: var(--radius-sm); padding: 8px 16px; gap: 8px; font-size: 14px; line-height: 20px; text-decoration: none; }
+.ui-preview-card .cfg-btn--primary { color: var(--color-on-primary); }
+.ui-preview-card .cfg-btn--secondary, .requirements-settings .cfg-btn--secondary { background: var(--color-elevated); border-color: var(--color-border); box-shadow: none; }
+@media (max-width: 760px) { .app-settings .requirements-settings :is(input, select, textarea) { font-size: 16px; } }
