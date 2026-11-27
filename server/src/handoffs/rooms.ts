@@ -3,7 +3,8 @@ import { isConfiguring } from '../bot-setup.js';
 import { appendRow, updateRow } from '../store.js';
 import { transactionWithEffects } from '../lib/commit-effects.js';
 import type { LoopSpec, StopReason } from './contracts.js';
-import type { EventBody, HandoffBody } from '../types.js';
+import type { EventBody, RowBody } from '../types.js';
+type HandoffBody = Extract<RowBody, { type: 'handoff' }>;
 
 export const ROOM_TARGET_REFUSAL = 'Choose an agent. Groups cannot receive handoffs.';
 
@@ -62,7 +63,7 @@ export function postLoopRoomEvent(userId: string, eventSeq: number) {
       case 'loop.step_dispatched': text = `${progress}: step started`; break;
       case 'loop.step_completed': text = `${progress}: step completed`; break;
       case 'loop.step_failed': text = `${progress}: step failed`; break;
-      case 'loop.verdict': text = `${progress}: ${data.pass === true ? 'checks passed' : `${integer(data.gaps)} gaps found`}`; break;
+      case 'loop.verdict': text = `${progress}: ${data.pass === true ? 'checks passed' : Number.isSafeInteger(data.gaps) ? `${integer(data.gaps)} gaps found` : 'changes requested'}`; break;
       case 'loop.paused': text = 'Loop paused'; break;
       case 'loop.resumed': text = 'Loop resumed'; break;
       case 'loop.extended': text = 'Loop pass limit extended'; break;

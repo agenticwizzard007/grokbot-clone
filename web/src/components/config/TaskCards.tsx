@@ -40,21 +40,21 @@ export function TaskHandoffProvider({ children }: { children: ReactNode }) {
 
 /** Public launch contract for the shared HO-D sheet. The feature stays hidden until that module ships. */
 const sendSheets = import.meta.glob('../../handoffs/SendSheet.tsx');
-type SheetProps = { source: { taskId: string }; fromBotId: string; title: string; onClose: () => void; onSent?: () => void };
+type SheetProps = { open: boolean; source: { taskId: string }; senderId: string; title: string; onClose: () => void; onSent: (handoff: { id: string }, target: { name: string }) => void };
 type SendSheetComponent = (props: SheetProps) => ReactNode;
 
 export function TaskActions({ task, bot }: { task: HandoffTask; bot?: Bot }) {
   const enabled = useContext(HandoffEnabled);
   const [Sheet, setSheet] = useState<SendSheetComponent>();
   const [error, setError] = useState(false);
-  const [receipt, setReceipt] = useState(false);
+  const [receipt, setReceipt] = useState<{ id: string; name: string }>();
   const [loading, setLoading] = useState(false);
   const alive = useRef(true);
   const opener = useRef<HTMLButtonElement>(null);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const open = async () => {
     if (loading) return;
-    setLoading(true); setError(false); setReceipt(false);
+    setLoading(true); setError(false); setReceipt(undefined);
     try {
       const module = await sendSheets['../../handoffs/SendSheet.tsx']() as { SendSheet: SendSheetComponent };
       if (alive.current) setSheet(() => module.SendSheet);
@@ -68,8 +68,8 @@ export function TaskActions({ task, bot }: { task: HandoffTask; bot?: Bot }) {
     {!task.handoff?.loopId && task.handoff?.handoffId && <a className="cfg-btn cfg-btn--secondary" href={`#handoff/${encodeURIComponent(task.handoff.handoffId)}`}>View</a>}
     {task.state === 'done' && bot && bot.kind !== 'room' && sendSheets['../../handoffs/SendSheet.tsx'] && <button ref={opener} type="button" className="cfg-btn cfg-btn--secondary" disabled={loading} onClick={open}>Send to agent</button>}
     {error && <p role="alert">Could not open Send to agent. Try again.</p>}
-    {receipt && <p role="status">Sent to agent.</p>}
-    {Sheet && bot && <Sheet source={{ taskId: task.id }} fromBotId={bot.id} title={task.title} onClose={close} onSent={() => { close(); setReceipt(true); }} />}
+    {receipt && <p role="status">Sent to {receipt.name}. <a href={`#handoff/${encodeURIComponent(receipt.id)}`}>View</a></p>}
+    {Sheet && bot && <Sheet open source={{ taskId: task.id }} senderId={bot.id} title={task.title} onClose={close} onSent={(handoff, target) => { setReceipt({ id: handoff.id, name: target.name }); }} />}
   </div>;
 }
 
@@ -115,7 +115,7 @@ function TaskTitle({ title }: { title: string }) {
 export function TaskCard({ task, bot, compact = false }: { task: HandoffTask; bot?: Bot; compact?: boolean }) {
   const status = STATUS[task.state];
   return (
-    <LayoutCard className="task-card-frame"><button type="button" className={`task-card is-${task.state}${compact ? ' is-compact' : ''}`} onClick={() => bot && (task.handoff?.loopId ? window.location.assign(`#loop/${encodeURIComponent(task.handoff.loopId)}`) : openWorkChat(bot.id))} disabled={!bot} title={`${task.title}. ${task.state === 'done' ? 'Completed' : 'Updated'} ${when(task)} (${new Date(task.updatedAt).toLocaleString()})`}
+    <LayoutCard className="task-card-frame"><button type="button" className={`task-card is-${task.state}${compact ? ' is-compact' : ''}`} onClick={() => bot && openWorkChat(bot.id)} disabled={!bot} title={`${task.title}. ${task.state === 'done' ? 'Completed' : 'Updated'} ${when(task)} (${new Date(task.updatedAt).toLocaleString()})`}
       aria-label={`${task.title}: ${status.label}. ${bot ? `${status.action} with ${bot.name}` : 'Bot unavailable'}`}>
 
       <span className="task-card__body">
