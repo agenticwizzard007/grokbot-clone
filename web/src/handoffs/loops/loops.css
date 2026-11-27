@@ -17,6 +17,8 @@
 .ho-loop-warn, .ho-loop-status-awaiting_approval, .ho-loop-status-capped, .ho-loop-status-stalled { background: var(--color-warn-bg); color: var(--color-warn-text); }
 .ho-loop-status-failed { background: var(--color-danger-bg); color: var(--color-danger-text); }
 .ho-loop-muted { color: var(--color-text-secondary); font-size: var(--text-sm); }
+.ho-loops .braille .is-on { fill: var(--color-text-secondary); }
+.ho-loops .braille .is-off { fill: var(--color-text-secondary); opacity: .14; }
 .ho-loop-error { color: var(--color-danger-text); font-size: var(--text-sm); }
 .ho-loop-inline, .ho-loop-links, .ho-loop-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .ho-loop-fields, .ho-loop-step-fields, .ho-loop-field, .ho-loop-progress { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
