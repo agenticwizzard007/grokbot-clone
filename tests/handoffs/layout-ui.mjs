@@ -13,10 +13,17 @@ export async function auditRoute(page, width) {
   await page.evaluate(() => document.fonts.ready);
   const selector = await page.locator('main.paper-shell').count() ? 'main.paper-shell' : '.shell-content > :not(.shell-header):not(.phone-tabs)';
   assert.deepEqual(await page.evaluate(inspectAlignment, { selector }), [], 'Shared Paper alignment checker');
-  await page.locator('.ho-loading, .ho-loops [aria-busy="true"]').waitFor({ state: 'hidden' });
+  await page.getByText('Loading loops', { exact: true }).waitFor({ state: 'hidden' });
   // The existing handoff helper exempts expandable summaries, never labels.
   for (const label of await page.locator(`${selector} :is(button,a,label,h1,h2,.layout-row):not(.flow-sr):not(.sr-only):visible`).elementHandles()) await readableWords(label);
-  await checkAccessibility(page);
+  try { await checkAccessibility(page); }
+  catch (error) {
+    // The composer's autosize textarea is clipped inside an aria-hidden probe and is
+    // not focusable. Older shared fallback checks mistake it for a control.
+    if (!Array.isArray(error.actual) || !error.actual.length || error.actual.some(html => !html.startsWith('<textarea tabindex="-1"'))) throw error;
+    const hidden = await page.locator('textarea[tabindex="-1"]').evaluateAll(nodes => nodes.every(el => !!el.closest('[aria-hidden="true"]') && getComputedStyle(el).visibility === 'hidden' && el.tabIndex < 0));
+    if (!hidden) throw error;
+  }
   if (await page.locator('.flow-tab').count()) assert.deepEqual(await page.evaluate(inspectFlowAccessibility), []);
   if (width <= 760) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1, 'One Back on phone');
 }

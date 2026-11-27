@@ -13,6 +13,8 @@ const checker = (db.prepare("SELECT id FROM bots WHERE user_id=? AND id<>? AND k
 db.prepare("UPDATE bots SET name='Maker',instructions='1. Review the brief.\n2. Draft release notes.' WHERE id=?").run(maker);
 db.prepare("UPDATE bots SET name='Checker',instructions='Check the release note and submit a verdict.' WHERE id=?").run(checker);
 const empty = createBot(userId, { name: 'New agent' });
+const securityMaker = createBot(userId, { name: 'Document writer' });
+const securityChecker = createBot(userId, { name: 'Document reviewer' });
 const suggested = createBot(userId, { name: 'Suggested apps' });
 db.prepare('UPDATE bots SET suggestions_snapshot=? WHERE id=?').run(JSON.stringify({ version: 1, filterVersion: 'purpose-2', computedAt: 1, hasContext: true, suggestions: [{ slug: 'github', name: 'GitHub', noAuth: false }] }), suggested.id);
 db.prepare("UPDATE bot_setups SET onboarding_status='active'").run();
@@ -28,6 +30,7 @@ db.prepare("INSERT INTO users(id,email,name,created_at) VALUES('hoh-other','othe
 const other = createBot('hoh-other', { name: 'Other account agent' });
 const foreignOutput = saveOutput({ userId: 'hoh-other', botId: other.id, source: 'message', body: 'Other account private test output.', final: true });
 replaceLinks(userId, maker, [{ toBotId: checker, mode: 'suggest', trigger: 'any_run', template: 'Review {title}.', autoApproveLoops: false }]);
+replaceLinks(userId, checker, [{ toBotId: maker, mode: 'suggest', trigger: 'any_run', template: 'Review {title}.', autoApproveLoops: false }]);
 appendRow(f.room, 'message', { type: 'message', role: 'assistant', text: 'The release draft is ready for review.', from: { kind: 'bot', id: maker, name: 'Maker' } });
-fs.writeFileSync(file, JSON.stringify({ ...f, maker, checker, empty: empty.id, suggested: suggested.id, mcp: mcp.id, foreignOutput: foreignOutput.id }));
+fs.writeFileSync(file, JSON.stringify({ ...f, maker, checker, empty: empty.id, suggested: suggested.id, mcp: mcp.id, foreignOutput: foreignOutput.id, securityMaker: securityMaker.id, securityChecker: securityChecker.id }));
 db.close();

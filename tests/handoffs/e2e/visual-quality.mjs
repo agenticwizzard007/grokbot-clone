@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { inspectAlignment } from '../../layout-alignment-ui.mjs';
 
 export async function runUiQuality(evidence) {
   const script = path.resolve('tests/handoffs/ui-quality.mjs');
@@ -25,7 +26,9 @@ export async function assertVisibleCopy(page) {
 }
 export async function visualEvidence(page) {
   await assertVisibleCopy(page);
-  return page.evaluate(() => {
+  const selector = await page.locator('dialog[open]').count() ? 'dialog[open]' : await page.locator('main.paper-shell').count() ? 'main.paper-shell' : '.shell-content > :not(.shell-header):not(.phone-tabs)';
+  const alignment = await page.evaluate(inspectAlignment, { selector });
+  const result = await page.evaluate(() => {
     const main = document.querySelector('.ho-route, .flow-tab, .chat') ?? document.querySelector('main');
     const words = main?.innerText.trim().split(/\s+/).filter(Boolean).length ?? 0;
     const issues = [];
@@ -37,4 +40,9 @@ export async function visualEvidence(page) {
     }
     return { words, issues: [...new Set(issues)], standard: 'BUILD-SPEC 0b/0c/0d plus HO-P visual quality gate' };
   });
+  if (page.viewportSize().width <= 760 && !await page.getByRole('dialog').count()) {
+    const count = await page.getByRole('button', { name: 'Back', exact: true }).count();
+    if (count !== 1) alignment.push(`Expected one phone Back, found ${count}`);
+  }
+  return { ...result, issues: [...result.issues, ...alignment] };
 }

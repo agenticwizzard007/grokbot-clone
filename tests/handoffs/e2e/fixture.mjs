@@ -21,9 +21,16 @@ export async function fixture(evidence, { extraSeed } = {}) {
     DB_PATH: path.join(temp, 'app.db'), FILES_DIR: path.join(temp, 'files'), CLI_PROFILES_DIR: path.join(temp, 'profiles'),
     SESSION_SECRET: 'layout-test', COMPUTER_PROVIDER: 'local', INKBOX_TUNNEL: '0', DEV_LOGIN: '1', WHATSAPP_DISABLED: '1',
     PHONE_QA_FIXTURE_FILE: seedFile, PORT: String(apiPort), APP_URL: base, SERVER_URL: base,
-    DIRECT_API_KEY: 'placeholder', DIRECT_BASE_URL: `http://127.0.0.1:${proxyPort}/v1`, LLM_PROVIDER: 'direct' };
+    COMPOSIO_API_KEY: 'placeholder', DIRECT_API_KEY: 'placeholder', DIRECT_BASE_URL: `http://127.0.0.1:${proxyPort}/v1`, LLM_PROVIDER: 'direct' };
   const preload = path.join(temp, 'offline.mjs');
-  fs.writeFileSync(preload, `const local = fetch; globalThis.fetch = (input, init) => { const u = new URL(input instanceof Request ? input.url : input); if (['127.0.0.1','localhost'].includes(u.hostname)) return local(input, init); return Promise.resolve(Response.json({data:[],items:[]})); };`);
+  fs.writeFileSync(preload, `const local = fetch; globalThis.fetch = (input, init) => { const u = new URL(input instanceof Request ? input.url : input); if (['127.0.0.1','localhost'].includes(u.hostname)) return local(input, init); if (u.hostname === 'backend.composio.dev') {
+      const connection = {id:'fixture-github',toolkit:{slug:'github'},status:'ACTIVE',user_id:'layout-owner',auth_config:{id:'fixture-auth',auth_scheme:'OAUTH2'}};
+      if (u.pathname.endsWith('/connected_accounts')) return Promise.resolve(Response.json({items:[connection],next_cursor:null}));
+      if (u.pathname.includes('/connected_accounts/')) return Promise.resolve(Response.json(connection));
+      if (u.pathname.endsWith('/toolkits')) return Promise.resolve(Response.json({items:[{slug:'github',name:'GitHub',meta:{description:'Source repositories',categories:[]},no_auth:false}],next_cursor:null}));
+      if (u.pathname.includes('/tool_router/session')) return Promise.resolve(Response.json({session_id:'fixture-session',tools:[],items:[]}));
+    }
+    return Promise.resolve(Response.json({data:[],items:[],tools:[]})); };`);
   const start = (args, cwd = root, extra = {}) => { const child = spawn(process.execPath, args, { cwd, env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] }); children.push(child); for (const stream of [child.stdout, child.stderr]) stream.on('data', d => logs.push(String(d))); return child; };
   const ready = async (url, child) => { for (let n = 0; n < 400; n++) { assert.equal(child.exitCode, null, logs.join('')); if (await fetch(url).then(r => r.ok).catch(() => false)) return; await new Promise(r => setTimeout(r, 100)); } throw new Error(`Startup timeout: ${logs.join('')}`); };
   const close = async () => { for (const c of children) if (c.exitCode === null) c.kill(); await Promise.all(children.filter(c => c.exitCode === null).map(c => once(c, 'exit'))); fs.writeFileSync(path.join(evidence, 'server.log'), logs.join('')); fs.rmSync(temp, { recursive: true, force: true }); };
@@ -60,7 +67,7 @@ export async function api(page, route, method = 'GET', body) {
 export async function poll(fn, predicate, message, timeout = 60000) {
   const start = Date.now(); let value;
   do { value = await fn(); if (predicate(value)) return value; await new Promise(r => setTimeout(r, 100)); } while (Date.now() - start < timeout);
-  throw new Error(`${message}: ${JSON.stringify(value)}`);
+  throw new Error(`${message}: ${JSON.stringify(value).slice(0, 2000)}`);
 }
 export async function screenshot(page, evidence, name, width) {
   const theme = await page.evaluate(() => document.documentElement.dataset.theme || 'light');

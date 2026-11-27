@@ -13,7 +13,7 @@ if (remote) assert.equal(process.env.HANDOFFS_TEST_PROVIDER, 'scripted', 'Deploy
 const server = remote ? { base: remote, token: process.env.HANDOFFS_TEST_SESSION,
   data: { maker: process.env.HANDOFFS_TEST_MAKER, checker: process.env.HANDOFFS_TEST_CHECKER }, close: async () => {} } : await fixture(evidence);
 const uiQuality = await runUiQuality(evidence);
-const report = { uiQuality, passed: 0, failed: 0, mode: remote ? 'deployed test account' : 'seeded local', runs: [], handoffs: [], screenshots: [] };
+const report = { uiQuality, passed: 0, failed: 0, mode: remote ? 'deployed test account' : 'seeded local', runs: [], handoffs: [], screenshots: [], failures: [] };
 try {
   for (const theme of ['light', 'dark']) for (const width of [320, 390, 500, 1280]) {
     const view = await browserSession(server, width, { theme }), { page } = view;
@@ -27,24 +27,41 @@ try {
       const handoff = await sendHandoff(page, server.data, evidence, width);
       report.handoffs.push({ width, theme, ...handoff }); report.screenshots.push(...handoff.screenshots); report.passed++;
       for (const mode of ['converge', 'cap']) {
-        const run = await recordLoop(page, server.data, mode, evidence, width);
-        report.runs.push({ ...run, theme }); report.screenshots.push(...run.screenshots); report.passed++;
-        console.log(`PASS ${width} ${theme} ${mode}: ${run.result}`);
+        try {
+          const run = await recordLoop(page, server.data, mode, evidence, width);
+          report.runs.push({ ...run, theme }); report.screenshots.push(...run.screenshots); report.passed++;
+          console.log(`PASS ${width} ${theme} ${mode}: ${run.result}`);
+        } catch (error) {
+          const id = new URL(page.url()).hash.match(/^#loop\/(lp_[^?]+)/)?.[1];
+          const actual = id ? await api(page, `/loops/${id}`) : null;
+          const events = id ? await api(page, `/loops/${id}/events`) : null;
+          report.runs.push({ width, theme, mode, status: 'fail', actual, events });
+          report.failed++; report.failures.push({ width, theme, mode, message: error.message });
+          report.screenshots.push(await screenshot(page, evidence, `${mode}-failure`, width));
+          console.error(`FAIL ${width} ${theme} ${mode}: ${error.message}`);
+        }
       }
       await page.goto(`${server.base}/#bot/${server.data.maker}/details/flow`);
       await page.locator('.flow-chart').waitFor();
       report.screenshots.push(await screenshot(page, evidence, 'maker-flow', width)); report.passed++;
       await assertVisibleCopy(page); assert.deepEqual(view.errors, []);
     } catch (error) {
-      report.failed++; report.error = error.stack;
+      report.failed++; report.failures.push({ width, theme, message: error.message });
       await page.screenshot({ path: path.join(evidence, `failure-${width}-${theme}.png`), fullPage: true });
-      fs.writeFileSync(path.join(evidence, `failure-${width}-${theme}.html`), await page.content()); throw error;
+      fs.writeFileSync(path.join(evidence, `failure-${width}-${theme}.html`), await page.content());
+      console.error(`FAIL ${width} ${theme}: ${error.message}`);
     } finally { await view.close(); }
   }
-  if (server.requests) { const requests = await server.requests(); report.providerRequests = requests.length; fs.writeFileSync(path.join(evidence, 'provider-requests.json'), JSON.stringify(requests, null, 2)); }
-  assert.notEqual(uiQuality.status, 'fail', 'HO-P UI quality gate');
-  const qualityFiles = report.screenshots.map(file => file.replace(/\.png$/, '.quality.json'));
-  report.visualQuality = qualityFiles.map(file => ({ file, ...JSON.parse(fs.readFileSync(file, 'utf8')) }));
-  assert.deepEqual(report.visualQuality.flatMap(item => item.issues), [], 'Every demo capture meets the minimum type scale');
-  console.log(`PASS demo of record: ${report.passed} checks, ${report.failed} failures. ${path.join(evidence, 'report.json')}`);
-} finally { fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2) + '\n'); await server.close(); }
+  if (server.requests) {
+    const requests = await server.requests(); report.providerRequests = requests.length;
+    fs.writeFileSync(path.join(evidence, 'provider-requests.json'), JSON.stringify(requests, null, 2));
+  }
+  if (uiQuality.status === 'fail') { report.failed++; report.failures.push({ message: 'HO-P UI quality gate failed.' }); }
+  report.visualQuality = report.screenshots.map(file => file.replace(/\.png$/, '.quality.json')).filter(file => fs.existsSync(file)).map(file => ({ file, ...JSON.parse(fs.readFileSync(file, 'utf8')) }));
+  if (report.visualQuality.some(item => item.issues.length)) { report.failed++; report.failures.push({ message: 'Demo captures contain text below 13px. See visualQuality.' }); }
+  console.log(`${report.failed ? 'FAIL' : 'PASS'} demo of record: ${report.passed} checks, ${report.failed} failures. ${path.join(evidence, 'report.json')}`);
+  if (report.failed) process.exitCode = 1;
+} finally {
+  fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2) + '\n');
+  await server.close();
+}

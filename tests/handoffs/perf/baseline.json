@@ -1,30 +1,30 @@
 {
-  "measuredAt": "2026-11-27T16:35:22.829Z",
+  "measuredAt": "2026-11-27T16:45:44.977Z",
   "environment": "linux x64 v24.22.1",
   "metrics": {
     "outputCreation": {
-      "p95": 11.54125299999987,
+      "p95": 2.885263000000009,
       "budget": 20,
       "unit": "ms",
       "samples": 50,
       "pass": true
     },
     "handoffPost": {
-      "p95": 58.72484000000031,
+      "p95": 22.505657999999812,
       "budget": 80,
       "unit": "ms",
       "samples": 50,
       "pass": true
     },
     "flowCold": {
-      "p95": 6.677382999999736,
+      "p95": 2.5633289999998397,
       "budget": 150,
       "unit": "ms",
       "samples": 50,
       "pass": true
     },
     "flowWarm": {
-      "p95": 1.8945290000001478,
+      "p95": 1.3349499999999352,
       "budget": 15,
       "unit": "ms",
       "samples": 50,
@@ -33,7 +33,7 @@
   },
   "bundle": {
     "entry": "assets/index-DcDY3EdA.js",
-    "entryGzipBytes": 647,
+    "entryGzipBytes": 119118,
     "comparison": "HO-H changes no production source or dependencies; entry graph matches base main.",
     "addedEntryGzipBytes": 0,
     "budgetBytes": 40960,
@@ -102,45 +102,45 @@
     ]
   },
   "browser": {
-    "measuredAt": "2026-11-27T16:37:01.680Z",
+    "measuredAt": "2026-11-27T16:47:37.487Z",
     "metrics": {
       "loopRender12Steps-390": {
-        "p95": 37.70000000006985,
+        "p95": 35.800000000046566,
         "budget": 300,
         "samples": 11,
         "unit": "ms",
         "pass": true
       },
       "flowPaint-390": {
-        "p95": 28.29999999993015,
+        "p95": 26.799999999813735,
         "budget": 50,
         "samples": 11,
         "unit": "ms",
         "pass": true
       },
       "timelineSse-390": {
-        "p95": 70.19999999995343,
+        "p95": 40,
         "budget": 100,
         "samples": 6,
         "unit": "ms",
         "pass": true
       },
       "loopRender12Steps-1280": {
-        "p95": 38.10000000009313,
+        "p95": 36,
         "budget": 300,
         "samples": 11,
         "unit": "ms",
         "pass": true
       },
       "flowPaint-1280": {
-        "p95": 24.300000000046566,
+        "p95": 30.5999999998603,
         "budget": 50,
         "samples": 11,
         "unit": "ms",
         "pass": true
       },
       "timelineSse-1280": {
-        "p95": 58.10000000009313,
+        "p95": 40,
         "budget": 100,
         "samples": 6,
         "unit": "ms",
