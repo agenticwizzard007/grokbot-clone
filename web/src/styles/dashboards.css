@@ -174,6 +174,7 @@
 .dashboard-library { max-height: calc(100dvh - 240px); overflow-y: auto; }
 
 
+@container (max-width: 199px) { .dashboard-toolbar { display: grid; grid-template-columns: repeat(2,44px); } }
 
 .dashboard-page .layout-button-group > *, .dashboard-dialog .layout-button-group > * { flex: 1 1 0; }
 .dashboard-dialog-back { display: none; }

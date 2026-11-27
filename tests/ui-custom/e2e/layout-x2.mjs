@@ -51,6 +51,11 @@ export async function auditDashboardRoutes(evidence, inspectAlignment) {
               if (!card || box.left < card.left + 15 || box.right > card.right - 15 || box.bottom > card.bottom) issues.push('Edit toolbar must stay inside its card padding');
               const controls = [...toolbar.querySelectorAll('button')].filter(el => el.checkVisibility());
               if (controls.length !== (innerWidth <= 760 ? 4 : 5)) issues.push('Compact edit controls, plus desktop drag');
+              if (innerWidth <= 760) {
+                const rows = new Map();
+                for (const control of controls) { const top = Math.round(control.getBoundingClientRect().top); rows.set(top, (rows.get(top) ?? 0) + 1); }
+                if (rows.size > 1 && (rows.size !== 2 || [...rows.values()].some(count => count !== 2))) issues.push('Phone edit icons need one row or a balanced two-by-two grid');
+              }
               for (const control of controls) {
                 const target = control.getBoundingClientRect();
                 if (target.width < 44 || target.height < 44 || !control.title || !control.getAttribute('aria-label')) issues.push('Edit controls need 44px targets, names and tooltips');
