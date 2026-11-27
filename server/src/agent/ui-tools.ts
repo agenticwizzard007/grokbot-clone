@@ -258,6 +258,8 @@ export function createUiTools(deps: UiToolDependencies): ToolDef[] {
       };
       if (!deps.allowed(ctx)) result = failure('unavailable_context', 'Appearance tools are available only in direct user chats with personal Bots.');
       else if (!deps.service.enabled(ctx.userId)) result = failure('disabled', 'Appearance customization is disabled.');
+      else if (!['get_ui_config', 'list_ui_options', 'apply_ui_patch', 'discard_ui_preview', 'undo_ui_change', 'save_preset'].includes(name)
+        && Math.max(failures.get(ctx) ?? 0, deps.failures?.(ctx) ?? 0) >= 4) result = failure('repair_limit', 'Three repairs were unsuccessful. Stop and ask the user how to proceed.');
       else {
         const parsed = schema.safeParse(raw);
         if (!parsed.success) result = fail({ ok: false, errors: parsed.error.issues.map(issue => ({ path: `/${issue.path.join('/')}`, code: 'invalid_value', message: issue.message })) });
@@ -304,7 +306,6 @@ export function createUiTools(deps: UiToolDependencies): ToolDef[] {
               }
               case 'save_preset': result = deps.savePreset ? deps.savePreset(user, args.name) : failure('unavailable', 'Saving presets is unavailable.'); break;
               default: {
-                if (Math.max(failures.get(ctx) ?? 0, deps.failures?.(ctx) ?? 0) >= 4) { result = failure('repair_limit', 'Three repairs were unsuccessful. Stop and ask the user how to proceed.'); break; }
                 const built = buildUiPatch(name, args, saved.doc, deps, deps.presets?.(user));
                 const preview: PreviewResult = deps.service.preview(user, built.patch, { intent: built.intent, actor, autofix: built.autofix });
                 if (!preview.ok) { result = fail(preview); break; }

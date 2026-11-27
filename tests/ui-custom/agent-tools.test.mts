@@ -103,6 +103,18 @@ test('repair limit permits three repairs then ends the turn', async () => {
   assert.equal(JSON.parse(String(result.output)).errors[0].code, 'repair_limit'); assert.equal(result.endTurn, true);
   assert.ok((await f.call('preview_ui_patch', { intent: 'Dark mode', patch: theme }, { ...f.ctx })).previewId);
 });
+test('malformed arguments cannot bypass the shared builder repair limit', async () => {
+  const f = fixture();
+  for (const name of ['preview_ui_patch', 'set_accent', 'create_dashboard', 'reset_ui']) {
+    assert.equal((await f.call(name, {})).errors[0].code, 'invalid_value');
+  }
+  const result = await f.tools.find(t => t.name === 'preview_ui_patch')!.impl({}, f.ctx);
+  assert.equal(JSON.parse(String(result.output)).errors[0].code, 'repair_limit');
+  assert.equal(result.endTurn, true);
+  assert.equal(f.cards.length, 0);
+  assert.equal((await f.call('get_ui_config', {})).revision, 0);
+  assert.ok((await f.call('preview_ui_patch', { intent: 'Dark mode', patch: theme }, { ...f.ctx })).previewId);
+});
 for (const template of ['blank', 'overview', 'tasks', 'usage', 'bot']) test(`${template} template passes the shared validator`, () => {
   const f = fixture(); const built = buildUiPatch('create_dashboard', { name: 'Fixture dashboard', template, botId: 'QA-Temp-bot', pin: true, setAsHome: true }, DEFAULT_CONFIG, f.deps);
   const checked = previewPatch(DEFAULT_CONFIG, built.patch, { ctx: { userId: 'QA-Temp-a', botIds: ['QA-Temp-bot'] } });

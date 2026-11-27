@@ -58,6 +58,17 @@ test('resume follows only same-user same-Bot direct-chat ancestry', () => {
   assert.deepEqual(uiChatJobs({ ...direct, userId: 'QA-Temp-b' }), []);
   assert.deepEqual(uiChatJobs(ctx({ type: 'resume', parentJobId: 'missing' })), []);
 });
+test('resumed turns retain the repair limit for malformed builder arguments', async () => {
+  const direct = ctx();
+  for (let i = 0; i < 4; i++) appendRow(bot.id, 'tool-call', {
+    type: 'tool-call', name: 'preview_ui_patch', callId: `fixture-repair-${i}`, args: {}, label: 'Preview', status: 'error', jobId: direct.jobId,
+  });
+  const resumed = ctx({ type: 'resume', parentJobId: direct.jobId });
+  const result = await toolMap.get('set_accent')!.impl({}, resumed);
+  assert.equal(JSON.parse(String(result.output)).errors[0].code, 'repair_limit');
+  assert.equal(result.endTurn, true);
+  assert.ok((await preview(ctx())).previewId);
+});
 for (const name of ['browser_snapshot', 'SWARM_APPS_EXECUTE', 'read_file', 'read_email', 'web_search', 'shell', 'mcp_fixture_read', 'session_search']) test(`${name} taints auto Apply and its resumed turn`, async () => {
   const context = ctx();
   db.prepare("INSERT INTO account_preferences(user_id,ui_agent_apply,updated_at) VALUES(?,'auto',0) ON CONFLICT(user_id) DO UPDATE SET ui_agent_apply='auto'").run(context.userId);
