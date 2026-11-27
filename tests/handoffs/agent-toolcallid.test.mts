@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, mock, test } from 'node:test';
-import { realAgentFixture, loopSpec } from './e2e/fixture.mjs';
+import { realAgentFixture, loopSpec } from './fix4/fixture.mjs';
 
 const server = await realAgentFixture();
 const { db, agent } = server;

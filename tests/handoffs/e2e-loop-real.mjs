@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { realAgentFixture, loopSpec, pollLoop } from './e2e/fixture.mjs';
-import { goals, mockIterationProvider } from './mock-iter.mjs';
+import { realAgentFixture, loopSpec, pollLoop } from './fix4/fixture.mjs';
+import { goals, mockIterationProvider } from './fix4/mock-iter.mjs';
 
 const started = Date.now();
 const watchdog = setTimeout(() => { console.error('Real loop E2E exceeded 55 seconds.'); process.exit(1); }, 55000);
