@@ -7,6 +7,9 @@
     "web"
   ],
   "scripts": {
+    "test:handoffs:quality": "node tests/handoffs/run-quality.mjs",
+    "test:handoffs:e2e": "node tests/handoffs/e2e/journeys.mjs",
+    "demo:handoffs:record": "node scripts/handoffs-demo.mjs",
     "test:handoffs": "node --import tsx --test --test-concurrency=1 \"tests/handoffs/**/*.test.mts\"",
     "demo:handoffs": "node tests/handoffs/demo-a.mjs",
     "test:ui-custom": "node tests/ui-custom/run-all.mjs",

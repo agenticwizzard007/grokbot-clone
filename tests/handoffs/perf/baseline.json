@@ -1,0 +1,156 @@
+{
+  "measuredAt": "2026-11-27T16:35:22.829Z",
+  "environment": "linux x64 v24.22.1",
+  "metrics": {
+    "outputCreation": {
+      "p95": 11.54125299999987,
+      "budget": 20,
+      "unit": "ms",
+      "samples": 50,
+      "pass": true
+    },
+    "handoffPost": {
+      "p95": 58.72484000000031,
+      "budget": 80,
+      "unit": "ms",
+      "samples": 50,
+      "pass": true
+    },
+    "flowCold": {
+      "p95": 6.677382999999736,
+      "budget": 150,
+      "unit": "ms",
+      "samples": 50,
+      "pass": true
+    },
+    "flowWarm": {
+      "p95": 1.8945290000001478,
+      "budget": 15,
+      "unit": "ms",
+      "samples": 50,
+      "pass": true
+    }
+  },
+  "bundle": {
+    "entry": "assets/index-DcDY3EdA.js",
+    "entryGzipBytes": 647,
+    "comparison": "HO-H changes no production source or dependencies; entry graph matches base main.",
+    "addedEntryGzipBytes": 0,
+    "budgetBytes": 40960,
+    "pass": true,
+    "lazyRoutes": [
+      {
+        "name": "_flow-BuE8r980.js",
+        "file": "assets/flow-BuE8r980.js",
+        "gzipBytes": 803
+      },
+      {
+        "name": "_flow-DGzth0sz.css",
+        "file": "assets/flow-DGzth0sz.css",
+        "gzipBytes": 1175
+      },
+      {
+        "name": "src/flow/FlowCompact.tsx",
+        "file": "assets/FlowCompact-CxpzSowO.js",
+        "gzipBytes": 406
+      },
+      {
+        "name": "src/flow/FlowTab.tsx",
+        "file": "assets/FlowTab-CDAp1zNr.js",
+        "gzipBytes": 4081
+      },
+      {
+        "name": "src/handoffs/HandoffDetail.tsx",
+        "file": "assets/HandoffDetail-pOGmVogq.js",
+        "gzipBytes": 1502
+      },
+      {
+        "name": "src/handoffs/OutputCard.tsx",
+        "file": "assets/OutputCard-B_LUbott.js",
+        "gzipBytes": 66
+      },
+      {
+        "name": "src/handoffs/OutputViewer.tsx",
+        "file": "assets/OutputViewer-Dj2MF5x1.js",
+        "gzipBytes": 68
+      },
+      {
+        "name": "src/handoffs/SendSheet.tsx",
+        "file": "assets/SendSheet-xIUkenxI.js",
+        "gzipBytes": 3501
+      },
+      {
+        "name": "src/handoffs/api.ts",
+        "file": "assets/api-CHQnN3IQ.js",
+        "gzipBytes": 67
+      },
+      {
+        "name": "src/handoffs/loops/LoopRun.tsx",
+        "file": "assets/LoopRun-mL44AyXi.js",
+        "gzipBytes": 5968
+      },
+      {
+        "name": "src/handoffs/loops/LoopSheet.tsx",
+        "file": "assets/LoopSheet-BUpnMkU3.js",
+        "gzipBytes": 109
+      },
+      {
+        "name": "src/handoffs/loops/LoopsPage.tsx",
+        "file": "assets/LoopsPage-Ab4pIDQE.js",
+        "gzipBytes": 1515
+      }
+    ]
+  },
+  "browser": {
+    "measuredAt": "2026-11-27T16:37:01.680Z",
+    "metrics": {
+      "loopRender12Steps-390": {
+        "p95": 37.70000000006985,
+        "budget": 300,
+        "samples": 11,
+        "unit": "ms",
+        "pass": true
+      },
+      "flowPaint-390": {
+        "p95": 28.29999999993015,
+        "budget": 50,
+        "samples": 11,
+        "unit": "ms",
+        "pass": true
+      },
+      "timelineSse-390": {
+        "p95": 70.19999999995343,
+        "budget": 100,
+        "samples": 6,
+        "unit": "ms",
+        "pass": true
+      },
+      "loopRender12Steps-1280": {
+        "p95": 38.10000000009313,
+        "budget": 300,
+        "samples": 11,
+        "unit": "ms",
+        "pass": true
+      },
+      "flowPaint-1280": {
+        "p95": 24.300000000046566,
+        "budget": 50,
+        "samples": 11,
+        "unit": "ms",
+        "pass": true
+      },
+      "timelineSse-1280": {
+        "p95": 58.10000000009313,
+        "budget": 100,
+        "samples": 6,
+        "unit": "ms",
+        "pass": true
+      }
+    },
+    "notes": [
+      "Local seeded app; rendering fixture has 4 iterations and 12 completed steps.",
+      "Browser timings run from API response or SSE event to the second animation frame after the matching DOM appears.",
+      "One cold development module transform is excluded. No API responses are replaced."
+    ]
+  }
+}

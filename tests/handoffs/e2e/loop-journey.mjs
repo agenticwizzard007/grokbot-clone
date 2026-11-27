@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { checks } from '../mock-iter.mjs';
+import { checks, goals } from '../mock-iter.mjs';
 import { api, poll, screenshot } from './fixture.mjs';
 
 export const sentences = { converge: 'Done in 3 passes: all checks passed.', cap: 'Stopped after 3 passes (limit). 2 of 3 checks still fail.' };
@@ -7,9 +7,9 @@ export async function startLoop(page, data, mode, { room = false } = {}) {
   await page.goto(new URL('/#loops', page.url()).href);
   await page.getByRole('button', { name: 'New loop', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: 'New loop', exact: true });
-  await sheet.getByLabel('Name', { exact: true }).fill(`Placeholder ${mode} review`);
-  await sheet.getByLabel('Goal', { exact: true }).fill(`HO-H ${mode}: Write three release note bullets with a version, fewer than 60 words and a final call to action.`);
-  await sheet.getByLabel('Starting brief', { exact: true }).fill('Placeholder release brief. Test data only.');
+  await sheet.getByLabel('Name', { exact: true }).fill(mode === 'cap' ? 'Release review' : 'Release notes');
+  await sheet.getByLabel('Goal', { exact: true }).fill(goals[mode]);
+  await sheet.getByLabel('Starting brief', { exact: true }).fill('Version 1.0 improves search and saved reports.');
   await sheet.getByLabel('Maker agent', { exact: true }).selectOption(data.maker);
   await sheet.getByLabel('Checker agent', { exact: true }).selectOption(data.checker);
   await sheet.getByLabel('Stop when', { exact: true }).selectOption('checklist');
@@ -26,10 +26,14 @@ export async function startLoop(page, data, mode, { room = false } = {}) {
 
 export async function recordLoop(page, data, mode, evidence, width, options) {
   const id = await startLoop(page, data, mode, options);
+  return recordExistingLoop(page, id, mode, evidence, width);
+}
+export async function recordExistingLoop(page, id, mode, evidence, width) {
   await page.getByRole('button', { name: 'Pause', exact: true }).waitFor();
   const shots = [await screenshot(page, evidence, `${mode}-running`, width)];
-  await page.getByText(sentences[mode], { exact: true }).waitFor({ timeout: 90000 });
-  const detail = await api(page, `/loops/${id}`);
+  const detail = await poll(() => api(page, `/loops/${id}`), value => ['succeeded', 'capped', 'failed', 'cancelled', 'stalled'].includes(value.status), 'Loop terminal state', 90000);
+  assert.equal(detail.resultText, sentences[mode], `Real loop ${id}: ${detail.stopReason}`);
+  await page.getByText(sentences[mode], { exact: true }).waitFor();
   assert.equal(detail.iteration, 3); assert.equal(detail.steps.length, 6);
   assert.equal(detail.resultText, sentences[mode]);
   assert.equal(detail.status, mode === 'converge' ? 'succeeded' : 'capped');
@@ -52,8 +56,9 @@ export async function recordLoop(page, data, mode, evidence, width, options) {
 
 export async function finishedChat(page, data, width) {
   await page.goto(new URL(`/#bot/${data.maker}`, page.url()).href);
-  await api(page, `/bots/${data.maker}/messages`, 'POST', { text: `mock: say Placeholder release draft ${width} ready for review.` });
-  await page.locator('.ho-output-card').first().waitFor();
+  await page.locator('.composer textarea').fill('Draft release notes for version 1.0.');
+  await page.locator('.composer').getByRole('button', { name: 'Send', exact: true }).click();
+  await page.locator('.ho-output-card').filter({ hasText: 'Version 1.0 improves search' }).first().waitFor();
   await poll(() => api(page, `/outputs?botId=${data.maker}`), r => (r.outputs ?? r.items ?? r).length > 0, 'Finished run output');
 }
 
@@ -62,12 +67,12 @@ export async function sendHandoff(page, data, evidence, width) {
   await page.locator('.ho-output-card').getByRole('button', { name: 'Send to agent', exact: true }).first().click();
   const sheet = page.getByRole('dialog', { name: 'Send to agent' });
   await sheet.getByRole('button', { name: /^Checker/ }).click();
-  await sheet.getByLabel('Ask', { exact: true }).fill(`mock: say Placeholder review ${width} complete.`);
+  await sheet.getByLabel('Ask', { exact: true }).fill('Review the release draft for clarity.');
   const shots = [await screenshot(page, evidence, 'handoff-sheet', width)];
   const response = page.waitForResponse(r => r.url().endsWith('/api/handoffs') && r.request().method() === 'POST');
   await sheet.getByRole('button', { name: 'Send', exact: true }).click();
   const created = await (await response).json(), handoff = created.handoff ?? created;
-  const receipt = page.locator('.ho-receipt').filter({ hasText: `Placeholder review ${width} complete.` }).first();
+  const receipt = page.locator('.ho-receipt').filter({ hasText: 'Review the release draft for clarity.' }).first();
   await receipt.getByText('Sent to Checker', { exact: true }).waitFor();
   shots.push(await screenshot(page, evidence, 'handoff-receipt', width));
   await receipt.getByRole('link', { name: /^View handoff/ }).click();

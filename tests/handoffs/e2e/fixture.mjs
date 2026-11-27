@@ -6,10 +6,11 @@ import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { chromium } from 'playwright';
+import { visualEvidence } from './visual-quality.mjs';
 
 // Extends layout-fixture.mjs's isolated environment and shared layout.seed.mts
 // with a provider URL and a second seed. No credentials inherited from the host.
-export async function fixture(evidence) {
+export async function fixture(evidence, { extraSeed } = {}) {
   fs.mkdirSync(evidence, { recursive: true });
   const root = process.cwd(), temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ho-h-'));
   const children = [], logs = [];
@@ -27,7 +28,7 @@ export async function fixture(evidence) {
   const ready = async (url, child) => { for (let n = 0; n < 400; n++) { assert.equal(child.exitCode, null, logs.join('')); if (await fetch(url).then(r => r.ok).catch(() => false)) return; await new Promise(r => setTimeout(r, 100)); } throw new Error(`Startup timeout: ${logs.join('')}`); };
   const close = async () => { for (const c of children) if (c.exitCode === null) c.kill(); await Promise.all(children.filter(c => c.exitCode === null).map(c => once(c, 'exit'))); fs.writeFileSync(path.join(evidence, 'server.log'), logs.join('')); fs.rmSync(temp, { recursive: true, force: true }); };
   try {
-    for (const script of ['tests/fixtures/layout.seed.mts', 'tests/handoffs/e2e/seed.mts']) {
+    for (const script of ['tests/fixtures/layout.seed.mts', 'tests/handoffs/e2e/seed.mts', ...(extraSeed ? [extraSeed] : [])]) {
       const seed = start(['--import', preload, '--import', 'tsx', script]); assert.equal((await once(seed, 'exit'))[0], 0, logs.join(''));
     }
     await ready(`http://127.0.0.1:${providerPort}/_requests`, start(['tests/mock-provider.mjs', String(providerPort)]));
@@ -41,14 +42,14 @@ export async function fixture(evidence) {
   } catch (error) { await close(); throw error; }
 }
 
-export async function browserSession(server, width) {
+export async function browserSession(server, width, { theme = 'light' } = {}) {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
   await context.addCookies([{ name: 'swarm_session', value: server.token, url: server.base }]);
   await context.route('**/*', route => new URL(route.request().url()).origin === new URL(server.base).origin ? route.continue() : route.abort());
   const page = await context.newPage(); page.setDefaultTimeout(20000);
   const errors = []; page.on('pageerror', error => errors.push(error.message));
-  await page.addInitScript(() => { localStorage.setItem('swarm.theme', 'light'); window.handoffEvents = []; window.addEventListener('swarm:event', event => window.handoffEvents.push({ at: performance.now(), ...event.detail })); });
+  await page.addInitScript(theme => { localStorage.setItem('swarm.theme', theme); window.handoffEvents = []; window.addEventListener('swarm:event', event => window.handoffEvents.push({ at: performance.now(), ...event.detail })); }, theme);
   return { browser, context, page, errors, close: () => browser.close() };
 }
 
@@ -62,10 +63,12 @@ export async function poll(fn, predicate, message, timeout = 60000) {
   throw new Error(`${message}: ${JSON.stringify(value)}`);
 }
 export async function screenshot(page, evidence, name, width) {
-  const file = path.join(evidence, `${name}-${width}.png`);
+  const theme = await page.evaluate(() => document.documentElement.dataset.theme || 'light');
+  const file = path.join(evidence, `${name}-${width}-${theme}.png`);
   // The application scrolls inside its shell. Expand only the screenshot height.
   const surface = page.locator('.ho-route, .flow-page').first();
   if (await surface.count()) await page.setViewportSize({ width, height: Math.min(5000, Math.max(1000, await surface.evaluate(el => el.scrollHeight) + 180)) });
+  if (!name.includes('failure')) { const quality = await visualEvidence(page); fs.writeFileSync(file.replace(/\.png$/, '.quality.json'), JSON.stringify(quality, null, 2)); }
   await page.screenshot({ path: file, fullPage: true });
   await page.setViewportSize({ width, height: 1000 }); return file;
 }
