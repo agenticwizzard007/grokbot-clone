@@ -3,21 +3,18 @@ import { z } from 'zod';
 import { db,now,newId,sha256,atomic,emitEvent,missing,ownBot,ownJob,requireEnabled,ServiceError,cursor,pageSize,nextCursor } from './db.js';
 import { OUTPUT_LIMITS, type RunOutput,type OutputPart,type Provenance,type SubmitOutputInput,type HandoffContext,type HandoffPage } from './contracts.js';
 import { displayCoordinationText } from '../lib/redact.js';
+import { contentHash,extractLinks,summarizeOutput,redactOutputText } from './output.js';
 import { readArtifact } from '../deliverables/artifacts.js';
 import { env } from '../env.js';
 
 export function displayText(text:string) {
- return displayCoordinationText(text).replace(/\b(?:sk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{12,}\b/g,'[redacted]')
+ return redactOutputText(text).replace(/\b(?:sk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{12,}\b/g,'[redacted]')
  .replace(/\b(Bearer\s+)[A-Za-z0-9._~+\/-]+=*/gi,'$1[redacted]')
  .replace(/\b(api[_ -]?key|access[_ -]?token|secret|password)(\s*[:=]\s*)(["']?)[^\s,"'}]+\3/gi,'$1$2[redacted]')
  .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g,'[redacted]');
 }
 const clean=(text:string)=>displayText(text).replace(/[\u2013\u2014]/g,'-');
-function summaryOf(body:string) {
- const text=clean(body).trim();if(text.length<=1200)return text;
- const p=text.split(/\n\s*\n/)[0].slice(0,1200),end=Math.max(p.lastIndexOf('. '),p.lastIndexOf('! '),p.lastIndexOf('? '));
- return end>0?p.slice(0,end+1):p;
-}
+const summaryOf=(body:string)=>clean(summarizeOutput(body));
 export const submitOutputSchema=z.object({title:z.string().min(1).max(120).optional(),summary:z.string().max(1200),
  dataParts:z.array(z.object({name:z.string().min(1).max(100),schema:z.string().max(100).optional(),json:z.unknown()}).strict()).max(5).optional(),
  links:z.array(z.object({url:z.string().url().refine(v=>v.startsWith('https://')),title:z.string().max(200),relation:z.enum(['source','result','reference'])}).strict()).max(30).optional(),
@@ -63,7 +60,7 @@ export function saveOutput(input:{userId:string;botId:string;jobId?:string|null;
   const prior=(input.jobId?db.prepare('SELECT * FROM run_outputs WHERE job_id=? AND user_id=?').get(input.jobId,input.userId):input.sourceKey?db.prepare('SELECT o.* FROM run_outputs o JOIN handoff_output_sources s ON s.output_id=o.id WHERE s.user_id=? AND s.source_key=?').get(input.userId,input.sourceKey):undefined) as any;
   if(prior&&(prior.status!=='draft'||input.sourceKey))return outputView(prior);
   const id=prior?.id??newId('out'),p=provenance(input.userId,input.botId,input.jobId??null,input.declared||prior&&JSON.parse(prior.provenance).declaredBy==='agent'?'agent':'auto');
-  const raw=(input.body??(prior?rawBody(input.userId,prior.id,'p_body'):input.declared?.summary)??'').slice(0,OUTPUT_LIMITS.bodyChars);
+  const raw=(input.body??(prior?rawBody(input.userId,prior.id,'p_body',true):input.declared?.summary)??'').slice(0,OUTPUT_LIMITS.bodyChars);
   const display=clean(raw),originalParts:{id:string;body:string;display:string;kind:string;name:string}[]=[{id:'p_body',body:raw,display,kind:'text',name:'body'}];
   let parts:OutputPart[]=[{id:'p_body',kind:'text',name:'body',chars:display.length,sha256:sha256(display)}];
   let dataBytes=0;
@@ -79,9 +76,9 @@ export function saveOutput(input:{userId:string;botId:string;jobId?:string|null;
   parts.push(...[...new Map([...oldParts.filter(p=>p.kind==='file'),...files].map(p=>[p.id,p])).values()].slice(0,20));
   const links=new Map<string,OutputPart>();
   for(const link of input.declared?.links??oldParts.filter(p=>p.kind==='link'))links.set(link.url,{id:`p_link${links.size}`,kind:'link',url:clean(link.url),title:clean(link.title),relation:link.relation});
-  for(const match of display.matchAll(/https:\/\/[^\s<>"')\]]+/g))if(links.size<30&&!links.has(match[0])){try{links.set(match[0],{id:`p_link${links.size}`,kind:'link',url:match[0],title:new URL(match[0]).host,relation:'reference'});}catch{}}
+  for(const link of extractLinks(display))if(links.size<30&&!links.has(link.url))links.set(link.url,{...link,id:`p_link${links.size}`});
   parts.push(...links.values());
-  const hash=sha256(JSON.stringify(parts.map(part=>{const {id:_,...data}=part;return data;})));
+  const hash=contentHash(parts,Object.fromEntries(parts.filter(p=>p.kind==='text'||p.kind==='data').map(p=>[p.id,originalParts.find(o=>o.id===p.id)?.display??(prior?rawBody(input.userId,id,p.id):'')])));
   const title=clean(input.declared?.title??prior?.title??raw.split('\n')[0]??'Output').slice(0,120)||'Output';
   const summary=clean(input.declared?.summary??(p.declaredBy==='agent'?prior?.summary:undefined)??summaryOf(raw)).slice(0,1200);
   const stamp=now(),status=input.final?'final':'draft',source=p.loopId?'loop_step':input.source??prior?.source??'run';

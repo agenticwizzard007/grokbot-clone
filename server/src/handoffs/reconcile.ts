@@ -7,10 +7,18 @@ import { hub } from '../lib/hub.js';
 import type { Handoff,HandoffStatus } from './contracts.js';
 let reconciling=false;
 const subscriptions=new Map<string,()=>void>();
+const pending=new Set<string>();
+export function scheduleReconciliation(userId:string) {
+ if(pending.has(userId))return;pending.add(userId);
+ setImmediate(()=>{pending.delete(userId);if(db.open&&enabled(userId))reconcileHandoffs(userId);});
+}
 export function watchHandoffs(userId:string) {
  if(subscriptions.has(userId))return;
  subscriptions.set(userId,hub.subscribe(userId,event=>{
-  if(event.type==='native')queueMicrotask(()=>{if(db.open&&enabled(userId))reconcileHandoffs(userId);});
+  if(event.type==='native'){
+   const source=db.prepare('SELECT kind FROM native_events WHERE seq=? AND user_id=?').get(event.cursor,userId) as any;
+   if(source&&['coordination.admitted','coordination.result','job.started','job.settled','task.updated'].includes(source.kind))scheduleReconciliation(userId);
+  }
  }));
 }
 export function stopHandoffRecovery() {for(const stop of subscriptions.values())stop();subscriptions.clear();}

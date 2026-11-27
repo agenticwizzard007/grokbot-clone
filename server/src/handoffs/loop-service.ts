@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { recomputeVerdict } from './verdict.js';
 import { db,now,newId,sha256,atomic,afterCommit,requireEnabled,targetBot,ownBot,ownJob,missing,emitEvent,events,ServiceError,cursor,pageSize,nextCursor } from './db.js';
 import type { Loop,LoopSpec,LoopStatus,StopReason,HandoffContext,Verdict,CheckedVerdict } from './contracts.js';
 import { getOutput,displayText } from './outputs.js';
@@ -55,7 +56,7 @@ export function createLoop(userId:string,input:z.input<typeof createLoopSchema>,
   const old=db.prepare('SELECT l.*,c.fingerprint FROM loops l JOIN handoff_loop_controls c ON c.loop_id=l.id WHERE l.user_id=? AND l.idempotency_key=?').get(userId,i.idempotencyKey) as any;
   if(old){if(old.fingerprint!==fingerprint)throw new ServiceError('idempotency_conflict','This key was used for another loop.',409);return {loop:loopView(old),replayed:true};}
   const spec=i.spec as LoopSpec,owner=targetBot(userId,ownerBotId??spec.steps[0].botId);
-  if(new Set(spec.steps.map(s=>s.id)).size!==spec.steps.length)throw new ServiceError('invalid_input','Step ids must be unique.');
+  if(spec.steps.some(s=>s.id==='__judge')||new Set(spec.steps.map(s=>s.id)).size!==spec.steps.length)throw new ServiceError('invalid_input','Step ids must be unique.');
   if(spec.kind==='maker_checker'&&(spec.steps.length!==2||spec.steps[0].role!=='maker'||spec.steps[1].role!=='checker'))throw new ServiceError('invalid_input','Choose a maker and a checker.');
   if(spec.exit.mode!=='manual'&&spec.steps.at(-1)?.role!=='checker')throw new ServiceError('invalid_input','The final step must be a checker.');
   if(spec.steps.filter(s=>s.role==='checker').length>1)throw new ServiceError('invalid_input','Choose one final checker.');
@@ -140,13 +141,8 @@ export function submitVerdict(ctx:HandoffContext,input:Verdict):CheckedVerdict {
   if(judge&&judge!==ctx.botId)throw new ServiceError('not_in_loop','The separate judge submits this verdict.',422);
   if(!['running','paused'].includes(loop.status)||row.iteration!==loop.iteration)throw new ServiceError('invalid_state','This review has finished.',409);
   if(new Set(parsed.data.checklist.map(c=>c.id)).size!==parsed.data.checklist.length)throw new ServiceError('invalid_verdict','Answer each checklist item once.');
-  let pass=input.pass;
-  if(loop.spec.exit.mode==='checklist'){
-   const rule=loop.spec.exit;
-   if(input.checklist.some(c=>!rule.items.some(i=>i.id===c.id))||rule.items.some(i=>i.required&&!input.checklist.some(c=>c.id===i.id)))throw new ServiceError('invalid_verdict','Answer every required checklist item once.');
-   pass=rule.items.filter(i=>i.required).every(i=>input.checklist.find(c=>c.id===i.id)?.pass)&&(rule.minScore===undefined||(input.score??-1)>=rule.minScore);
-  }
-  const verdict:CheckedVerdict={...parsed.data,feedback:displayText(input.feedback),checklist:input.checklist.map(c=>({...c,note:displayText(c.note)})),pass,claimedPass:input.pass,corrected:pass!==input.pass};
+  const checked=recomputeVerdict(parsed.data,loop.spec.exit),pass=checked.pass;
+  const verdict:CheckedVerdict={...checked,feedback:displayText(input.feedback),checklist:input.checklist.map(c=>({...c,note:displayText(c.note)}))};
   const old=db.prepare('SELECT * FROM loop_verdicts WHERE loop_id=? AND iteration=? AND user_id=?').get(loop.id,row.iteration,ctx.userId) as any;
   if(old){if(old.pass!==Number(pass)||old.claimed_pass!==Number(input.pass)||old.feedback!==verdict.feedback||old.checklist!==JSON.stringify(verdict.checklist)||(old.score??undefined)!==input.score)throw new ServiceError('invalid_state','A submitted verdict cannot change.',409);return verdict;}
   db.prepare('INSERT INTO loop_verdicts(loop_id,iteration,user_id,checker_step_id,pass,claimed_pass,score,checklist,feedback,feedback_hash,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(loop.id,row.iteration,ctx.userId,row.step_id,Number(pass),Number(input.pass),input.score??null,JSON.stringify(verdict.checklist),verdict.feedback,sha256(verdict.feedback),now());

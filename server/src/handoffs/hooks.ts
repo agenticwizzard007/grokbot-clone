@@ -16,5 +16,5 @@ export function onJobFinished(input:CoordinationFinish) {
    if(trigger.taskId&&db.prepare('SELECT 1 FROM tasks WHERE id=? AND bot_id=?').get(trigger.taskId,input.botId))db.prepare('UPDATE run_outputs SET task_id=? WHERE id=? AND user_id=?').run(trigger.taskId,output.id,input.userId);
   }
  });
- queueMicrotask(()=>{if(db.open)void import('./reconcile.js').then(m=>{m.watchHandoffs(input.userId);m.reconcileHandoffs(input.userId);}).catch(()=>console.error('[handoff] completion deferred for recovery'));});
+ queueMicrotask(()=>{if(db.open)void import('./reconcile.js').then(m=>{m.watchHandoffs(input.userId);m.scheduleReconciliation(input.userId);}).catch(()=>console.error('[handoff] completion deferred for recovery'));});
 }

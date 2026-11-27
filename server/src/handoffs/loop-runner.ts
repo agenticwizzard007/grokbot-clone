@@ -4,6 +4,8 @@ import { getOutput,saveOutput,rawBody } from './outputs.js';
 import { packet,parseRef } from './handoff-service.js';
 import { enqueueSystemRequest,drainInternalRequests,coordinationRuntime } from '../coordination/requests.js';
 import type { Loop,LoopStep,RunOutput } from './contracts.js';
+import { createLoopState,nextAction } from './loop-machine.js';
+import { selectBestOutput,type IterationResult } from './verdict.js';
 
 const driving=new Set<string>();
 const deadlines=new Map<string,ReturnType<typeof setTimeout>>();
@@ -60,11 +62,16 @@ function dispatch(loop:Loop,step:LoopStep,index:number,attempt:number) {
  const logged=db.prepare("SELECT 1 FROM handoff_events WHERE loop_id=? AND type='loop.step_dispatched' AND json_extract(data,'$.iteration')=? AND json_extract(data,'$.stepId')=? AND json_extract(data,'$.attempt')=?").get(loop.id,loop.iteration,step.id,attempt);
  if(!logged)emitEvent(loop.userId,'loop.step_dispatched',{iteration:loop.iteration,stepId:step.id,attempt,requestId},{loopId:loop.id,handoffId},{type:'loop',id:loop.id,status:loop.status,iteration:loop.iteration});
 }
-function bestOutput(loop:Loop) {
+function iterationHistory(loop:Loop):IterationResult[] {
  const steps=loopSteps(loop.userId,loop.id),verdicts=loopVerdicts(loop.userId,loop.id);
- const candidates=steps.filter(s=>s.role!=='checker'&&s.outputId).map(s=>{const v=verdicts.find(v=>v.iteration===s.iteration);const required=loop.spec.exit.mode==='checklist'?loop.spec.exit.items.filter(i=>i.required).map(i=>i.id):undefined;
-  return {id:s.outputId!,iteration:s.iteration,score:v?.checklist.filter(c=>c.pass&&(!required||required.includes(c.id))).length??0};}).sort((a,b)=>b.score-a.score||b.iteration-a.iteration);
- const id=candidates[0]?.id??null;db.prepare('UPDATE loops SET best_output_id=? WHERE id=? AND user_id=?').run(id,loop.id,loop.userId);loop.bestOutputId=id;
+ return Array.from({length:loop.iteration},(_,index)=>{
+  const iteration=index+1,step=steps.filter(s=>s.iteration===iteration&&s.role!=='checker'&&s.outputId).at(-1),verdict=verdicts.find(v=>v.iteration===iteration);
+  return step?.outputId?{iteration,outputId:step.outputId,contentHash:getOutput(loop.userId,step.outputId).contentHash,feedbackHash:verdict?.feedbackHash??'',verdict}:null;
+ }).filter((v):v is NonNullable<typeof v>=>v!==null);
+}
+function bestOutput(loop:Loop) {
+ const id=selectBestOutput(iterationHistory(loop),loop.spec.exit)?.outputId??null;
+ db.prepare('UPDATE loops SET best_output_id=? WHERE id=? AND user_id=?').run(id,loop.id,loop.userId);loop.bestOutputId=id;
 }
 function budget(loop:Loop) {
  if(loop.startedAt!==null&&now()-loop.startedAt>=loop.spec.limits.maxMinutes*60000)return 'max_minutes' as const;
@@ -120,20 +127,19 @@ function run(loop:Loop) {
  if(loop.iteration>0&&current.length===steps.length&&current.every(s=>s.status==='completed')){
   const checked=db.prepare("SELECT 1 FROM handoff_events WHERE loop_id=? AND type='loop.iteration_completed' AND json_extract(data,'$.iteration')=?").get(loop.id,loop.iteration);
   if(!checked){
-   const verdicts=loopVerdicts(loop.userId,loop.id),v=verdicts.at(-1);
-   emitEvent(loop.userId,'loop.iteration_completed',{iteration:loop.iteration},{loopId:loop.id});bestOutput(loop);
-   if(v?.iteration===loop.iteration&&v.pass&&loop.spec.exit.mode!=='manual'){
-    loop.bestOutputId=current.filter(s=>s.role!=='checker'&&s.outputId).at(-1)?.outputId??loop.bestOutputId;
-    db.prepare('UPDATE loops SET best_output_id=? WHERE id=?').run(loop.bestOutputId,loop.id);finishLoop(loop,'passed');return;
-   }
-   const maker=current.find(s=>s.role!=='checker'),previous=loopSteps(loop.userId,loop.id).find(s=>s.iteration===loop.iteration-1&&s.stepId===maker?.stepId);
-   const same=maker?.outputId&&previous?.outputId&&getOutput(loop.userId,maker.outputId).contentHash===getOutput(loop.userId,previous.outputId).contentHash;
-   const feedbackStalled=verdicts.length>=3&&verdicts.slice(-3).every(v=>v.feedbackHash===verdicts.at(-1)?.feedbackHash);
-   if(same||feedbackStalled){finishLoop(loop,'stalled');return;}
-   if(verdicts.length>=3&&verdicts.slice(-3).every(v=>v.score!==undefined)&&verdicts.at(-1)!.score!<=verdicts.at(-3)!.score!)emitEvent(loop.userId,'loop.warning',{reason:'score_not_improving',iteration:loop.iteration},{loopId:loop.id});
-   if(loop.iteration>=loop.spec.limits.maxIterations){if(loop.spec.gate.onCap==='ask'&&!control.extended&&loop.spec.limits.maxIterations<10)waitGate(loop,'cap');else finishLoop(loop,'max_iterations');return;}
-   if(loop.spec.exit.mode==='manual'){waitGate(loop,'manual');return;}
-   if(loop.spec.gate.before==='each'){waitGate(loop,'each');return;}
+   const history=iterationHistory(loop),last=current.at(-1)!,output=getOutput(loop.userId,last.outputId!),usage=loopUsage(loop.userId,loop.id);
+   const state=createLoopState(loop.spec,{allowSameBotRoles:!!control.allow_self_check});
+   Object.assign(state,{status:'running',iteration:loop.iteration,active:true,stepIndex:steps.length-1,nudged:last.nudged,startedAt:loop.startedAt,
+    history:history.filter(h=>h.iteration<loop.iteration),currentOutput:history.find(h=>h.iteration===loop.iteration)??null,costUsd:usage.costUsd,tokens:usage.tokens,extended:!!control.extended});
+   const verdict=loopVerdicts(loop.userId,loop.id).find(v=>v.iteration===loop.iteration);
+   const decision=nextAction(state,{id:`iteration:${loop.iteration}`,at:now(),type:'step_completed',iteration:loop.iteration,stepId:last.stepId,nudged:last.nudged,outputId:output.id,contentHash:output.contentHash,
+    ...(verdict?{verdict:{pass:verdict.pass,score:verdict.score,checklist:verdict.checklist,feedback:verdict.feedback},feedbackHash:verdict.feedbackHash}:{})});
+   emitEvent(loop.userId,'loop.iteration_completed',{iteration:loop.iteration},{loopId:loop.id});
+   loop.bestOutputId=decision.state.bestOutputId;db.prepare('UPDATE loops SET best_output_id=? WHERE id=? AND user_id=?').run(loop.bestOutputId,loop.id,loop.userId);
+   if(decision.state.warnings.length)emitEvent(loop.userId,'loop.warning',{reason:'score_not_improving',iteration:loop.iteration},{loopId:loop.id});
+   if(decision.type==='finish'){finishLoop(loop,decision.reason);return;}
+   if(decision.type==='waitGate'){waitGate(loop,decision.reason);return;}
+
   }
   if(loop.iteration>=loop.spec.limits.maxIterations){finishLoop(loop,'max_iterations');return;}
   db.prepare('UPDATE loops SET iteration=iteration+1 WHERE id=? AND user_id=?').run(loop.id,loop.userId);loop.iteration++;
