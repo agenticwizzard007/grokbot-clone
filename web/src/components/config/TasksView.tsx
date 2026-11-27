@@ -13,14 +13,14 @@ import { WorkflowsPanel } from './WorkflowsPanel';
 import { WorkReports } from './WorkReports';
 import { workBotKey } from './workScope';
 import { useNeedsYou, useTasks } from './taskData';
-import { AttentionStatus, NeedsYouCard, TaskCard, TaskError, sortTasks, workContext, setWorkContext, type Filter, type WorkContext } from './TaskCards';
+import { TaskHandoffProvider, AttentionStatus, NeedsYouCard, TaskCard, TaskError, sortTasks, workContext, setWorkContext, type Filter, type WorkContext } from './TaskCards';
 
 const TABS: WorkTab[] = ['Tasks', 'Team', 'Goals', 'Reports'];
 
 /** Responsive board: status columns on wide screens, grouped cards on phones. */
 export function TasksView() {
   const userId = useStore(s => s.user?.id);
-  return <WorkWorkspace key={userId} />;
+  return <TaskHandoffProvider key={userId}><WorkWorkspace /></TaskHandoffProvider>;
 }
 
 function WorkWorkspace() {
