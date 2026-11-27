@@ -6,7 +6,7 @@ import { widgetTypes, readyWidgets, assertGrid, inspectAlignment } from './dashb
 const { defaultWidget } = await tsImport('../../web/src/dashboards/model.ts', { parentURL: import.meta.url, tsconfig: 'web/tsconfig.json' });
 const server = await dashboardAgentFixture(), checks = [];
 async function open(account, width, seeded) {
-  const widgets = widgetTypes.map((type, index) => ({ ...defaultWidget(type), id: `$new${index + 2}`, title: `Weekly ${type}`, span: 6, rows: 4,
+  const widgets = widgetTypes.map((type, index) => ({ ...defaultWidget(type), id: `$new${index + 2}`, span: 6, rows: 4,
     ...(type === 'note' ? { options: { text: seeded ? '## Weekly focus\nReview the next three tasks.' : '' } } : {}),
     ...(type === 'shortcuts' ? { options: { items: seeded ? [{ label: 'Open tasks', target: 'tasks' }, { label: 'Open Bots', target: 'bots' }] : [{ label: 'Tasks', target: 'tasks' }] } } : {}),
   }));

@@ -24,6 +24,15 @@ async function capture(page, name, width, theme, selector) {
       return box.height < 43.5 ? [`${el.textContent || el.getAttribute('aria-label')}: ${box.height}`] : [];
     }));
     assert.deepEqual(issues, [], `${name}: targets`);
+    const toolbarsFit = await root.locator('.dashboard-toolbar').evaluateAll(elements => elements.every(el => {
+      const toolbar = el.getBoundingClientRect(), card = el.closest('.dashboard-widget').getBoundingClientRect();
+      return toolbar.left >= card.left + 15 && toolbar.right <= card.right - 15 && toolbar.top >= card.top && toolbar.bottom <= card.bottom;
+    }));
+    assert.ok(toolbarsFit, `${name}: toolbars remain inside their card padding`);
+    if (name === 'dashboard' || name === 'empty-dashboard') {
+      assert.equal(await page.locator('.shell-header__title:visible, .dashboard-heading h1:visible').count(), 1, 'One visible dashboard title');
+      if (width <= 760) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1, 'One Back control');
+    }
     await readableWords(root);
     const switches = await root.locator('[role="switch"]').evaluateAll(elements => elements.map(el => {
       const knob = el.querySelector('.toggle__knob').getBoundingClientRect(), target = el.getBoundingClientRect();
@@ -45,7 +54,7 @@ try {
     }, widgetTypes);
     await patch(page, [{ op: 'replace', path: '/dashboards', value: [{ id: '$new1', name: 'My week', icon: 'layout-dashboard', widgets }, { id: '$new20', name: 'Daily summary', icon: 'layout-dashboard', widgets: [] }] }]);
     const boards = await page.evaluate(async () => (await import('/src/customization/store.ts')).useCustomization.getState().saved.dashboards);
-    await server.open(page, boards[0].id); await readyWidgets(page);
+    await server.open(page, boards[0].id); await page.reload(); await page.locator('.dashboard-grid').waitFor(); await readyWidgets(page);
     await page.locator('.dashboard-heading').scrollIntoViewIfNeeded();
     if (!before) await assertGrid(page, width);
     await capture(page, 'dashboard', width, theme, '.dashboard-page');

@@ -38,10 +38,10 @@ function DashboardScreen({ dashboard, index }: { dashboard: Dashboard; index: nu
   const ask = () => { const bot = bots.find(bot => bot.isPrimary) ?? bots[0]; if (bot) { prefillComposer(bot.id, `Help me customize the dashboard ${dashboard.name}: `); openConversation(bot.id); } };
   return <Page type="wide" className="dashboard-page" aria-label={dashboard.name}>
     <header className="dashboard-heading"><div><h1>{dashboard.name}</h1>{dashboard.description && <p>{dashboard.description}</p>}</div>
-      <ButtonGroup className="dashboard-actions">{editing ? <>
+      {dashboard.widgets.length > 0 && <ButtonGroup className="dashboard-actions">{editing ? <>
         <button type="button" className="cfg-btn cfg-btn--secondary" data-dashboard-add disabled={busy || dashboard.widgets.length >= 24} onClick={() => { setError(''); setAdd(true); }}>Add widget</button>
         <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={() => setEditing(false)}>Done</button>
-      </> : <><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => data.refresh()} disabled={!dashboard.widgets.some(widget => widget.source)}>Refresh</button><button type="button" className="cfg-btn cfg-btn--primary" onClick={() => { setError(''); setEditing(true); }}>Edit</button></>}</ButtonGroup>
+      </> : <><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => data.refresh()} disabled={!dashboard.widgets.some(widget => widget.source)}>Refresh</button><button type="button" className="cfg-btn cfg-btn--primary" onClick={() => { setError(''); setEditing(true); }}>Edit</button></>}</ButtonGroup>}
     </header>
     {error && !add && !settings && <p className="dashboard-error" role="alert">{error}</p>}
     {!dashboard.widgets.length ? <Section><Card className="dashboard-empty"><p>Your dashboard is empty.</p><ButtonGroup><button className="cfg-btn cfg-btn--primary" type="button" data-dashboard-add onClick={() => { setEditing(true); setAdd(true); }}>Add widget</button><button className="cfg-btn cfg-btn--secondary" type="button" disabled={!bots.length} onClick={ask}>Ask your agent</button></ButtonGroup></Card></Section>
