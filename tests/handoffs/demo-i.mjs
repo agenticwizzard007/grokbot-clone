@@ -34,6 +34,8 @@ await runIntegrationDemo({ settingsFlow: async ({ page, width, server, check, al
   assert.equal((await read('/handoff-settings')).settings.enabled, false);
   await page.reload(); await enabled.waitFor();
   assert.equal(await enabled.getAttribute('aria-checked'), 'false');
+  assert.equal(await page.getByRole('button', { name: 'Open Loops', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Add a standing link', exact: true }).count(), 0);
   await save('/handoff-settings', () => enabled.click());
   assert.equal((await read('/handoff-settings')).settings.enabled, true);
   check('Disabled handoffs can be re-enabled after a fresh load');

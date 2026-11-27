@@ -145,7 +145,7 @@ export function AgentsSection() {
         <Row title="Account limits" subtitle="Up to 3 running loops and 20 new loops per day." />
         <Row title="Cost and token limits" subtitle="Optional when usage is reported. Some plans do not report cost." />
       </Card>
-      <button className="ho-button" onClick={() => navigation.navigate({ kind: 'loops' })}>Open Loops</button>
+      {settings?.enabled && <button className="ho-button" onClick={() => navigation.navigate({ kind: 'loops' })}>Open Loops</button>}
     </Section>
     {error && <p className="ho-error" role="alert">{error}</p>}
     {saved && <p role="status">Saved</p>}
