@@ -6,7 +6,7 @@ Implements P5, P6 and P14 against Paper v2. The verified design archive SHA256 i
 
 - Desktop sidebar is 272 px with 12 px padding and gaps. Search is 40 px; navigation rows are 36 px. The rail is 76 px with a selected Bot ring. The real Swarm assets render both themes.
 - All Bots, Tasks and Files lead to the existing routes. The account menu offers Settings, Usage, Models and access, Connect apps and Log out. Usage retains its cached state, meter and refresh behavior. Claude is orange in the sidebar; provider marks occupy fixed 16 px boxes.
-- Phone top-level navigation is Bots, Tasks, Search and Settings, with safe-area padding. Non-root routes have a primary-color chevron and visible Back label in a 44 px target. Back uses in-app history before the structural parent. A 312 px drawer provides the rest of the app navigation.
+- Phone top-level navigation is Bots, Tasks, Search and Settings, with safe-area padding. Non-root routes have a primary-color chevron and visible Back label in a 44 px target. Back uses in-app history before the structural parent. A 312 px drawer provides the rest of the app navigation. Bot subpages retain a 32 px avatar and a title/subtitle block in the shared header.
 - Desktop app navigation remains usable on every route. Search and Connect apps render inside the shell. Regular modal dialogs retain focus containment; embedded route surfaces allow navigation outside them.
 - Settings has a 220 px inner navigation column and content up to 640 px. Phone Settings has an account card and grouped section list. General keeps Theme, details preference, time zone and keyboard shortcuts. Shortcuts and diagnostics open on demand. The duplicate compact-sidebar preference is replaced by the existing sidebar collapse control. Learning and Connected apps use distinct icons.
 
@@ -21,7 +21,7 @@ All browser checks use local production bundles and synthetic fixtures. No live 
 - `settings-simplify.test.mts` and `settings-simplify-ui.mjs`: approved section order, distinct icons, all eleven sections, reloads, resizing with an unsaved draft, keyboard access, rail and immediate menu reopen. The provider model row keeps its existing reserved icon slot.
 - `paper-shell-copy.mjs`: reproducible before/after word measurement; asserts the v2 General and Settings-home budgets.
 
-Full suite comparison: pending completion before merge. Targeted tests: 168 pass, 0 fail. Server and web typecheck and web production build pass.
+Full local suite: 2,850 pass, 70 fail, 24 existing skips, 0 cancelled, 2,944 total. Untouched origin/main at `801496e21b64b88931b1018d7a306441b34a4f30` has exactly the same counts and the same 70 failure names. New failures: 0. No tests were disabled or newly skipped. See `test-comparison.json`. Targeted tests: 168 pass, 0 fail. Server and web typecheck and web production build pass. The final route sweep passes 126 checks plus both roster-failure cases. The ten visual cases, four keyboard cases, ten account-menu cases and 53 Settings layout checks pass.
 
 ## Visible words
 
