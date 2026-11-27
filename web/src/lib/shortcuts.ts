@@ -1,4 +1,4 @@
-import { SHORTCUTS as ACTIONS, normalizeShortcut, isReservedShortcut } from '@shared/ui-config/registry-shortcuts';
+import { SHORTCUTS as ACTIONS, normalizeShortcut, isReservedShortcut } from '../../../server/src/ui-config/registry-shortcuts';
 /** Keyboard shortcuts: one list for the handlers' documentation, Settings and every tooltip glyph. */
 export const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
