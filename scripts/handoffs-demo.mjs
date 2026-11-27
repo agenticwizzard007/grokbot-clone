@@ -12,7 +12,8 @@ if (remote) for (const key of ['HANDOFFS_TEST_SESSION', 'HANDOFFS_TEST_USER_ID',
 if (remote) assert.equal(process.env.HANDOFFS_TEST_PROVIDER, 'scripted', 'Deployed test account must use the handoff scripted mock provider');
 const server = remote ? { base: remote, token: process.env.HANDOFFS_TEST_SESSION,
   data: { maker: process.env.HANDOFFS_TEST_MAKER, checker: process.env.HANDOFFS_TEST_CHECKER }, close: async () => {} } : await fixture(evidence);
-const uiQuality = await runUiQuality(evidence);
+const { runQuality } = fs.existsSync('tests/handoffs/ui-quality.mjs') ? await import('../tests/handoffs/ui-quality.mjs') : {};
+const uiQuality = await runUiQuality(evidence, runQuality);
 const report = { uiQuality, passed: 0, failed: 0, mode: remote ? 'deployed test account' : 'seeded local', runs: [], handoffs: [], screenshots: [], failures: [] };
 try {
   for (const theme of ['light', 'dark']) for (const width of [320, 390, 500, 1280]) {
@@ -45,6 +46,12 @@ try {
       await page.goto(`${server.base}/#bot/${server.data.maker}/details/flow`);
       await page.locator('.flow-chart').waitFor();
       report.screenshots.push(await screenshot(page, evidence, 'maker-flow', width)); report.passed++;
+      await page.goto(`${server.base}/#settings/agents`);
+      await page.locator('.agents-settings').waitFor();
+      await page.getByRole('switch', { name: 'Enable handoffs and loops', exact: true }).waitFor();
+      await page.getByLabel('Links from', { exact: true }).selectOption(server.data.maker);
+      await page.getByLabel('Handoff mode for Checker', { exact: true }).waitFor();
+      report.screenshots.push(await screenshot(page, evidence, 'settings-agents', width)); report.passed++;
       await assertVisibleCopy(page); assert.deepEqual(view.errors, []);
     } catch (error) {
       report.failed++; report.failures.push({ width, theme, message: error.message });

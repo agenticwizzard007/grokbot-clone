@@ -131,7 +131,7 @@ try {
       for (const filter of ['Sent', 'Received', 'All']) await page.getByRole('button', { name: filter, exact: true }).click();
       await auditRoute(page, width);
     });
-    await check(8, 'Standing suggest link, Flow link editor, auto mode and Settings feature check', async () => {
+    await check(8, 'Standing suggest link, Flow link editor and Settings automation controls', async () => {
       await go(page, `#bot/${f.maker}`);
       await page.locator('.ho-output-card').getByRole('button', { name: 'Send to Checker', exact: true }).first().click();
       await page.getByRole('dialog', { name: 'Send to agent' }).waitFor(); await page.keyboard.press('Escape');
@@ -144,9 +144,20 @@ try {
       await page.locator('[data-kind="handoff_to"]').first().click();
       await sheet.getByLabel('Mode', { exact: true }).selectOption('suggest');
       await sheet.getByRole('button', { name: 'Save link', exact: true }).click();
-      if (!/['"]agents['"]/.test(fs.readFileSync('web/src/components/config/settingsNavigation.tsx', 'utf8'))) {
-        details.push({ width, status: 'skip', scope: 'Settings Agents', reason: 'HO-I stage 2 has not merged.' }); console.log(`SKIP ${width} Settings Agents: HO-I stage 2 has not merged.`);
-      } else { await go(page, '#settings/agents'); await page.locator('.ho-settings').waitFor(); await page.getByLabel('Enable handoffs', { exact: true }).waitFor(); await auditRoute(page, width); }
+      await go(page, '#settings/agents'); await page.locator('.agents-settings').waitFor();
+      assert.equal(await page.getByRole('switch', { name: 'Enable handoffs and loops', exact: true }).isChecked(), true);
+      await page.getByLabel('Links from', { exact: true }).selectOption(f.maker);
+      const mode = page.getByLabel('Handoff mode for Checker', { exact: true });
+      await mode.selectOption('auto');
+      await poll(() => api(page, `/handoff-links?botId=${f.maker}`), r => r.links[0].mode === 'auto', 'Settings saves automatic mode');
+      const approve = page.getByLabel('Auto approve loops started by agents with Checker', { exact: true });
+      await approve.check();
+      await poll(() => api(page, `/handoff-links?botId=${f.maker}`), r => r.links[0].autoApproveLoops, 'Settings saves pair approval');
+      await approve.uncheck();
+      await poll(() => api(page, `/handoff-links?botId=${f.maker}`), r => !r.links[0].autoApproveLoops, 'Settings restores pair approval');
+      await mode.selectOption('suggest');
+      await poll(() => api(page, `/handoff-links?botId=${f.maker}`), r => r.links[0].mode === 'suggest', 'Settings restores suggestion mode');
+      await auditRoute(page, width);
     });
     await check(9, 'Room progress rows and member-only Send targets', async () => {
       loopId = await startLoop(page, f, 'slow', { room: true });

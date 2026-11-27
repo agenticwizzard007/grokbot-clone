@@ -1,23 +1,24 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { inspectAlignment } from '../../layout-alignment-ui.mjs';
 
-export async function runUiQuality(evidence) {
+export async function runUiQuality(evidence, runQuality) {
   const script = path.resolve('tests/handoffs/ui-quality.mjs');
   if (!fs.existsSync(script)) {
     const reason = 'HO-P UI quality checker is absent; waiting for ho-p-polish to merge.';
     console.log(`SKIP UI quality: ${reason}`); return { status: 'skip', reason };
   }
-  const log = path.join(evidence, 'ui-quality.log'), fd = fs.openSync(log, 'w');
-  const exit = await new Promise(resolve => {
-    const child = spawn(process.execPath, [script], { stdio: ['ignore', fd, fd], env: process.env });
-    child.on('exit', resolve); child.on('error', () => resolve(1));
-  });
-  fs.closeSync(fd);
-  console.log(`${exit === 0 ? 'PASS' : 'FAIL'} HO-P UI quality: ${log}`);
-  return { status: exit === 0 ? 'pass' : 'fail', exit, log };
+  let error;
+  try { await (runQuality ?? (await import('../ui-quality.mjs')).runQuality)(); }
+  catch (reason) { error = reason.stack || String(reason); }
+  const source = path.resolve('.context/ho-p/quality/report.json');
+  const checks = fs.existsSync(source) ? JSON.parse(fs.readFileSync(source, 'utf8')) : [];
+  const result = { status: error ? 'fail' : 'pass', passed: checks.filter(check => !check.issues.length).length,
+    failed: checks.filter(check => check.issues.length).length, ...(error ? { error } : {}), source };
+  fs.writeFileSync(path.join(evidence, 'ui-quality.json'), JSON.stringify(result, null, 2));
+  console.log(`${error ? 'FAIL' : 'PASS'} HO-P UI quality: ${result.passed} pass, ${result.failed} fail`);
+  return result;
 }
 export async function assertVisibleCopy(page) {
   const text = await page.locator('body').innerText();
@@ -29,7 +30,7 @@ export async function visualEvidence(page) {
   const selector = await page.locator('dialog[open]').count() ? 'dialog[open]' : await page.locator('main.paper-shell').count() ? 'main.paper-shell' : '.shell-content > :not(.shell-header):not(.phone-tabs)';
   const alignment = await page.evaluate(inspectAlignment, { selector });
   const result = await page.evaluate(() => {
-    const main = ['dialog[open]', '.flow-tab', '.ho-route', '.chat', 'main']
+    const main = ['dialog[open]', '.paper-settings', '.flow-tab', '.ho-route', '.chat', 'main']
       .flatMap(selector => [...document.querySelectorAll(selector)])
       .find(el => el.checkVisibility() && el.getBoundingClientRect().width > 1);
     const text = [];
@@ -43,7 +44,7 @@ export async function visualEvidence(page) {
     }
     const words = text.join(' ').split(/\s+/).filter(Boolean).length;
     const issues = [];
-    for (const root of document.querySelectorAll('.ho-receipt, .ho-output-card, .ho-loops, .flow-chart')) {
+    for (const root of document.querySelectorAll('.ho-receipt, .ho-output-card, .ho-loops, .flow-chart, .agents-settings')) {
       for (const el of root.querySelectorAll('*')) {
         if (!el.checkVisibility() || el.closest('.flow-sr, .sr-only, [aria-hidden="true"]')) continue;
         if ([...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim()) && parseFloat(getComputedStyle(el).fontSize) < 13) issues.push(`Text under 13px: ${el.textContent.trim().slice(0, 60)}`);

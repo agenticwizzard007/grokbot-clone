@@ -11,9 +11,11 @@ const ui = [
   'tests/handoffs/ui-e-behavior.mjs', 'tests/handoffs/ui-e-layout.mjs', 'tests/handoffs/ui-f-server.mjs', 'tests/handoffs/ui-f-layout.mjs',
   'tests/handoffs/integration-routes-ui.mjs', 'tests/flow/demo-g.mjs',
 ];
+const demos = ['a', 'b', 'c', 'd', 'e', 'f', 'i'].map(letter => `tests/handoffs/demo-${letter}.mjs`);
 const commands = process.argv.includes('--existing-ui') ? ui.map(file => [process.execPath, [file]]) : [
   ['npm', ['run', 'typecheck']], [process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', ...tests]],
   ['npm', ['run', 'build', '-w', 'web']], ...ui.map(file => [process.execPath, [file]]),
+  ...demos.map(file => [process.execPath, [file]]),
   [process.execPath, ['tests/handoffs/e2e/journeys.mjs']], [process.execPath, ['tests/handoffs/layout-ui.mjs']],
   [process.execPath, ['scripts/handoffs-demo.mjs']], [process.execPath, ['tests/handoffs/perf/server.mjs']], [process.execPath, ['tests/handoffs/perf/browser.mjs']],
   [process.execPath, ['tests/layout-alignment-ui.mjs']], [process.execPath, ['--import', 'tsx', 'tests/navigation-every-route-ui.mjs']],

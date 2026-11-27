@@ -28,12 +28,10 @@ export async function auditRoute(page, width) {
   if (width <= 760) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1, 'One Back on phone');
 }
 export async function auditRoutes(page, server, width, ids) {
-  const checks = [], settings = fs.readFileSync('web/src/components/config/settingsNavigation.tsx', 'utf8');
+  const checks = [];
   const routes = [ ['#loops', '.ho-loop-heading'], [`#loop/${ids.loop}`, '[data-loop-revision]'],
     [`#handoff/${ids.handoff}`, '.ho-heading'], [`#output/${ids.output}`, '.ho-prose'],
-    [`#bot/${server.data.maker}/details/flow`, '.flow-chart'] ];
-  if (/['"]agents['"]/.test(settings)) routes.push(['#settings/agents', '.ho-settings']);
-  else checks.push({ route: '#settings/agents', status: 'skip', reason: 'HO-I stage 2 has not merged: Settings Agents route is absent.' });
+    [`#bot/${server.data.maker}/details/flow`, '.flow-chart'], ['#settings/agents', '.agents-settings'] ];
   for (const [route, marker] of routes) {
     try {
       await page.goto(`${server.base}/${route}`); await page.locator(marker).first().waitFor(); await auditRoute(page, width);

@@ -10,7 +10,7 @@ The per-account setting is stored in `handoff_user_settings` and exposed at auth
 {"enabled":true,"agentHandoffs":"team"}
 ```
 
-Policy values are `team`, `links_only` and `off`. `off` restricts agent-initiated handoffs; `enabled:false` disables the feature for the account. Settings Agents presents these controls after HO-I stage 2 is installed. The API can restore an account's disabled flag, unless the environment kill switch is active.
+Policy values are `team`, `links_only` and `off`. `off` restricts agent-initiated handoffs; `enabled:false` disables the feature for the account. Settings Agents presents these controls. The API can restore an account's disabled flag, unless the environment kill switch is active.
 
 The current implementation defaults to enabled and team policy when no row exists. A test-account-only rollout therefore requires explicitly disabling other accounts through the owning operational process before exposure. Do not assume an absent row is disabled. The quality suite never changes real account settings.
 
