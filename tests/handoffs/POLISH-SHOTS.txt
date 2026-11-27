@@ -1,4 +1,4 @@
-Before: main 08c72d129aeed71f7db9be42e6907cc36a3887fb
+Before: main 3cf57e0e43b0b4866d2aec33ba06f165dfaab12e
 After: ho-p-polish
 Directory: /workspace/swarm-qa/handoffs/shots/polish/
 Conductor copies: .context/ho-p/shots/
