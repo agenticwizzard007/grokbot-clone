@@ -14,7 +14,7 @@ Implements P5, P6 and P14 against Paper v2. The verified design archive SHA256 i
 
 All browser checks use local production bundles and synthetic fixtures. No live sign-in or user-data writes are used.
 
-- `paper-shell-ui.mjs`: 320, 390, 500, 768 and 1280 px in light and dark. Checks label widths, whole-word wrapping, 16 px provider containment, Claude color, order, geometry, Back text/target and Settings/sidebar coexistence.
+- `paper-shell-ui.mjs`: 320, 390, 500, 768 and 1280 px in light and dark. Checks label widths, whole-word wrapping, 16 px provider containment, Claude color, order, geometry, active navigation, Back text/target and Settings/sidebar coexistence.
 - `navigation-every-route-ui.mjs`: all 63 route forms below at 390 and 1280 px. Checks cold parent fallback, previous in-app screen, top-level phone tabs, collapse/expand on every desktop route, home in at most three taps, unsaved Bot settings guards and a failed roster request.
 - `keyboard-chrome-ui.mjs`: 390 and 1280 in both themes. Preserves composer, model picker, approvals and details checks; uses the new phone tabs and drawer, with an untrapped Search route.
 - `account-popover-ui.mjs`: ordinary and long account addresses at 390, 768, 1024 and 1280, plus short-window scrolling and resize. The compact menu intentionally omits the repeated email header; account details remain on Account.

@@ -76,6 +76,14 @@ try {
    await audit(page, '.sidebar, .menu');
    await screenshot(page, 'rail-account-menu', width, theme);
    await page.keyboard.press('Escape'); await page.keyboard.press('Control+b');
+   await page.locator('.sidebar__nav').getByRole('button', { name: 'Files', exact: true }).click();
+   await page.waitForFunction(() => location.hash === '#reports');
+   assert.deepEqual(await page.locator('.sidebar__nav .is-active').allTextContents(), ['Files']);
+   assert.equal(await page.locator('.sidebar__nav').getByRole('button', { name: 'Tasks', exact: true }).getAttribute('aria-pressed'), 'false');
+   await page.locator('.sidebar__search').click();
+   await page.locator('.search-modal').waitFor();
+   assert.equal(await page.locator('.sidebar .is-selected, .sidebar__nav .is-active').count(), 0);
+
   } else {
    await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
    assert.equal(await page.locator('.phone-drawer').evaluate(el => el.getBoundingClientRect().width), Math.min(312, width-8));

@@ -17,7 +17,7 @@ import './sidebar-labels.css';
 
 /** MF-027: a Bot is highlighted only while its chat is the visible page. */
 export function sidebarHighlightsBot(ui: { view: string; appSettings: unknown; botSettings: unknown }, modal: string | null): boolean {
-  return ui.view === 'chat' && !ui.appSettings && !ui.botSettings && modal !== 'create' && modal !== 'group';
+  return ui.view === 'chat' && !ui.appSettings && !ui.botSettings && modal === null;
 }
 
 function initials(name: string) {
@@ -152,9 +152,9 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
       </button>
 
       <nav className="sidebar__nav" aria-label="Main navigation" onClick={onClose}>
-        {!collapsed && <button type="button" className={`sidebar-island${view === 'bots' && !settingsOpen ? ' is-active' : ''}`} onClick={showBots} aria-label="All Bots"><House size={18} aria-hidden /><span>All Bots</span></button>}
+        {!collapsed && <button type="button" className={`sidebar-island${view === 'bots' && !settingsOpen && !modal ? ' is-active' : ''}`} onClick={showBots} aria-label="All Bots"><House size={18} aria-hidden /><span>All Bots</span></button>}
         <TasksIsland />
-        {!collapsed && <button type="button" className={`sidebar-island${view === 'tasks' && workTab === 'Reports' && !settingsOpen ? ' is-active' : ''}`} onClick={() => navigation.navigate({ kind: 'work', route: { tab: 'Reports' } })}><Folder size={18} aria-hidden /><span>Files</span></button>}
+        {!collapsed && <button type="button" className={`sidebar-island${view === 'tasks' && workTab === 'Reports' && !settingsOpen && !modal ? ' is-active' : ''}`} onClick={() => navigation.navigate({ kind: 'work', route: { tab: 'Reports' } })}><Folder size={18} aria-hidden /><span>Files</span></button>}
       </nav>
       <div className="sidebar__scroll">
         {mobile && <RosterFeedback />}
