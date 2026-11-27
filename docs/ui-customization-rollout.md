@@ -42,7 +42,7 @@ UC-B owns the concrete admin override interface, reset script and metric sink. I
 
 ## Health checks
 
-Use the service's operations metrics sink or count-only JSON logs. Never attach documents, titles, widget data, keys or message text to metric labels.
+UC-B's `server/src/ui/metrics.ts` emits count-only JSON log lines by default, with `metric`, numeric `value`, and an optional allowlisted `label`. The same sink runs in standalone and tenant processes and can be redirected by the service. Aggregate those fields in the deployment's log viewer; do not group by user id. Never attach documents, titles, widget data, keys or message text to metric labels.
 
 | Signal | What to review |
 | --- | --- |

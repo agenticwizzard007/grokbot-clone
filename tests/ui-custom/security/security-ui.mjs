@@ -55,7 +55,8 @@ const cases = [
         assert.equal(schema.safeParse({ ...data, [keys[0]]: value }).success, false, name); assertions++;
       }
     }
-    console.log(`CSS fuzz: ${assertions} rejected inputs across ${paths.length} fields`);
+    const fieldCount = paths.length + parameterSchemas.reduce((sum, source) => sum + source.paths.length, 0);
+    console.log(`CSS fuzz: ${assertions} rejected inputs across ${fieldCount} fields`);
   } },
   ...['API', 'import', 'agent'].map(ingress => ({ name: `50 XSS payloads through ${ingress}`, run: args => withContext(args, async ({ context, current, server, external }) => {
     if (ingress === 'agent') requireModules('server/src/agent/ui-tools.ts');
