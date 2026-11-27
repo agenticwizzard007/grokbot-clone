@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
-import AxeBuilder from '@axe-core/playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 import { runSuite, fixtureContext } from '../fixtures/harness.mjs';
 import { CUSTOM_ROUTES, prepareRoute } from '../fixtures/routes.mjs';
+
+let AxeBuilder;
+try { ({ default: AxeBuilder } = await import('@axe-core/playwright')); }
+catch (error) {
+  if (error.code !== 'ERR_MODULE_NOT_FOUND') throw error;
+  throw new Error('UC-H accessibility requires @axe-core/playwright and its dependencies. Run npm install at the repository root, then rerun this script.', { cause: error });
+}
 
 const routes = [
   { name: 'default-bots', fixture: 'default', hash: '#bots', modules: [] },

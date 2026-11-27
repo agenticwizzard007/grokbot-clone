@@ -10,7 +10,7 @@
     "configMaxBytes": 262144,
     "configReadP95Ms": 30,
     "configGzipBytes": 16384,
-    "dashboardGzipBytes": 40960,
+    "dashboardGzipBytes": 61440,
     "dataBatchP95Ms": 150,
     "dashboardFirstContentMs": 500,
     "dashboardCLS": 0.05,
@@ -23,5 +23,6 @@
     "requestsPerBatch": 24
   },
   "regressionLimit": 1.25,
-  "note": "No invented measurements. Run UC_RECORD_BASELINE=1 on the integrated stack; review and commit the resulting measurements. UC_REQUIRE_FULL=1 rejects this pending baseline."
+  "dashboardBudgetRationale": "The harness measures the entire incremental lazy dependency graph, including shared configuration validation, not only the DashboardView file. Integrated main 3842013 measured 47732 gzip bytes; 61440 bytes allows 28.7 percent absolute headroom. A recorded baseline also limits growth to 25 percent, which is stricter. The user authorized a measured budget on Nov 27. No product code was changed to meet it.",
+  "note": "Run UC_RECORD_BASELINE=1 serially on the integrated stack; review and commit the resulting measurements. Recording refuses failed or incomplete runs. UC_REQUIRE_FULL=1 rejects a missing baseline."
 }
