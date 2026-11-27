@@ -4,6 +4,7 @@ import { smallComputerUsage } from './fixtures/usage-small-computer.mjs';
 export async function shellFixture(browser, width = 1280, theme = 'light') {
   const f = await fixturePage(browser, { width, height: width <= 760 ? 844 : 900 }, { colorScheme: theme });
   await f.page.addInitScript(theme => {
+    if (location.origin === 'null') return; // Cold navigation starts at about:blank.
     localStorage.setItem('swarm.theme', theme);
     localStorage.setItem('swarm.sidebarCollapsed', '0');
   }, theme);
@@ -20,6 +21,7 @@ export async function shellFixture(browser, width = 1280, theme = 'light') {
     if (path === '/api/messaging') return { json: { account: {}, links: [], line: null, prefs: { voiceReplies: 'off' }, speech: {}, invites: { allowance: 0 } } };
     if (path === '/api/usage') return { json: smallComputerUsage };
     if (path === '/api/apps') return { json: { apps: [], connected: [], connectedApps: [], categories: [], total: 0 } };
+    if (path === '/api/rooms/project-room/members') return { json: { members: f.fixture.bots.filter(bot => ['coordinator', 'research-bot'].includes(bot.id)) } };
     if (/^\/api\/learning\/bots\/[^/]+\/history$/.test(path)) return { json: { entries: [], through: 0, latestVersion: 0, nextBefore: null, coverage: '' } };
     if (/^\/api\/bots\/[^/]+\/setup$/.test(path)) return { status: 404, json: { error: 'No saved configuration.' } };
     if (/^\/api\/bots\/[^/]+\/files$/.test(path)) return { json: { status: 'ok', path: '', files: [] } };

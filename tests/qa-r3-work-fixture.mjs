@@ -23,6 +23,7 @@ export async function fixturePage(browser, viewport = { width: 1280, height: 900
   const errors = [], writes = [], reads = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
+    if (location.origin === 'null') return; // Cold navigation starts at about:blank.
     localStorage.setItem('swarm.selectedBot', 'coordinator');
     window.EventSource = class {
       static CLOSED = 2;
