@@ -62,7 +62,10 @@ async function paperMatrix({ page, width, server, check, screenshots, evidence }
     if (name === 'settings-agents' && testedWidth <= 760) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1);
     if (name === 'settings-agents') {
       const info = page.getByRole('button', { name: 'About handoffs', exact: true });
-      await info.focus(); await page.getByRole('tooltip').waitFor(); await page.keyboard.press('Escape');
+      await info.focus(); await page.getByRole('tooltip').waitFor();
+      assert.deepEqual(await page.evaluate(inspectAlignment, { selector, requirePage: false }), []);
+      assert.deepEqual((await page.evaluate(inspectPaper, selector)).issues, []);
+      await page.keyboard.press('Escape');
       assert.equal(await page.getByRole('tooltip').count(), 0);
       await page.locator('.agents-settings summary').click();
       assert.deepEqual((await page.evaluate(inspectPaper, selector)).issues, []);

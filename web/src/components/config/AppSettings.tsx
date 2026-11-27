@@ -1,4 +1,5 @@
 import { InfoTip, SettingsMenu } from './SettingsControls';
+import { AgentsInfoTip } from '../../handoffs/AgentsInfoTip';
 import { Section, Card, Row, ButtonGroup } from '../layout';
 import { ProviderMark } from '../ProviderMark';
 import { ApprovalLevelSettings } from './ApprovalLevelSettings';
@@ -108,7 +109,7 @@ export function AgentsSection() {
   });
   const disabled = busy || policy.loading;
   const state = (resource: { loading: boolean; error?: string; retry: () => void }) => resource.error
-    ? <Card role="alert"><span className="cfg-chip">Unavailable</span><InfoTip label="Load error">{resource.error}</InfoTip><ButtonGroup><button className="cfg-btn cfg-btn--secondary" onClick={resource.retry}>Retry</button></ButtonGroup></Card>
+    ? <Card role="alert"><span className="cfg-chip">Unavailable</span><AgentsInfoTip label="Load error">{resource.error}</AgentsInfoTip><ButtonGroup><button className="cfg-btn cfg-btn--secondary" onClick={resource.retry}>Retry</button></ButtonGroup></Card>
     : resource.loading ? <span className="cfg-chip" role="status">Loading</span> : null;
   return <div className="agents-settings" aria-busy={busy || policy.loading || links.loading}>
     <style>{`
@@ -126,7 +127,7 @@ export function AgentsSection() {
       .agents-settings .settings-info__content { font: 400 var(--text-base)/var(--line-body) var(--font-stack); }
       .agents-settings .agents-saved { color: var(--color-success); background: var(--color-success-bg); }
     `}</style>
-    <Section title="Handoffs" action={<InfoTip label="About handoffs">Send finished work to another agent. Team allows any available teammate; Links only follows standing links; Off stops agent sends. You can still send work yourself. Limits: 20 per agent per hour, 100 per account per day.</InfoTip>}>
+    <Section title="Handoffs" action={<AgentsInfoTip label="About handoffs">Send finished work to another agent. Team allows any available teammate; Links only follows standing links; Off stops agent sends. You can still send work yourself. Limits: 20 per agent per hour, 100 per account per day.</AgentsInfoTip>}>
       {!settings && state(policy)}
       {settings && <Card>
         <Row title={<label className="agents-check"><input type="checkbox" role="switch" aria-label="Enable handoffs and loops" aria-checked={settings.enabled} checked={settings.enabled} disabled={disabled} onChange={event => void changePolicy({ enabled: event.target.checked })} />Enabled</label>} />
@@ -135,7 +136,7 @@ export function AgentsSection() {
         </select></label>} />
       </Card>}
     </Section>
-    {settings?.enabled && <Section title="Standing links" action={<InfoTip label="About standing links">Automatic sends matching finished work without another tap. Suggest offers a send button. Loop approval applies only to this pair.</InfoTip>}>
+    {settings?.enabled && <Section title="Standing links" action={<AgentsInfoTip label="About standing links">Automatic sends matching finished work without another tap. Suggest offers a send button. Loop approval applies only to this pair.</AgentsInfoTip>}>
       <Card>
         {sender && <Row title={<label className="agents-field">From<select aria-label="Links from" value={sender.id} disabled={busy || links.loading} onChange={event => { setSelected(event.target.value); setSaved(false); setError(''); }}>
           {senders.map(bot => <option key={bot.id} value={bot.id}>{handoffText(bot.name)}</option>)}
@@ -153,7 +154,7 @@ export function AgentsSection() {
       </Card>
       {sender && <ButtonGroup><button className="cfg-btn cfg-btn--secondary" aria-label="Add a standing link" onClick={() => navigation.navigate({ kind: 'details', bot: sender.id, tab: 'activity', flow: true, link: 'new' })}>Add link</button></ButtonGroup>}
     </Section>}
-    <Section title="Loops" action={<InfoTip label="About loops">Work and review repeat until checks pass or a limit is reached. Choose limits when starting a loop. Agents need approval first unless their exact pair is approved above.</InfoTip>}>
+    <Section title="Loops" action={<AgentsInfoTip label="About loops">Work and review repeat until checks pass or a limit is reached. Choose limits when starting a loop. Agents need approval first unless their exact pair is approved above.</AgentsInfoTip>}>
       <Card><details className="settings-disclosure">
         <summary>Defaults and limits</summary>
         <Row title="Passes" trailing={<span>4 (1 to 10)</span>} />
@@ -161,11 +162,11 @@ export function AgentsSection() {
         <Row title="Step minutes" trailing={<span>10 (1 to 30)</span>} />
         <Row title="Running loops" trailing={<span>3</span>} />
         <Row title="Starts per day" trailing={<span>20</span>} />
-        <Row title={<span className="settings-label-info">Cost and tokens<InfoTip label="About usage limits">Optional caps when usage is reported. Some plans do not report cost.</InfoTip></span>} trailing={<span>Optional</span>} />
+        <Row title={<span className="settings-label-info">Cost and tokens<AgentsInfoTip label="About usage limits">Optional caps when usage is reported. Some plans do not report cost.</AgentsInfoTip></span>} trailing={<span>Optional</span>} />
       </details></Card>
       {settings?.enabled && <ButtonGroup><button className="cfg-btn cfg-btn--primary" onClick={() => navigation.navigate({ kind: 'loops' })}>Open Loops</button></ButtonGroup>}
     </Section>
-    {error && <Card role="alert"><span className="cfg-chip">Not saved</span><InfoTip label="Save error">{error}</InfoTip></Card>}
+    {error && <Card role="alert"><span className="cfg-chip">Not saved</span><AgentsInfoTip label="Save error">{error}</AgentsInfoTip></Card>}
     {saved && <span className="cfg-chip agents-saved" role="status">Saved</span>}
   </div>;
 }
