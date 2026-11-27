@@ -14,7 +14,9 @@ export function buildPacket(input: PacketInput): string {
   const { output, nonce } = input;
   if (!/^[A-Za-z0-9]{8,64}$/.test(nonce) || !/^ho_[A-Za-z0-9_-]{1,150}$/.test(input.handoffId)) throw new HandoffError('invalid_input', 'Invalid packet identity or nonce');
   const clean = (text: string): string => (input.includeSensitive ? text : redactOutputText(text))
+    .replace(/^\[(?:Internal result for request|Consolidated helper result for assignment|Verified workflow result)[^\]\n]*\]\s*\n?/, '')
     .replaceAll(nonce, '[neutralized]')
+    .replace(/-----((?:BEGIN|END) DATA)/g, '-----QUOTED $1')
     .replace(/\[handoff\b/gi, '[data handoff')
     .replace(/[\u2013\u2014]/g, '-')
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');

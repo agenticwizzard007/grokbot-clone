@@ -113,6 +113,9 @@ export class MemoryHandoffService implements HandoffService {
       const existing = [...this.outputs.values()].find(o => o.userId === context.userId && o.botId === context.botId && o.jobId === context.jobId);
       output = existing ?? await this.submitOutput({ ...context, toolCallId: `${context.toolCallId}:snapshot` }, { summary: input.summary ?? 'Work in progress' });
     }
+    // Snapshot creation can yield. Recheck the command key before committing the handoff.
+    const raced = [...this.handoffs.values()].find(h => h.userId === context.userId && h.idempotencyKey === key);
+    if (raced) { if (raced.fingerprint !== fingerprint) throw new HandoffError('idempotency_conflict', 'This call was already used with different content'); return clone(raced); }
     if (input.includeFiles?.some(id => !output.parts.some(p => p.kind === 'file' && (p.id === id || p.artifactId === id)))) throw new HandoffError('not_found', 'Output file not found');
     const chain = checkChain(output, input.toBotId, [...this.outputs.values()]);
     const handoff: Handoff = { id: this.id('ho'), userId: context.userId, fromBotId: context.botId, toBotId: input.toBotId,

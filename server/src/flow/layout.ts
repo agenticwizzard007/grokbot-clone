@@ -2,7 +2,7 @@ import type { FlowLaneId, FlowModel, FlowNode, LayoutPlan, FlowLayoutLane, FlowL
 export const FLOW_LANES: readonly FlowLaneId[] = ['triggers', 'inputs', 'steps', 'outputs', 'handoffs'];
 const labels = ['Triggers', 'Inputs', 'Steps', 'Outputs', 'Handoffs'];
 const kinds: FlowNode['kind'][] = ['schedule', 'routine', 'event', 'message', 'inbound_handoff', 'app', 'mcp', 'knowledge', 'suggested_app', 'suggested_mcp', 'step', 'skill', 'report', 'files', 'message_out', 'task', 'handoff_to', 'handoff_from', 'loop'];
-const compare = (a: FlowNode, b: FlowNode) => kinds.indexOf(a.kind) - kinds.indexOf(b.kind) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+const compare = (a: FlowNode, b: FlowNode) => (a.order ?? kinds.indexOf(a.kind)) - (b.order ?? kinds.indexOf(b.kind)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 /** Width is the available layout column, not the device viewport. */
 export function layoutFlow(model: FlowModel, width: number): LayoutPlan {
   const safeWidth = Number.isFinite(width) ? Math.max(1, width) : 390;
