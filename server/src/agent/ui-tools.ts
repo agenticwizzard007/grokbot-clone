@@ -131,20 +131,18 @@ export function dashboardTemplate(template: string, botId?: string): Widget[] {
 /** Remove every dashboard reference in the same validated patch. */
 export function deleteDashboardPatch(doc: UiConfig, dashboardId: string): PatchOp[] {
   const found = at(doc, dashboardId);
-  const ops: PatchOp[] = [];
-  if (doc.layout.home.kind === 'dashboard' && doc.layout.home.dashboardId === dashboardId) ops.push(replace('/layout/home', { kind: 'default' }));
-  if (doc.layout.pinned.some(p => p.type === 'dashboard' && p.id === dashboardId)) ops.push(replace('/layout/pinned', doc.layout.pinned.filter(p => p.type !== 'dashboard' || p.id !== dashboardId)));
-  if (doc.layout.phoneTabs.includes(`dashboard:${dashboardId}`)) {
-    const tabs = doc.layout.phoneTabs.filter(t => t !== `dashboard:${dashboardId}`);
-    for (const tab of ['bots', 'tasks', 'search']) if (tabs.length < 3 && !tabs.includes(tab)) tabs.splice(tabs.indexOf('settings'), 0, tab);
-    ops.push(replace('/layout/phoneTabs', tabs));
-  }
+  const ops: PatchOp[] = [{ op: 'test', path: `${found.path}/id`, value: dashboardId }];
+  if (doc.layout.home.kind === 'dashboard' && doc.layout.home.dashboardId === dashboardId) ops.push(put('/layout/home', { kind: 'default' }));
+  ops.push(put('/layout/pinned', doc.layout.pinned.filter(p => p.type !== 'dashboard' || p.id !== dashboardId)));
+  const tabs = doc.layout.phoneTabs.filter(t => t !== `dashboard:${dashboardId}`);
+  for (const tab of ['bots', 'tasks', 'search']) if (tabs.length < 3 && !tabs.includes(tab)) tabs.splice(Math.max(0, tabs.indexOf('settings')), 0, tab);
+  ops.push(put('/layout/phoneTabs', tabs));
   doc.dashboards.forEach((dashboard, di) => [...dashboard.widgets.entries()].reverse().forEach(([wi, widget]) => {
     if (dashboard.id === dashboardId || widget.type !== 'shortcuts' || !Array.isArray(widget.options.items)) return;
     const items = widget.options.items as { label: string; target: string }[];
     if (items.some(item => item.target === `dashboard:${dashboardId}`)) {
       const remaining = items.filter(item => item.target !== `dashboard:${dashboardId}`);
-      ops.push(remaining.length ? replace(`/dashboards/${di}/widgets/${wi}/options/items`, remaining) : { op: 'remove', path: `/dashboards/${di}/widgets/${wi}` });
+      ops.push(remaining.length ? put(`/dashboards/${di}/widgets/${wi}/options/items`, remaining) : { op: 'remove', path: `/dashboards/${di}/widgets/${wi}` });
     }
   }));
   ops.push({ op: 'remove', path: found.path });
@@ -166,7 +164,10 @@ export function buildUiPatch(name: UiToolName, args: any, doc: UiConfig, deps: P
       if (args.setAsHome) patch.push(replace('/layout/home', { kind: 'dashboard', dashboardId: '$new1' }));
       return { patch, intent: `Add dashboard ${args.name}` };
     }
-    case 'rename_dashboard': return { patch: [replace(`${at(doc, args.dashboardId).path}/name`, args.name)], intent: `Rename dashboard to ${args.name}` };
+    case 'rename_dashboard': {
+      const path = at(doc, args.dashboardId).path;
+      return { patch: [{ op: 'test', path: `${path}/id`, value: args.dashboardId }, put(`${path}/name`, args.name)], intent: `Rename dashboard to ${args.name}` };
+    }
     case 'delete_dashboard': return { patch: deleteDashboardPatch(doc, args.dashboardId), intent: 'Remove 1 dashboard' };
     case 'add_widget': {
       const { dashboard, path } = at(doc, args.dashboardId);

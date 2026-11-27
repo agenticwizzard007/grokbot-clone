@@ -115,7 +115,7 @@ const dashboardDoc = () => {
 };
 test('rename, update, remove and move builders use the manual-edit patch paths', () => {
   const doc = dashboardDoc(), deps = fixture().deps, dashboardId = doc.dashboards[0].id;
-  assert.deepEqual(buildUiPatch('rename_dashboard', { dashboardId, name: 'Renamed' }, doc, deps).patch, [{ op: 'replace', path: '/dashboards/0/name', value: 'Renamed' }]);
+  assert.deepEqual(buildUiPatch('rename_dashboard', { dashboardId, name: 'Renamed' }, doc, deps).patch, [{ op: 'test', path: '/dashboards/0/id', value: dashboardId }, { op: 'add', path: '/dashboards/0/name', value: 'Renamed' }]);
   assert.deepEqual(buildUiPatch('update_widget', { dashboardId, widgetId: 'w_00000004', set: { span: 12 } }, doc, deps).patch, [{ op: 'add', path: '/dashboards/0/widgets/4/span', value: 12 }]);
   assert.deepEqual(buildUiPatch('remove_widget', { dashboardId, widgetId: 'w_00000004' }, doc, deps).patch, [{ op: 'remove', path: '/dashboards/0/widgets/4' }]);
   const move = buildUiPatch('move_widget', { dashboardId, widgetId: 'w_00000000', after: 'w_00000003' }, doc, deps).patch;
