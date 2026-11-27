@@ -27,7 +27,7 @@
 .appearance-errors { position: sticky; top: 0; z-index: 2; }
 .appearance-settings :is(input:not([type='file']), select), .appearance-dialog input { min-height: var(--control-h); }
 
-.appearance-settings .layout-row__text { flex: 1 1 0; }
+.appearance-settings .layout-row__text { flex: 1 1 96px; }
 .appearance-settings .layout-row__subtitle { font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }
 .appearance-settings .cfg-btn, .appearance-dialog .cfg-btn { border: 1px solid transparent; font-size: 14px; line-height: 20px; padding: 8px 16px; min-height: 44px; border-radius: var(--radius-sm); gap: 8px; }
 .appearance-settings .cfg-btn--secondary, .appearance-dialog .cfg-btn--secondary { background: var(--color-elevated); border: 1px solid var(--color-border); box-shadow: none; }

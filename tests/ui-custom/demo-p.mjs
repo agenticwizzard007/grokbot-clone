@@ -73,6 +73,7 @@ try {
       await capture(page, `appearance-${title.toLowerCase()}`, width, theme, '.app-settings');
     }
     await page.getByRole('button', { name: 'Manage My week', exact: true }).click();
+    await page.getByRole('menu').waitFor();
     await capture(page, 'dashboards-manager', width, theme, '.app-settings');
     await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     await capture(page, 'delete-confirm', width, theme, '.appearance-dialog');

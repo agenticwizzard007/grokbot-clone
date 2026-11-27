@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { UiConfig } from '@shared/ui-config/index';
-import { ButtonGroup, Row, Section, Card } from '../../layout';
+import { ButtonGroup, Row, Section, Card, Page } from '../../layout';
 import { Modal } from '../../modals/Modal';
 import { SettingsMenu } from '../SettingsControls';
 import { createDashboard, deleteDashboard, renameDashboard, setValue } from './patches';
@@ -24,7 +24,7 @@ export function Dashboards({ doc, patch, readSaved, error }: { error: string; do
       <Row title="New dashboard" trailing={<button type="button" className="cfg-btn cfg-btn--secondary" aria-label="New dashboard" disabled={doc.dashboards.length >= 12} onClick={() => { setName(''); setDialog({ kind: 'new' }); }}>Create</button>} />
     </Card>
     {dialog && <Modal label={dialog.kind === 'delete' ? 'Delete dashboard' : dialog.kind === 'new' ? 'New dashboard' : 'Rename dashboard'} className="appearance-dialog" onClose={() => { if (!busy) setDialog(null); }}>
-      <form onSubmit={async e => {
+      <Page title={dialog.kind === 'delete' ? 'Delete dashboard' : dialog.kind === 'new' ? 'New dashboard' : 'Rename dashboard'}><form onSubmit={async e => {
         e.preventDefault(); setBusy(true);
         try {
           const ops = dialog.kind === 'new' ? createDashboard(name.trim()) : dialog.kind === 'rename' ? renameDashboard(doc, dialog.id!, name.trim()) : deleteDashboard(doc, dialog.id!);
@@ -37,7 +37,7 @@ export function Dashboards({ doc, patch, readSaved, error }: { error: string; do
         {dialog.kind === 'delete' ? <p>Delete {dashboard?.name} and {dashboard?.widgets.length ?? 0} {dashboard?.widgets.length === 1 ? 'widget' : 'widgets'}?</p> : <label>Name<input className="text-input" value={name} maxLength={40} required onChange={e => setName(e.target.value)} autoFocus /></label>}
         {error && <p role="alert" className="cfg-error">{error}</p>}
         <ButtonGroup><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setDialog(null)}>Cancel</button><button type="submit" className={`cfg-btn cfg-btn--${dialog.kind === 'delete' ? 'danger' : 'primary'}`} disabled={busy || (dialog.kind !== 'delete' && !name.trim())}>{dialog.kind === 'delete' ? 'Delete' : 'Save'}</button></ButtonGroup>
-      </form>
+      </form></Page>
     </Modal>}
   </Section>;
 }
