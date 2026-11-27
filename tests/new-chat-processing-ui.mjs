@@ -98,11 +98,14 @@ try {
     if (width < 761) await page.locator(bot.isPrimary ? '.pinned__tile' : '.bot-row').filter({ hasText: bot.name }).click();
     const panel = page.locator('.first-response');
     const mark = panel.locator('.first-response__mark');
-    const moving = mark.locator('.flock-mark.is-working .flock-mark__moving:visible');
+    const moving = mark.locator('.flock-mark.is-working .flock-mark__static:visible');
     const idle = mark.locator('.flock-mark__static:visible');
     const geometry = () => page.evaluate(() => Object.fromEntries(['.composer-area', '.transcript', '.bubble-wrap.is-right'].map(selector => {
       const rect = document.querySelector(selector)?.getBoundingClientRect();
-      return [selector, rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null];
+      // Appended replies may scroll a full transcript. Measure bubble layout in
+      // content coordinates so scrolling is not mistaken for a layout shift.
+      const scroll = selector === '.bubble-wrap.is-right' ? document.querySelector('.transcript').scrollTop : 0;
+      return [selector, rect ? { x: rect.x, y: rect.y + scroll, width: rect.width, height: rect.height } : null];
     })));
     const sameGeometry = (before, after) => {
       for (const selector of Object.keys(before)) if (before[selector]) {
@@ -112,7 +115,7 @@ try {
     };
     const working = async () => {
       await moving.waitFor();
-      assert.equal(await moving.getAttribute('src'), `/assets/swarms/flock-working-${theme === 'dark' ? 'night' : 'light'}.svg`);
+      assert.equal(await moving.getAttribute('src'), `/assets/swarms/flock${theme === 'dark' ? '-night' : ''}.svg`);
       assert.equal(await mark.locator('.bot-avatar').count(), 0);
       const imageBox = await moving.boundingBox();
       assert.equal(imageBox.width, 32); assert.equal(imageBox.height, 32);
@@ -146,7 +149,10 @@ try {
     await page.getByRole('textbox', { name: `Message ${bot.name}` }).fill(scenario.long ? 'Please review all requirements and prepare a detailed plan with milestones, validation steps, and dependencies. '.repeat(5) : 'Summarize the research.');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await page.locator('.bubble.is-user').waitFor();
-    await page.waitForFunction(() => document.querySelector('.composer__input')?.value === '');
+    await page.waitForFunction(() => {
+      const input = document.querySelector('.composer__input');
+      return input?.value === '' && input.clientHeight === 24;
+    });
     const before = await geometry();
     await live();
     await working();
@@ -286,7 +292,7 @@ try {
     await emit({ type: 'rows', botId: bot.id, generation, rows: [nextReply] });
     await page.locator('.bubble.is-streaming').waitFor();
     assert.equal(await panel.count(), 0, 'the current reply removes the main loader on its first text');
-    assert.equal(await page.locator('.transcript > .transcript__col > .activity-line .flock-mark__moving').count(), 0);
+    assert.equal(await page.locator('.transcript > .transcript__col > .activity-line .flock-mark.is-working').count(), 0);
     sameGeometry(established, await geometry());
     // A queued prompt must not restart motion while the preceding answer still streams.
     const queuedPrompt = row(5, 'user', 'Please continue.');

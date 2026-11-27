@@ -1,0 +1,156 @@
+{
+  "baselineRevision": "801496e21b64b88931b1018d7a306441b34a4f30",
+  "baselineMethod": "Detached untouched origin/main worktree on this VM, same Node and installed dependencies",
+  "broadCommand": "node --import tsx --test --test-concurrency=1 tests/*.test.mts tests/*.test.mjs",
+  "baseline": {
+    "tests": 2944,
+    "pass": 2850,
+    "fail": 70,
+    "cancelled": 0,
+    "skipped": 24,
+    "todo": 0
+  },
+  "current": {
+    "tests": 2948,
+    "pass": 2854,
+    "fail": 70,
+    "cancelled": 0,
+    "skipped": 24,
+    "todo": 0
+  },
+  "newFailureNames": [],
+  "resolvedFailureNames": [],
+  "failureNameNormalization": "Remove the checkout root prefix from file-level failure names",
+  "targetedUnitCommand": "node --import tsx --test tests/composer-first-render.test.mts tests/composer-model-label.test.mts tests/paper-tokens.test.mts tests/plan-connections.test.mts tests/provider-brand.test.mts",
+  "targetedUnits": {
+    "pass": 19,
+    "fail": 0
+  },
+  "typecheck": "pass",
+  "build": "pass",
+  "browserChecks": [
+    {
+      "test": "tests/paper-foundation-ui.mjs",
+      "cases": 10,
+      "status": "pass"
+    },
+    {
+      "test": "tests/composer-stable-layout-ui.mjs",
+      "cases": 44,
+      "status": "pass"
+    },
+    {
+      "test": "tests/composer-performance-ui.mjs",
+      "cases": 12,
+      "status": "pass"
+    },
+    {
+      "test": "tests/composer-live-performance-ui.mjs",
+      "cases": 12,
+      "status": "pass"
+    },
+    {
+      "test": "tests/provider-logos-ui.mjs",
+      "cases": 70,
+      "status": "pass"
+    },
+    {
+      "test": "tests/model-picker-size-ui.mjs",
+      "cases": 24,
+      "status": "pass"
+    },
+    {
+      "test": "tests/model-selector-ui.mjs",
+      "cases": 12,
+      "status": "pass"
+    },
+    {
+      "test": "tests/composer-model-loading-ui.mjs",
+      "cases": 4,
+      "status": "pass"
+    },
+    {
+      "test": "tests/cli-effort-ui.mjs",
+      "cases": 8,
+      "status": "pass"
+    },
+    {
+      "test": "tests/effort-animation-ui.mjs",
+      "cases": 24,
+      "status": "pass"
+    },
+    {
+      "test": "tests/keyboard-chrome-ui.mjs",
+      "cases": 4,
+      "status": "pass"
+    },
+    {
+      "test": "tests/usage-mode-ui.mjs",
+      "cases": 6,
+      "status": "pass"
+    },
+    {
+      "test": "tests/plan-connections-ui.mjs",
+      "cases": 6,
+      "status": "pass"
+    },
+    {
+      "test": "tests/qa-model-menu-ui.mjs",
+      "cases": 6,
+      "status": "pass"
+    },
+    {
+      "test": "tests/chat-shell-ui.mjs",
+      "cases": 11,
+      "status": "pass"
+    },
+    {
+      "test": "tests/readiness-mm-ui.mjs",
+      "cases": 16,
+      "status": "pass"
+    },
+    {
+      "test": "tests/voice-status-composer-ui.mjs",
+      "cases": 4,
+      "status": "pass"
+    },
+    {
+      "test": "tests/loading-avatar-ui.mjs",
+      "cases": 40,
+      "status": "pass"
+    },
+    {
+      "test": "tests/new-chat-processing-ui.mjs",
+      "cases": 20,
+      "status": "pass"
+    }
+  ],
+  "browserCases": 333,
+  "referenceStyleComparisons": 6,
+  "referenceArtboardsRendered": 132,
+  "screenshots": {
+    "fullScreens": 30,
+    "sideBySideComparisons": 6,
+    "widths": [
+      320,
+      390,
+      1280
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ]
+  },
+  "testedWidths": [
+    320,
+    390,
+    480,
+    500,
+    768,
+    1280
+  ],
+  "scopeNotes": [
+    "Phone Back and the desktop sidebar are PB-B work.",
+    "The word-wrap inventory records remaining mixed-content and label rules on other streams. PB-A fixes model/provider labels and does not claim the global P20 sweep."
+  ]
+}

@@ -29,7 +29,7 @@ const samples = [
   { name: 'grok-api', provider: 'openrouter', billing: 'api', mark: 'xai', id: 'x-ai/grok-4.7', label: 'Grok 4.7' },
 ];
 try {
-  for (const width of [320, 390, 500, 768, 1280]) for (const theme of ['light', 'dark']) for (const sample of samples) {
+  for (const width of [320, 390, 480, 500, 768, 1280]) for (const theme of ['light', 'dark']) for (const sample of samples) {
     const { page, fixture, errors, writes } = await fixturePage(browser, { width, height: 900 });
     lastPage = page;
     await page.emulateMedia({ colorScheme: theme });
@@ -55,8 +55,9 @@ try {
       await page.evaluate(() => document.fonts.ready);
       await input.focus();
       const empty = await composerGeometry(page);
-      assert.ok(empty.input.width >= (width === 320 ? 180 : 200), `${label}: readable field width ${empty.input.width}`);
-      assert.equal(empty.controls[1].row, empty.composer.width <= 540 ? '2' : '1', 'chip placement follows container width');
+      assert.equal(empty.composer.height, width <= 480 ? 84 : 52, 'approved one-line height');
+      assert.ok(empty.input.width >= (width <= 480 ? width - 70 : 160), `${label}: readable field width ${empty.input.width}`);
+      assert.equal(empty.controls[1].row, width <= 480 ? '2' : '1', 'chip placement follows the phone viewport breakpoint');
       const logo = page.locator(`.model-pill__provider svg[data-provider="${sample.mark}"]`);
       assert.equal(await logo.isVisible(), true, `${label}: provider logo is visible`);
       await page.waitForFunction(() => document.querySelector('.model-pill__provider svg')?.getBBox().width > 0);
@@ -67,7 +68,7 @@ try {
       for (const label of await page.locator('.model-pill__name, .model-pill__effort').all()) {
         assert.equal(await label.evaluate(el => el.scrollWidth <= el.clientWidth && getComputedStyle(el).textOverflow !== 'ellipsis'), true, 'complete chip label');
       }
-      for (const control of [empty.controls[0], empty.controls[1], empty.action]) assert.ok(control.width >= 44 && control.height >= 44, '44px touch targets');
+      for (const control of [empty.controls[0], empty.controls[1], empty.action]) assert.ok(control.width >= 36 && control.height === 36, 'Paper 36px composer controls');
       let previous = empty, draft = '', longestLine = '', wrapped = false, capped;
       const states = {};
       const screenshot = state => page.screenshot({ path: `${evidence}/${label}-${state}.png` });
@@ -81,7 +82,7 @@ try {
         assertComposerSlots(geometry, empty, `${label} length=${draft.length}`);
         assert.equal(await input.inputValue(), draft);
         const desired = geometry.textHeight + geometry.padding;
-        const expected = Math.max(geometry.min, Math.min(desired, 200, geometry.max - geometry.base) + geometry.base);
+        const expected = (width <= 480 ? 84 : 52) + Math.max(0, Math.min(6, Math.round(geometry.textHeight / 24)) - 1) * 24;
         assert.ok(Math.abs(geometry.composer.height - expected) <= 1, `${label}: grows only for visible lines at ${draft.length}: ${geometry.composer.height} vs ${expected}`);
         assert.ok(geometry.composer.height >= previous.composer.height && geometry.composer.height - previous.composer.height <= geometry.line + 1, `${label}: growth is at most one line per key`);
         if (geometry.textHeight <= geometry.line + 1) {
@@ -147,7 +148,7 @@ try {
 
       // Menus retain their handlers and usable targets with the smaller chip.
       await page.locator('.model-pill').click();
-      await page.getByRole('dialog', { name: 'Choose a model' }).waitFor();
+      await page.getByRole('dialog', { name: 'Model and effort' }).waitFor();
       await page.keyboard.press('Escape');
       await page.getByRole('button', { name: 'More actions', exact: true }).click();
       await page.getByRole('menuitem', { name: 'Talk live', exact: true }).waitFor();

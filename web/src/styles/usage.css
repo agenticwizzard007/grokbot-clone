@@ -218,7 +218,7 @@
   .usage-ranked { gap: 0; }
   .usage-ranked__row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'label figure' 'bar bar' 'sub share'; row-gap: 6px; column-gap: 12px; margin: 0; padding: 12px 0; border-radius: 0; border-top: 0.5px solid var(--color-border-secondary); }
   .usage-ranked__row:hover { background: none; }
-  .usage-ranked__label { font-size: 15px; line-height: 20px; white-space: normal; overflow-wrap: anywhere; }
+  .usage-ranked__label { font-size: 15px; line-height: 20px; white-space: normal; overflow-wrap: normal; word-break: normal; }
   .usage-ranked__figure { min-width: 0; font-size: 15px; line-height: 20px; font-weight: 500; color: var(--color-text-primary); }
   .usage-ranked__bar { height: 4px; border-radius: 2px; background: var(--color-bg-tertiary); }
   .usage-ranked__bar > div { border-radius: 2px; }
@@ -237,7 +237,7 @@
 .usage-report__summary { display: grid; gap: 9px; padding-top: 12px; }
 .usage-report__summary :is(span, p) { color: var(--color-text-secondary); margin: 0; font-size: 14px; }
 .usage-billing { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 16px; }
-.usage-billing__source { min-width: 0; overflow-wrap: anywhere; }
+.usage-billing__source { min-width: 0; overflow-wrap: normal; word-break: normal; }
 .usage-billing__value { margin: 4px 0; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .usage-page .usage-report__summary .usage-card__note { font-size: 12px; line-height: 18px; }
 .usage-page .usage-tile, .usage-page .usage-card { padding: 12px 0; border: 0; background: transparent; }
@@ -251,4 +251,4 @@
   .usage-page .usage-foot .cfg-btn { align-self: stretch; justify-content: center; }
 }
 
-.usage-ranked__label:has(.provider-label) { white-space: normal; overflow: visible; text-overflow: initial; overflow-wrap: anywhere; }
+.usage-ranked__label:has(.provider-label) { white-space: normal; overflow: visible; text-overflow: initial; overflow-wrap: normal; word-break: normal; }

@@ -1,0 +1,38 @@
+import sys, os; sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
+from screens3 import *
+# (page key, slug, title, fn)
+PAGES = [('01','01 Entry','arrow'),('02','02 Chat','design'),('03','03 Bots','design'),('04','04 Settings','design'),('05','05 Work and search','table'),('06','06 States and navigation','info')]
+SCREENS = [
+ ('01','landing','Signed out landing and sign in', lambda t,m: s_landing(t,m,'start')),
+ ('01','signin-code','Sign in code with error', lambda t,m: s_landing(t,m,'code')),
+ ('01','first-run','First run: connect a model', s_firstrun),
+ ('02','chat-rest','Chat', lambda t,m: s_chat(t,m,'rest')),
+ ('02','chat-typing','Chat: typing one line', lambda t,m: s_chat(t,m,'typing')),
+ ('02','chat-multiline','Chat: multi line composer at max', lambda t,m: s_chat(t,m,'multiline')),
+ ('02','chat-picker','Model and effort picker', lambda t,m: s_chat(t,m,'picker')),
+ ('02','chat-run','Run log and approval card', lambda t,m: s_chat(t,m,'run')),
+ ('02','chat-voice','Voice in main chat', lambda t,m: s_chat(t,m,'voice')),
+ ('02','room','Room with several Bots', s_room),
+ ('03','bots','Bot list', s_bots),
+ ('03','create-bot','Create a Bot', s_create),
+ ('03','bot-activity','Bot details: Activity', s_activity),
+ ('03','bot-tasks','Bot details: Tasks', s_tasks_bot),
+ ('03','bot-files','Files and Saved reports', s_files),
+ ('03','bot-setup','Setup tabs', s_setup),
+ ('03','bs-general','Bot settings: General', s_bs_general),
+ ('03','bs-skills','Bot settings: Skills', s_skills),
+ ('03','bs-memory','Bot settings: Memories', s_memory),
+ ('03','bs-routines','Bot settings: Routines', s_routines),
+ ('04','settings','Settings: General', s_settings_home),
+ ('04','models','Models and access', s_models),
+ ('04','keys','API keys (OpenRouter)', s_keys),
+ ('04','usage','Usage', s_usage),
+ ('04','permissions','Permissions', s_permissions),
+ ('04','apps','Connected apps', s_apps),
+ ('05','tasks','Tasks', s_tasks),
+ ('05','search','Search', s_search),
+ ('06','empty','Empty state: new chat', s_empty),
+ ('06','loading','Loading state', s_loading),
+ ('06','error','Error state', s_error),
+ ('06','nav','Navigation: collapsed sidebar, account menu, mobile drawer', s_nav),
+]

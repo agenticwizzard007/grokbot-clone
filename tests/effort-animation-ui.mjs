@@ -103,7 +103,7 @@ function Harness() {
 }
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Harness));
 ` }));
-    await page.goto(origin);
+    await page.goto(`${origin}/#bot/${bot.id}`);
     await page.locator('.model-pill.is-ultracode').waitFor();
     await page.evaluate(() => document.fonts.ready);
     for (const model of models) {
@@ -117,11 +117,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       await assertMotion(page.locator('.composer'), '--uc-angle');
       await assertMotion(page.locator('.composer__glow'), 'opacity');
       await page.locator('.model-pill').click();
-      await page.locator('.mm-item__value.is-ultracode').waitFor();
-      await assertMotion(page.locator('.mm-item__value.is-ultracode'), 'background-position');
-      await assertMotion(page.locator('.mm-row__effort .uc-text'), 'background-position');
-      await page.getByRole('button', { name: 'Effort', exact: true }).click();
-      const selected = page.locator('.mm-effort.is-ultracode[aria-selected="true"] .mm-effort__label');
+      const selected = page.locator('.mm-effort.is-ultracode[aria-checked="true"] .mm-effort__label');
       await selected.waitFor();
       await assertMotion(selected, 'background-position');
       await assertStatic(page.locator('.mm-effort:not(.is-ultracode) .mm-effort__label'));
@@ -130,9 +126,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       // Switching the OS preference immediately removes both continuous and flare animations.
       await page.emulateMedia({ reducedMotion: 'reduce' });
       for (const selector of ['.composer', '.composer__glow', '.model-pill__effort', '.mm-effort__label']) await assertStatic(page.locator(selector));
-      if (width > 760) for (const selector of ['.mm-item__value.is-ultracode', '.mm-row__effort .uc-text']) await assertStatic(page.locator(selector));
       assert.equal(await page.locator('.model-pill.is-ultracode').count(), 1, 'Reduced motion retains the top-level treatment');
-      await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+      await page.keyboard.press('Escape'); await page.locator('.model-menu').waitFor({ state: 'hidden' });
       // A selection change under reduced motion must not start the one-shot glow flare.
       await page.evaluate(id => window.selectEffort(id, 'low'), model.id);
       await page.waitForFunction(() => document.querySelector('.composer-shell')?.dataset.effort === 'low');
@@ -147,11 +142,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       assert.equal(await page.locator('.is-top-effort, .model-pill.is-ultracode, .composer.is-ultracode').count(), 0);
       for (const selector of ['.composer', '.composer__glow', '.model-pill__effort']) await assertStatic(page.locator(selector));
       await page.locator('.model-pill').click();
-      await page.locator('.mm-item__value:not(.is-ultracode)').waitFor();
-      await assertStatic(page.locator('.mm-item__value:not(.is-ultracode)'));
-      await page.getByRole('button', { name: 'Effort', exact: true }).click();
-      await assertStatic(page.locator('.mm-effort[aria-selected="true"] .mm-effort__label'));
-      await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+      await page.getByRole('radiogroup', { name: 'Effort', exact: true }).waitFor();
+      await assertStatic(page.locator('.mm-effort[aria-checked="true"] .mm-effort__label'));
+      await page.keyboard.press('Escape'); await page.locator('.model-menu').waitFor({ state: 'hidden' });
       // The same high/xhigh IDs must stay static on models with a higher level.
       for (const lower of model.efforts.slice(0, -1).filter(effort => effort !== 'low')) {
         await page.evaluate(({ id, effort }) => window.selectEffort(id, effort), { id: model.id, effort: lower });

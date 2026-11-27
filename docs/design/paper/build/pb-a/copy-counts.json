@@ -1,0 +1,43 @@
+{
+  "method": "Visible innerText word tokens; main is the chat region without sidebar or phone tabs; identical local fixtures before and after.",
+  "before": [
+    {
+      "width": 390,
+      "theme": "light",
+      "composer": 3,
+      "picker": 25,
+      "closedMain": 25,
+      "openMain": 50,
+      "pickerText": " Uses your Claude Max plan through Claude Code.\n\nModels & access\nSonnet 4.5\nSubscription\nMedium\nOpus 4.1\nSubscription\nEffort\nEffort\nMedium\nManage plans\nPlan & usage\nEdit"
+    },
+    {
+      "width": 1280,
+      "theme": "light",
+      "composer": 6,
+      "picker": 29,
+      "closedMain": 29,
+      "openMain": 58,
+      "pickerText": " Uses your Claude Max plan through Claude Code.\n\nModels & access\nSonnet 4.5\nSubscription\nMedium\nOpus 4.1\nSubscription\nEffort\nEffort\nMedium\nManage plans\nPlan & usage\nEdit\nCtrl+Shift+/\nCycle effort"
+    }
+  ],
+  "after": [
+    {
+      "width": 390,
+      "theme": "light",
+      "composer": 6,
+      "picker": 23,
+      "closedMain": 28,
+      "openMain": 51,
+      "pickerText": "Model and effort\nYour plans\nSonnet 4.5\nPlan\nOpus 4.1\nPlan\nManage plans\nAPI billing\nManage API keys\nEffort\nLow\nMedium\nHigh\nUsage"
+    },
+    {
+      "width": 1280,
+      "theme": "light",
+      "composer": 8,
+      "picker": 20,
+      "closedMain": 31,
+      "openMain": 51,
+      "pickerText": "Your plans\nSonnet 4.5\nPlan\nOpus 4.1\nPlan\nManage plans\nAPI billing\nManage API keys\nEffort\nLow\nMedium\nHigh\nUsage"
+    }
+  ]
+}

@@ -77,8 +77,6 @@
   .transcript { padding: calc(64px + var(--safe-top)) 12px 12px; }
   .bubble { max-width: min(560px, 86vw); }
   .composer-area { padding: 0 8px calc(8px + var(--safe-bottom)); }
-  .composer__input { font-size: 16px; line-height: 22px; } /* under 16px, iOS zooms the page on focus */
-  .composer__btn, .composer__cta { width: 34px; height: 34px; }
   .toast { bottom: calc(84px + var(--safe-bottom)); max-width: calc(100vw - 32px); }
   /* Body portal toasts size to their text, with corners that keep wrapped lines readable. */
   .toast--global { bottom: auto; border-radius: 12px; }
@@ -142,10 +140,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .app.is-mobile .details, .app.has-details .details, .details-scrim, :root .modal { animation: none; }
-}
-
-@media (max-width: 760px) {
-  .composer__input::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 
 @media (max-width: 760px) {

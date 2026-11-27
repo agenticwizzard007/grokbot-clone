@@ -5,12 +5,12 @@
 .usage-mode__heading { display: flex; flex-direction: column; gap: 6px; }
 .usage-mode__eyebrow {  color: var(--color-text-secondary); font-size: 12px; line-height: 18px; font-weight: 550; text-transform: uppercase; letter-spacing: 0.2px; }
 .usage-mode__panel.is-plan .usage-mode__eyebrow { color: var(--usage-accent); }
-.usage-mode__heading h2 { margin: 0; padding-right: 12px; font-size: var(--text-panel-title); line-height: 1.3; font-weight: 600; letter-spacing: -0.3px; overflow-wrap: anywhere; }
+.usage-mode__heading h2 { margin: 0; padding-right: 12px; font-size: var(--text-panel-title); line-height: 1.3; font-weight: 600; letter-spacing: -0.3px; overflow-wrap: normal; word-break: normal; }
 .usage-mode__panel p { margin: 0; color: var(--color-text-secondary); }
 .usage-mode__usage { display: flex; flex-direction: column; gap: 20px; }
 .usage-mode__window { display: flex; flex-direction: column; gap: 8px; }
 .usage-mode__window-title { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-.usage-mode__window-title > span { overflow-wrap: anywhere; min-width: 0; }
+.usage-mode__window-title > span { overflow-wrap: normal; word-break: normal; min-width: 0; }
 .usage-mode__window-title strong { white-space: nowrap; font-weight: 600; font-variant-numeric: tabular-nums; }
 .usage-mode__window progress { display: block; appearance: none; width: 100%; height: 6px; border: 0; border-radius: var(--radius-full); overflow: hidden; background: var(--usage-tint); color: var(--usage-accent); }
 .usage-mode__window progress::-webkit-progress-bar { background: var(--usage-tint); border-radius: var(--radius-full); }
@@ -24,3 +24,5 @@
 .usage-mode__actions button:hover { color: var(--color-text-primary); }
 .usage-mode__actions button:disabled { opacity: 0.55; cursor: wait; }
 .usage-mode__actions .usage-mode__manage { color: var(--usage-accent); font-weight: 550; }
+
+.usage-mode__heading > .model-billing, .usage-mode__panel > .model-billing, .usage-mode__usage > .model-billing { align-self: flex-start; }

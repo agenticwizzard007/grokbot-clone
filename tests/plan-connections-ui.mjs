@@ -128,8 +128,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     await page.getByText('Not connected', { exact: true }).first().waitFor();
     assert.equal(await page.getByText('Not connected', { exact: true }).count(), 2);
     await page.keyboard.press('Escape');
-    assert.equal(await page.getByRole('button', { name: 'Connect plan', exact: true }).evaluate(el => el === document.activeElement), true);
-    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('.model-pill').evaluate(el => el === document.activeElement), true);
+    await openPlans();
     await page.screenshot({ path: `.context/plan-connections/picker-${width}-${theme}.png` });
 
     for (const provider of ['claude', 'codex']) {
@@ -150,7 +150,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       await page.locator('.mm-row__main').first().waitFor();
       assert.equal(await page.locator('.mm-row__main').filter({ hasText: 'API model' }).count(), 0);
       if (provider === 'codex') {
-        await page.getByText('Codex picks the model for each request. Uses your ChatGPT plan. Check plan limits in your ChatGPT account.', { exact: true }).waitFor();
+        await page.locator('.mm-row__name').getByText('Codex', { exact: true }).waitFor();
+        assert.equal(await page.locator('.mm-row .model-billing').innerText(), 'Plan');
         assert.equal(await page.getByRole('button', { name: 'Effort', exact: true }).count(), 0);
       }
       assert.equal(await page.getByRole('button', { name: 'Connect plan', exact: true }).count(), 0);
@@ -167,10 +168,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       await connection.getByText(/^Your Bots currently use API providers;/).waitFor();
       assert.equal(status.providers[provider].authenticated, true);
       assert.ok(!mutations.some(m => m.path === '/api/cli/reset' || (m.path === '/api/cli/pair' && m.method === 'DELETE')), 'disconnect must not remove CLI credentials');
-      await closeSettings(); await page.locator('.model-pill').filter({ hasText: 'API model' }).waitFor();
+      await closeSettings(); await page.locator('.model-pill').filter({ has: page.getByText(width <= 480 ? 'Model' : 'API model', { exact: true }) }).waitFor();
       await openPlans();
     }
 
+    await page.getByRole('button', { name: 'Back to models', exact: true }).click();
     await page.getByRole('button', { name: 'Manage API keys', exact: true }).click();
     await page.getByRole('region', { name: 'Connect a plan', exact: true }).waitFor();
     assert.equal(await page.evaluate(() => window.settingsSection()), 'keys');
@@ -187,16 +189,16 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
 
     loginComplete = false; // A completed fixture login cannot sign in again during later status scenarios.
     status = { ...status, runtime: 'server', connected: true, providers: { ...status.providers, claude: { installed: false, authenticated: false, subscription: false } } };
-    await openPlans(); await page.getByText('CLI missing', { exact: true }).waitFor();
+    await openPlans(); await page.getByText('Not connected', { exact: true }).first().waitFor();
     await page.getByRole('button', { name: 'Connect Claude plan', exact: true }).click();
     assert.equal(await page.getByRole('region', { name: 'Plan connection', exact: true }).getByRole('button', { name: 'Connect Claude plan', exact: true }).isEnabled(), true, 'a missing Claude install keeps the explicit connect flow available');
     await closeSettings();
     status = { ...status, runtime: 'bridge', connected: false };
-    await openPlans(); await page.getByText('Status unavailable', { exact: true }).first().waitFor();
+    await openPlans(); await page.getByText('Unavailable', { exact: true }).first().waitFor();
     await page.getByText('CLI missing', { exact: true }).waitFor({ state: 'hidden' }); // Cached status remains visible until revalidation completes.
     await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
     failStatus = true;
-    await openPlans(); await page.getByText('Status unavailable', { exact: true }).first().waitFor();
+    await openPlans(); await page.getByText('Unavailable', { exact: true }).first().waitFor();
     assert.deepEqual(errors, []);
     assert.ok(await page.locator('.model-pill__name').evaluate(el => getComputedStyle(el).whiteSpace === 'nowrap'));
     await context.close();

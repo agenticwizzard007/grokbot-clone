@@ -21,31 +21,33 @@
   --line-title: 32px;
 
   --color-bg-chrome: rgb(255 255 255);
-  --color-bg-sidebar: rgb(251 250 247);
+  --color-bg-sidebar: #FBFAF7;
   --color-bg-pane: #FFFFFF;
-  --color-bg-active: rgb(237 239 250);
-  --color-bg-tertiary: rgb(24 32 42 / 4.3%);
-  --color-bg-scrim: rgb(0 0 0 / 50%);
-  --color-text-primary: rgb(24 32 42);
-  --color-text-secondary: rgb(82 91 94);
-  --color-text-tertiary: rgb(105 113 118);
+  --color-bg-active: #EDEFFA;
+  --color-bg-tertiary: #F5F6F7;
+  --color-bg-scrim: #10161E73;
+  --color-text-primary: #18202A;
+  --color-text-secondary: #525B5E;
+  --color-text-tertiary: #697176;
   --color-text-quaternary: rgb(114 123 132);
   --color-icon-secondary: #525B5E;
-  --color-border-secondary: rgb(24 32 42 / 12%);
-  --color-border-tertiary: rgb(24 32 42 / 8%);
-  --color-primary: rgb(48 67 171);
-  --color-bot-pink: rgb(249 52 152);
+  --color-border-secondary: #DCDEE0;
+  --color-border-tertiary: #EBECEE;
+  --color-primary: #3043AB;
+  --color-bot-pink: #E52F8B;
   --color-bot-pink-bubble: rgb(200 39 121);
   --color-bot-pink-action: rgb(229 47 139);
   --color-bot-blue: #1E86FC;
   --color-bot-red: rgb(251 43 62);
-  --color-bot-orange: rgb(253 105 15);
+  --color-bot-orange: #E8620E;
   --color-bot-yellow: rgb(245 147 18);
-  --color-bot-green: rgb(20 193 111);
-  --color-bot-teal: rgb(19 183 162);
+  --color-bot-green: #14A862;
+  --color-bot-teal: #13A592;
   --color-bot-purple: rgb(143 89 249);
   --color-bot-brown: rgb(160 107 57);
   --color-bot-gray: rgb(153 153 153);
+  --text-tab: 11px;
+  --line-tab: 14px;
   --text-xs: 12px;
   --text-sm: 13px;
   --text-base: 14px;
@@ -68,7 +70,7 @@
   /* --- font stacks and interaction states --- */
   --font-stack: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --font-mono-stack: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  --color-bg-hover: rgb(24 32 42 / 4.7%);
+  --color-bg-hover: #EEF0F2;
   --color-bg-secondary-hover: rgb(24 32 42 / 7%);
   --color-bg-secondary-active: rgb(24 32 42 / 12.5%);
   --color-bg-primary-hover: rgb(41 57 140);
@@ -76,9 +78,9 @@
   --color-border-focus: #3043AB;
   --color-bg-scrim-heavy: rgb(0 0 0 / 89.8%);
   --color-ink: #18202A;
-  --color-success: rgb(39 128 79);
+  --color-success: #27804F;
   --color-warn: rgb(218 131 14);
-  --color-danger: rgb(231 46 59);
+  --color-danger: #E72E3B;
   --shadow-pill: #1C1C1C14 0px 4px 12px -1px, #1C1C1C0A 0px 1px 2px;
   --shadow-composer: #0000000D 0px 2px 8px -1px, #00000008 0px 1px 2px, #E4E4E40A 0px 0px 0px 1px;
   --shadow-card: #1C1C1C1F 0px 0px 0px 0.5px, #1C1C1C09 0px 2px 8px;
@@ -88,7 +90,7 @@
 
   /* --- semantic extras used for theming (light values; dark below) --- */
   --color-bg-elevated: #FFFFFF;
-  --color-bg-subtle: rgb(24 32 42 / 2.4%);
+  --color-bg-subtle: #F5F6F7;
   --color-bg-primary-disabled: rgb(48 67 171 / 25%);
   --color-bg-active-solid: #EDEFFA;
   --color-border-primary: rgb(24 32 42 / 24%);
@@ -96,11 +98,11 @@
   --color-bubble-agent: #FBFAF7;
   --color-bubble-user: #EDEFFA;
   --color-danger-hover: rgb(200 37 50);
-  --color-danger-bg: rgb(252 237 238);
-  --color-danger-text: rgb(161 53 61);
-  --color-warn-bg: rgb(252 240 218);
-  --color-warn-text: rgb(130 81 22);
-  --color-success-bg: rgb(236 244 238);
+  --color-danger-bg: #FCEDEE;
+  --color-danger-text: #A1353D;
+  --color-warn-bg: #FCF0DA;
+  --color-warn-text: #9A5B08;
+  --color-success-bg: #ECF4EE;
   --color-success-text: rgb(33 99 66);
   --shadow-popover: #1C1C1C1A 0 10px 20px -3px, #1C1C1C14 0 4px 6px -4px;
   --bot-on-action: #FFFFFF;
@@ -108,21 +110,25 @@
 
 /* ---------- dark theme. Flat: no shadows. ---------- */
 :root[data-theme='dark'] {
+  --color-bot-teal: #13B7A2;
+  --color-bot-orange: #FD690F;
+  --color-bot-green: #14C16F;
+  --color-bot-pink: #F93498;
   --color-bg-chrome: rgb(23 34 47);
   --color-bg-sidebar: #17222F;
-  --color-bg-pane: rgb(29 42 59);
-  --color-bg-active: rgb(48 65 94);
-  --color-bg-tertiary: rgb(255 255 255 / 5%);
-  --color-bg-scrim: rgb(0 0 0 / 69.8%);
-  --color-text-primary: rgb(255 255 255);
-  --color-text-secondary: rgb(196 203 213);
-  --color-text-tertiary: rgb(175 185 198);
+  --color-bg-pane: #1D2A3B;
+  --color-bg-active: #30415E;
+  --color-bg-tertiary: #223144;
+  --color-bg-scrim: #00000099;
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #C4CBD5;
+  --color-text-tertiary: #AFB9C6;
   --color-text-quaternary: rgb(154 167 184);
   --color-icon-secondary: #C4CBD5;
-  --color-border-secondary: rgb(255 255 255 / 15%);
-  --color-border-tertiary: rgb(255 255 255 / 8.6%);
-  --color-primary: rgb(181 193 255);
-  --color-bg-hover: rgb(255 255 255 / 6%);
+  --color-border-secondary: #3A4859;
+  --color-border-tertiary: #2B394B;
+  --color-primary: #B5C1FF;
+  --color-bg-hover: #283A50;
   --color-bg-secondary-hover: rgb(255 255 255 / 8%);
   --color-bg-secondary-active: rgb(255 255 255 / 14%);
   --color-bg-primary-hover: rgb(194 203 250);
@@ -130,9 +136,9 @@
   --color-border-focus: #B5C1FF;
   --color-bg-scrim-heavy: rgb(0 0 0 / 95%);
   --color-ink: #FFFFFF;
-  --color-success: rgb(14 159 90);
+  --color-success: #3CC384;
   --color-warn: rgb(200 119 12);
-  --color-danger: rgb(207 43 53);
+  --color-danger: #F05A64;
   --shadow-pill: #F5F5F51A 0 0 0 0.5px;
   --shadow-composer: #F5F5F51A 0 0 0 0.5px;
   --shadow-card: #F5F5F51A 0 0 0 0.5px;
@@ -140,20 +146,20 @@
   --shadow-popover: #F5F5F51A 0 0 0 0.5px;
   --bubble-ring: #F5F5F50F 0 0 0 0.5px inset;
 
-  --color-bg-elevated: rgb(37 51 72);
-  --color-bg-subtle: rgb(255 255 255 / 3%);
+  --color-bg-elevated: #253348;
+  --color-bg-subtle: #223144;
   --color-bg-primary-disabled: rgb(181 193 255 / 25%);
   --color-bg-active-solid: #30415E;
   --color-border-primary: rgb(255 255 255 / 25%);
   --color-on-primary: #17222F;
-  --color-bubble-agent: #1D2A3B;
-  --color-bubble-user: rgb(48 67 171);
+  --color-bubble-agent: #243347;
+  --color-bubble-user: #3043AB;
   --color-danger-hover: rgb(247 54 67);
-  --color-danger-bg: rgb(161 53 61 / 25%);
-  --color-danger-text: rgb(255 170 178);
-  --color-warn-bg: rgb(130 81 22 / 25%);
-  --color-warn-text: rgb(244 206 147);
-  --color-success-bg: rgb(33 99 66 / 25%);
+  --color-danger-bg: #3D2229;
+  --color-danger-text: #FF9AA1;
+  --color-warn-bg: #3A3020;
+  --color-warn-text: #F0B45A;
+  --color-success-bg: #173A2E;
   --color-success-text: rgb(154 211 180);
 }
 

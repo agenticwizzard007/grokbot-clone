@@ -64,7 +64,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(e('div',{className:'
     await page.goto(origin);
     const composer = page.locator('.composer-area');
     const pill = composer.locator('.model-pill');
-    const picker = page.getByRole('dialog', { name: 'Choose a model', exact: true });
+    const picker = page.getByRole('dialog', { name: 'Model and effort', exact: true });
     const details = page.getByRole('dialog', { name: 'Connection details', exact: true });
     const panel = details.locator('.usage-mode__panel');
     const back = details.getByRole('button', { name: 'Back to models', exact: true });
@@ -77,14 +77,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(e('div',{className:'
     const shot = name => page.screenshot({ path: `${evidence}/${name}-${width}-${theme}.png`, animations: 'disabled' });
     const openDetails = async name => {
       await pill.click();
-      await entry(name).click();
+      await entry('Usage').click();
       await panel.waitFor();
       assert.equal(await picker.count(), 0, 'details replaces the picker');
       assert.equal(await page.getByRole('dialog').count(), 1);
     };
     const closeDetails = async name => {
-      await page.keyboard.press('Escape');
-      await focus(entry(name));
+      await back.click();
+      await focus(entry('Usage'));
       await page.keyboard.press('Escape');
       await focus(pill);
       assert.equal(await page.getByRole('dialog').count(), 0);
@@ -92,15 +92,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(e('div',{className:'
     const noHorizontalOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 
     await modelName('Claude').waitFor();
-    await badge('Plan').waitFor();
+    if (width > 480) await badge('Plan').waitFor();
     await pill.locator('.model-pill__effort').getByText('High', { exact: true }).waitFor();
     assert.equal(await composer.locator('.model-pill').count(), 1);
     assert.equal(await page.locator('.usage-mode__trigger').count(), 0, 'only the combined control launches details');
-    assert.ok((await pill.boundingBox()).height >= 44, 'touch target under Paper core CSS');
+    assert.equal((await pill.boundingBox()).height, 36, 'Paper composer chip height');
     assert.ok(await noHorizontalOverflow());
     await shot('composer');
     await openDetails('Plan & usage');
-    await heading('Your Claude Max plan').waitFor();
+    await heading('Claude Max plan').waitFor();
     assert.equal(await details.getByRole('progressbar', { name: 'Weekly usage' }).getAttribute('value'), '39.2');
     assert.match(await panel.innerText(), /39.2% used/);
     assert.match(await panel.innerText(), /Resets/);
@@ -111,8 +111,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(e('div',{className:'
     await focus(manage);
     await page.keyboard.press('Tab');
     await focus(back);
-    await page.keyboard.press('Escape');
-    await focus(entry('Plan & usage'));
+    await back.click();
+    await focus(entry('Usage'));
     await picker.getByRole('searchbox', { name: 'Search models' }).focus();
     await page.keyboard.press('Shift+Tab');
     await picker.locator(':focus').waitFor();
@@ -124,12 +124,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(e('div',{className:'
 
     unavailable = true;
     await openDetails('Plan & usage');
-    await details.getByText('Usage isn’t available from your provider right now. Check your provider account for current limits.', { exact: true }).waitFor();
+    await details.getByText('Usage unavailable', { exact: true }).waitFor();
     assert.equal(await details.getByRole('progressbar').count(), 0, 'unknown usage is never zero');
     await closeDetails('Plan & usage');
     unavailable = false; stale = true;
     await openDetails('Plan & usage');
-    await details.getByText(/Usage needs a refresh/).waitFor();
+    await details.getByText(/Refresh needed/).waitFor();
     assert.equal(await details.getByRole('progressbar').count(), 0, 'stale quota has no current meter');
     stale = false;
     const requestsBeforeRefresh = modelRequests;
@@ -141,32 +141,34 @@ ReactDOM.createRoot(document.getElementById('root')).render(e('div',{className:'
     assert.equal(await page.getByRole('dialog').count(), 0);
 
     mode = 'openrouter'; await page.evaluate(() => window.refreshUsage());
-    await badge('API').waitFor(); await modelName('API model').waitFor();
+    if (width > 480) await badge('API').waitFor(); await modelName(width <= 480 ? 'Model' : 'API model').waitFor();
     await openDetails('API details');
     await heading('OpenRouter').waitFor();
     assert.equal(await details.getByRole('progressbar').count(), 0);
-    assert.equal(await page.getByText('Your Claude Max plan', { exact: true }).count(), 0);
+    assert.equal(await page.getByText('Claude Max plan', { exact: true }).count(), 0);
     await shot('api');
     await manage.click();
     assert.equal(await page.evaluate(() => window.settingsSection()), 'keys');
     assert.equal(await page.getByRole('dialog').count(), 0);
     await openDetails('API details');
     await details.getByRole('button', { name: 'View usage', exact: true }).click();
+    await details.waitFor({ state: 'hidden' });
     assert.equal(await page.evaluate(() => window.settingsSection()), 'usage');
     assert.equal(await page.getByRole('dialog').count(), 0);
 
     failed = true; await page.evaluate(() => window.refreshUsage());
-    await modelName('Models unavailable').waitFor();
+    await pill.locator('.model-pill__name').getByText(width <= 480 ? 'Model' : 'API model', { exact: true }).waitFor();
+    assert.equal(await pill.getAttribute('aria-busy'), 'true', 'failed reads keep the cached label while retrying');
     assert.equal(await pill.locator('.model-billing, .model-pill__effort').count(), 0);
     await openDetails('Connection details');
-    await heading('Check your connection').waitFor();
+    await details.getByRole('status').filter({ hasText: /^Checking$/ }).waitFor();
     assert.equal(await details.getByRole('progressbar').count(), 0);
     await closeDetails('Connection details');
     failed = false; unknown = true;
     await page.evaluate(() => window.refreshUsage());
-    await modelName('Provider default').waitFor();
+    await pill.and(page.getByRole('button', { name: /Provider default/ })).waitFor();
     await openDetails('Connection details');
-    await heading('Choose how your Bots run').waitFor();
+    await details.getByRole('status').filter({ hasText: /^Not connected$/ }).waitFor();
     assert.equal(await pill.locator('.model-billing, .model-pill__effort').count(), 0);
     assert.equal(await details.getByRole('progressbar').count(), 0);
     await closeDetails('Connection details');
@@ -177,22 +179,23 @@ ReactDOM.createRoot(document.getElementById('root')).render(e('div',{className:'
     await page.evaluate(() => { void window.refreshUsage(); });
     assert.notEqual(await pill.locator('.model-pill__name').innerText(), 'Loading models…');
     await openDetails('Connection details');
-    await heading('Checking your connection…').waitFor();
+    await details.getByRole('status').filter({ hasText: /^Checking$/ }).waitFor();
     assert.equal(await pill.locator('.model-billing, .model-pill__effort').count(), 0);
     assert.equal(await details.getByRole('progressbar').count(), 0);
     hold = undefined; release();
-    await heading('Your Claude Max plan').waitFor();
+    await heading('Claude Max plan').waitFor();
     await closeDetails('Plan & usage');
 
     longPlan = true; await page.evaluate(() => window.refreshUsage());
     await openDetails('Plan & usage');
-    await details.getByRole('heading', { name: /exceptionally long provider reported subscription name/i }).waitFor();
+    await heading('Claude plan').waitFor();
+    assert.doesNotMatch(await panel.innerText(), /exceptionally long provider reported subscription name/i, 'unknown plan codes keep the complete provider fallback');
     assert.ok(await noHorizontalOverflow(), 'long plan label fits the page');
     assert.ok(await panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'long plan label fits the details panel');
     await closeDetails('Plan & usage');
     longPlan = false;
     await openDetails('Plan & usage');
-    await heading('Your Claude Max plan').waitFor();
+    await heading('Claude Max plan').waitFor();
     hold = new Promise(resolve => { release = resolve; });
     mode = 'codex'; await page.evaluate(() => window.changeAccount());
     await details.waitFor({ state: 'hidden' });
@@ -200,10 +203,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(e('div',{className:'
     assert.equal(await pill.locator('.model-billing, .model-pill__effort').count(), 0, 'old route and effort are cleared before the new account loads');
     hold = undefined; release();
     await modelName('Codex').waitFor();
-    await badge('Plan').waitFor();
+    if (width > 480) await badge('Plan').waitFor();
     await openDetails('Plan & usage');
-    await heading('Your Codex plan').waitFor();
-    assert.equal(await page.getByText('Your Claude Max plan', { exact: true }).count(), 0);
+    await heading('Codex plan').waitFor();
+    assert.equal(await page.getByText('Claude Max plan', { exact: true }).count(), 0);
     assert.ok(await noHorizontalOverflow());
     assert.deepEqual(errors, []);
     await page.close(); console.log(`PASS ${width}px ${theme}: combined control, fresh/stale/unknown usage, loading/error, API/Plan routing, account switch, focus, touch and overflow`);

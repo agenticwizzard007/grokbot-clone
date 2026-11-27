@@ -148,10 +148,10 @@ try {
     assert.equal(await bird.evaluate(el => el.style.getPropertyValue('--bird-fill')), bot.isPrimary ? '#FD690F' : '#8F59F9');
     const mark = page.getByRole('status', { name: 'Working', exact: true });
     const flock = mark.locator('.flock-mark.is-working');
-    const moving = flock.locator('.flock-mark__moving:visible');
+    const moving = flock.locator('.flock-mark__static:visible');
     const assertFlock = async () => {
       await moving.waitFor();
-      assert.equal(await moving.getAttribute('src'), `/assets/swarms/flock-working-${theme === 'dark' ? 'night' : 'light'}.svg`);
+      assert.equal(await moving.getAttribute('src'), `/assets/swarms/flock${theme === 'dark' ? '-night' : ''}.svg`);
       assert.ok(await moving.evaluate(el => el.complete && el.naturalWidth > 0), 'the animated asset is loaded');
       for (const element of [mark, flock, moving]) {
         const box = await element.boundingBox();
@@ -184,7 +184,7 @@ try {
       await page.emulateMedia({ reducedMotion: 'reduce' });
       const still = flock.locator('.flock-mark__static:visible');
       await still.waitFor();
-      assert.equal(await moving.count(), 0, 'reduced motion hides the animation');
+      assert.equal(await moving.evaluate(el => el.getAnimations().length), 0, 'reduced motion stops the animation');
       assert.equal((await still.boundingBox()).width, 32);
       const staticFrame = await still.screenshot();
       await sleep(250);

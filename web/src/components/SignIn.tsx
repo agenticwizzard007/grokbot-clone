@@ -42,8 +42,8 @@ export function SignIn() {
       <div className="signin__card">
         <header className="signin__header">
           <div className="signin__brand">
-            <img className="signin__brand-light" src="/assets/brand/swarms-wordmark.svg" width="200" height="32.62" alt="swarms.so" />
-            <img className="signin__brand-dark" src="/assets/brand/swarms-wordmark-dark.svg" width="200" height="32.62" alt="swarms.so" />
+            <img className="signin__brand-light" src="/assets/swarms/wordmark.svg" width="200" height="32.62" alt="swarms.so" />
+            <img className="signin__brand-dark" src="/assets/swarms/wordmark-night.svg" width="200" height="32.62" alt="swarms.so" />
           </div>
           <div className="signin__intro">
             <h1 className="signin__title">Welcome to Swarm</h1>

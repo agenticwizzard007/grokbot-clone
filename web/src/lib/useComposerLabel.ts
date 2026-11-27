@@ -19,19 +19,17 @@ export function useComposerLabel(trigger: RefObject<HTMLButtonElement>, steps: C
         return context.measureText(text).width + text.length * (parseFloat(font.letterSpacing) || 0);
       };
       const width = composer?.getBoundingClientRect().width ?? innerWidth;
-      // Keep a useful input and both 44px action targets. This budget selects a
-      // complete label; it never constrains or clips the resulting chip.
-      // On one row, reserve 200px for text plus actions, gaps and padding.
-      // On two rows, keep the existing compact label steps and their budget.
-      const separateRow = !composer || getComputedStyle(composer).getPropertyValue('--composer-chip-row');
-      const available = Math.max(48, Math.min(width * 0.44, width - (separateRow ? 210 : 330)));
+      // Phones always use the complete short model name. Wider layouts keep
+      // one row and reserve enough field space for a readable prompt.
+      const phone = matchMedia('(max-width: 480px)').matches;
+      const available = Math.max(0, width - 102 - (phone ? 0 : 160));
       const gap = parseFloat(style.columnGap) || 4;
-      const chosen = fittingComposerLabel(steps, available, step => {
+      const chosen = fittingComposerLabel(phone ? steps.slice(1) : steps, available, step => {
         const texts = [step.name, step.billing, step.effort].filter(Boolean);
-        return 16 + 8 + gap * texts.length
-          + (step.name ? textWidth(step.name, '.model-pill__name', '500') : 0)
-          + (step.billing ? textWidth(step.billing, '.model-billing', '400') + 10 : 0)
-          + (step.effort ? textWidth(step.effort, '.model-pill__effort', '400') : 0)
+        return 16 + 20 + gap * texts.length
+          + (step.name ? textWidth(step.name, '.model-pill__name', '600') : 0)
+          + (step.billing ? textWidth(step.billing, '.model-billing', '500') + 16 : 0)
+          + (step.effort ? textWidth(step.effort, '.model-pill__effort', '500') : 0)
           + (step.compact ? 0 : 14 + gap)
           + (button.querySelector('.model-pill__fast') ? 16 : 0) + 2;
       });

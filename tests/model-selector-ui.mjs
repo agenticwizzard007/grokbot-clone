@@ -49,28 +49,25 @@ import {useStore} from '/src/store.ts';
 import {refreshModels} from '/src/components/config/ModelPicker.tsx';
 import '/src/styles/tokens.css';import '/src/styles/base.css';import '/src/styles/composer-models.css';import '/src/styles/mobile.css';import '/src/styles/paper-core.css';
 document.documentElement.dataset.theme=${JSON.stringify(theme)};
-useStore.setState({mobile:innerWidth<760,bots:[${JSON.stringify(bot)}]});
+useStore.setState({user:{id:'fixture-account'},mobile:innerWidth<760,bots:[${JSON.stringify(bot)}]});
 window.refreshModels=refreshModels;
 function Harness(){const bot=useStore(s=>s.bots[0]);return React.createElement('div',{className:'app',style:{position:'fixed',left:'16px',right:'16px',bottom:'24px',maxWidth:'500px'}},React.createElement(ComposerModelMenu,{bot}));}
 createRoot(document.getElementById('root')).render(React.createElement(Harness));
 ` }));
   await page.goto(origin);
   const pill=page.locator('.model-pill');
-  const picker=page.getByRole('dialog',{name:'Choose a model',exact:true});
+  const picker=page.getByRole('dialog',{name:'Model and effort',exact:true});
   const details=page.getByRole('dialog',{name:'Connection details',exact:true});
-  const planDetails=picker.getByRole('button',{name:'Plan & usage',exact:true});
-  await pill.getByText('API',{exact:true}).waitFor();
+  const planDetails=picker.getByRole('button',{name:'Usage',exact:true});
+  await pill.and(page.getByRole('button', { name: /Uses API billing/ })).waitFor();
+  if (width > 480) await pill.getByText('API',{exact:true}).waitFor();
   assert.equal(await page.locator('.usage-mode__trigger').count(),0);
   for(const provider of ['codex','claude']) {
    source=provider;await page.evaluate(()=>window.refreshModels());
-   await pill.and(page.getByRole('button',{name: new RegExp(`Uses your ${provider === 'codex' ? 'ChatGPT' : 'Claude'} plan`)})).waitFor();
-   if (provider === 'codex') {
-    assert.equal(await page.locator('.model-pill__name').innerText(), 'Codex · ChatGPT plan');
-    assert.equal(await pill.locator('.model-billing').count(), 0, 'plan is named once in the combined Codex label');
-   } else if (width > 760) await page.locator('.model-pill .model-billing').getByText('Claude plan',{exact:true}).waitFor();
-   else assert.equal(await page.locator('.model-pill__name').innerText(), 'Claude');
+   await pill.and(page.getByRole('button',{name: new RegExp(`Uses your ${provider === 'codex' ? 'Codex' : 'Claude Max'} plan`)})).waitFor();
+   if (width > 480) await pill.locator('.model-billing').getByText('Plan', { exact: true }).waitFor();
    await page.locator('.model-pill').click();
-   await page.getByRole('dialog',{name:'Choose a model'}).waitFor();
+   await page.getByRole('dialog',{name:'Model and effort'}).waitFor();
    await page.locator('.mm-row__name').getByText('Account model',{exact:false}).waitFor();
    assert.equal(await page.locator('.mm-row__name').count(),1);
    assert.equal(await page.locator('.mm-plan-usage').count(),0,'no duplicate Plan quota in the picker');
@@ -81,12 +78,13 @@ createRoot(document.getElementById('root')).render(React.createElement(Harness))
    await details.getByRole('button',{name:'Back to models',exact:true}).click();
    await planDetails.and(page.locator(':focus')).waitFor();
    assert.equal(await page.getByText('API model',{exact:true}).count(),0);
-   await page.locator('.mm-row__main').click();
-   await page.waitForFunction(id=>document.querySelector('.model-pill')?.getAttribute('title')?.startsWith('Account model.'),`${provider}/account-special`);
+   const saved = page.waitForResponse(r => new URL(r.url()).pathname === '/api/bots/model-test');
+   await page.locator('.mm-row__main').click(); await saved;
+   await page.locator('.model-menu').waitFor({ state: 'hidden' });
    assert.equal(bot.model,`${provider}/account-special`);assert.equal(bot.effort,'high');assert.equal(bot.fast,false);
    await page.locator('.model-pill').click();
-   await page.getByRole('button',{name:'Effort',exact:true}).click();
-   const choices=await page.getByRole('option').allTextContents();
+   await page.getByRole('radiogroup',{name:'Effort',exact:true}).waitFor();
+   const choices=await page.getByRole('radio').allTextContents();
    assert.equal(choices.length,2);assert.ok(choices.some(x=>x.startsWith('High')));assert.ok(choices.some(x=>x.startsWith('Low')));assert.ok(choices.every(x=>!x.includes('Ultracode')));
    await page.keyboard.press('Escape');
    if(width>=760) await page.screenshot({path:`.context/model-fix/selector-${width}-${theme}-${provider}.png`});
@@ -97,14 +95,15 @@ createRoot(document.getElementById('root')).render(React.createElement(Harness))
   }
   unavailable=true;await page.locator('.model-pill').click();
   await planDetails.click();
-  await details.getByText(/Usage isn’t available from your provider right now/).waitFor();
+  await details.getByText(/Usage unavailable/).waitFor();
   assert.doesNotMatch(await details.innerText(),/0% used/);
   assert.equal(await details.getByRole('progressbar').count(),0);
-  await page.keyboard.press('Escape');await planDetails.and(page.locator(':focus')).waitFor();
+  await details.getByRole('button', { name: 'Back to models', exact: true }).click();await planDetails.and(page.locator(':focus')).waitFor();
   await page.keyboard.press('Escape');await pill.and(page.locator(':focus')).waitFor();
   source='openrouter';await page.evaluate(()=>window.refreshModels());
-  await page.locator('.model-pill .model-billing').getByText('API',{exact:true}).waitFor();
-  assert.equal(await page.locator('.model-pill__name').innerText(),'API model','returning to API mode shows its default, not the old CLI alias');
+  if (width > 480) await page.locator('.model-pill .model-billing').getByText('API',{exact:true}).waitFor();
+  else await pill.and(page.getByRole('button', { name: /Uses API billing/ })).waitFor();
+  assert.equal(await page.locator('.model-pill__name').innerText(),width > 480 ? 'API model' : 'Model','returning to API mode shows its default, not the old CLI alias');
   assert.deepEqual(errors,[]);
   await page.close();console.log(`PASS ${width}px ${theme}: API/Plan switching, live catalog, correct PATCH, reported quota, supported efforts, unknown usage, no overflow`);
  }
@@ -118,7 +117,7 @@ createRoot(document.getElementById('root')).render(React.createElement(Harness))
   const settle=()=>page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
   await page.route('**/api/**',async route=>{
    const url=new URL(route.request().url());
-   if(url.pathname==='/api/cli')return route.fulfill({json:{selected:'codex',connected:true,providers:{codex:{installed:true,authenticated:true,subscription:true}}}});
+   if(url.pathname==='/api/cli')return route.fulfill({json:{selected:'codex',connected:true,providers:{codex:{installed:true,authenticated:true,subscription:true},claude:{installed:true,authenticated:false,subscription:false}}}});
    if(url.pathname==='/api/models') {
     catalogRequests++;
     if(holdNext){holdNext=false;held={route,data:catalog()};return;}
@@ -173,7 +172,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
 
   // An older request that finishes after reopening cannot replace the newer catalog.
   current='late';holdNext=true;held=null;
-  await button.click();await until(()=>held!==null);await page.getByText('Loading models…',{exact:true}).waitFor();
+  await button.click();await until(()=>held!==null);await page.getByText('Loading models',{exact:true}).waitFor();
   await page.keyboard.press('Escape');current='fresh';
   await button.click();await page.getByRole('option').filter({hasText:'Model fresh'}).waitFor();
   let response=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/models');

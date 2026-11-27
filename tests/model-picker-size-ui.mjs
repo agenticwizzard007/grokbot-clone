@@ -22,7 +22,7 @@ const inside = (inner, outer, label) => {
 async function geometry(page) {
   return page.evaluate(() => {
     const box = el => { const b = el.getBoundingClientRect(); return { x: b.x, y: b.y, right: b.right, bottom: b.bottom, width: b.width, height: b.height }; };
-    const menu = document.querySelector('.model-menu'), list = menu.querySelector('.mm-list');
+    const menu = document.querySelector('.model-menu'), list = [...menu.querySelectorAll('.mm-list')].find(list => list.children.length);
     const textBoxes = el => { const r = document.createRange(); r.selectNodeContents(el); return [...r.getClientRects()].map(b => ({ x: b.x, y: b.y, right: b.right, bottom: b.bottom })); };
     return { menu: box(menu), menuClientHeight: menu.clientHeight, menuScrollHeight: menu.scrollHeight, list: box(list), clientHeight: list.clientHeight, scrollHeight: list.scrollHeight,
       rows: [...list.querySelectorAll('.mm-row')].map(box), composer: box(document.querySelector('.composer')),
@@ -64,12 +64,12 @@ try {
     const g = await geometry(page);
     assert.equal(g.rows.length, models.length);
     inside(g.menu, g.viewport, `${label} menu in viewport`);
-    assert.ok(g.menu.bottom <= g.composer.y - 9, `${label} picker clears composer input`);
+    assert.ok(width <= 480 ? Math.abs(g.menu.bottom - height) < 1 : g.menu.bottom <= g.composer.y - 9, `${label} picker clears composer input`);
     assert.ok(g.menu.x <= g.chip.right && g.menu.right >= g.chip.x, `${label} picker anchored to chip`);
     assert.equal(g.scrollHeight, g.clientHeight, `${label} no nested list scrollbar`);
     assert.equal(g.menuScrollHeight, g.menuClientHeight, `${label} no scroll when content fits`);
     for (const row of g.rows) inside(row, g.list, `${label} complete row`);
-    const contentHeight = g.rows.at(-1).bottom - g.rows[0].y + 12;
+    const contentHeight = g.rows.at(-1).bottom - g.rows[0].y;
     assert.ok(Math.abs(g.list.height - contentHeight) <= 1, `${label} list fits its content`);
     assert.ok(g.labels.some(l => l.text.startsWith('Claude Fable 5.2')));
     for (const l of g.labels) {
@@ -87,18 +87,16 @@ try {
     await page.getByRole('searchbox', { name: 'Search models', exact: true }).fill('Fable 5.2');
     assert.ok(await page.locator('.mm-row').count() >= 1);
     await page.getByRole('searchbox', { name: 'Search models', exact: true }).fill('');
-    await page.getByRole('button', { name: 'Effort for Claude Fable 5.2', exact: true }).click();
-    await page.getByRole('listbox', { name: 'Effort', exact: true }).waitFor();
-    assert.match(await page.locator('.mm-back, .mm-effort-model').last().innerText(), /Claude Fable 5\.2/);
+    await page.getByRole('radiogroup', { name: 'Effort', exact: true }).waitFor();
     if (width === 320 || width === 1280) {
       // A genuinely short viewport needs scrolling. Every row can still be
       // brought fully into view, and growing the viewport removes the scrollbar.
       await page.keyboard.press('Escape');
       if (await chip.getAttribute('aria-expanded') === 'false') await chip.click();
-      await page.setViewportSize({ width, height: width === 320 ? 568 : 650 });
+      await page.setViewportSize({ width, height: width === 320 ? 360 : 500 });
       await page.waitForFunction(() => {
         const menu = document.querySelector('.model-menu');
-        return menu && menu.getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top - 9;
+        return menu && (innerWidth <= 480 ? Math.abs(menu.getBoundingClientRect().bottom - innerHeight) < 1 : menu.getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top - 9);
       });
       const short = await geometry(page);
       inside(short.menu, short.viewport, `${label} short viewport`);
