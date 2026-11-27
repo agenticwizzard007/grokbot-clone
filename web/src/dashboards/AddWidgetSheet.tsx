@@ -4,8 +4,8 @@ import { WIDGETS } from '@shared/ui-config/registry-widgets';
 import { Section, ButtonGroup } from '../components/layout';
 import { DashboardDialog } from './Dialog';
 import { defaultWidget, type Widget } from './model';
-const icons = [Hash, List, Table, ChartColumn, Gauge, Bot, Columns3, Calendar, StickyNote, Link];
-const descriptions = ['One clear number', 'Your latest items', 'Compare rows and columns', 'Trends over time', 'Progress toward a limit', 'Your Bots at work', 'Tasks grouped by state', 'Your next routine runs', 'A reminder or heading', 'Jump to your screens'];
+const icons = [Hash, List, Table, ChartColumn, Gauge, Bot, Columns3, Calendar, StickyNote, Link, Bot];
+const descriptions = ['One clear number', 'Your latest items', 'Compare rows and columns', 'Trends over time', 'Progress toward a limit', 'Your Bots at work', 'Tasks grouped by state', 'Your next routine runs', 'A reminder or heading', 'Jump to your screens', 'Answers from your agent'];
 export function AddWidgetSheet({ add, close, error }: { add(widget: Widget): Promise<boolean>; close(): void; error?: string }) {
   const [busy, setBusy] = useState(false);
   return <DashboardDialog title="Add widget" close={close}><Section><div className="dashboard-library">{WIDGETS.map((widget, index) => { const Icon = icons[index]; return <button type="button" className="dashboard-library-item" key={widget.id} disabled={busy} onClick={async () => {
