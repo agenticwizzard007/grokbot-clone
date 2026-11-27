@@ -43,6 +43,15 @@ try {
     await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
     await context.addInitScript(theme => { if (location.origin === 'null') return; localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
     const page = await context.newPage(); page.setDefaultTimeout(15000);
+    const pending = new Set(); let lastRequest = 0;
+    page.on('request', request => {
+      const url = new URL(request.url());
+      if (url.origin === server.base && url.pathname.startsWith('/api/') && url.pathname !== '/api/events') {
+        pending.add(request); lastRequest = Date.now();
+      }
+    });
+    const finished = request => { if (pending.delete(request)) lastRequest = Date.now(); };
+    page.on('requestfinished', finished); page.on('requestfailed', finished);
     // History routing must not disable caching of this checkout's immutable assets.
     const network = await context.newCDPSession(page);
     await network.send('Network.setCacheDisabled', { cacheDisabled: false });
@@ -80,6 +89,13 @@ try {
         const markdown = page.locator('.agent-config__content:not([hidden]) .agent-config__file .md');
         await markdown.scrollIntoViewIfNeeded();
         await markdown.locator('h1, h2, p').first().waitFor();
+      }
+      // HO-I enables task and message actions after its policy request resolves.
+      // Wait for every fixture API response and its render before measuring boxes.
+      const deadline = Date.now() + 15000;
+      while (pending.size || Date.now() - lastRequest < 500) {
+        if (Date.now() > deadline) throw new Error(`${key}: fixture API did not settle`);
+        await page.waitForTimeout(50);
       }
       await page.evaluate(() => document.fonts.ready);
       const result = await page.evaluate(() => {
