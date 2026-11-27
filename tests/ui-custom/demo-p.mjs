@@ -13,7 +13,7 @@ const forbidden = /mock|Fixture|PRIVATE|QA-|undefined|null|\[object/i;
 async function capture(page, name, width, theme, selector) {
   await page.evaluate(() => document.fonts.ready);
   const file = path.join(output, `${name}-${width}-${theme}.png`);
-  await page.screenshot({ path: file, fullPage: true }); screenshots.push(file);
+  await page.screenshot({ path: file, fullPage: true, animations: 'disabled' }); screenshots.push(file);
   if (!before) {
     assert.doesNotMatch(await page.locator('body').innerText(), forbidden, `${name}: visible test text`);
     assert.deepEqual(await page.evaluate(inspectAlignment, { selector, requirePage: selector !== '.appearance-dialog' }), [], `${name}: alignment`);
@@ -36,7 +36,7 @@ async function capture(page, name, width, theme, selector) {
     await readableWords(root);
     const typeIssues = await root.evaluate(root => {
       const requirements = [
-        ['.dashboard-list-title, .dashboard-library-item strong, .dashboard-field, .dashboard-empty-data p, .appearance-settings .layout-row__title', 14],
+        ['.dashboard-list-title, .dashboard-library-item strong, .dashboard-field, .dashboard-empty-data p, .appearance-settings .layout-row__title, .appearance-settings .menu__label', 14],
         ['.dashboard-list-meta, .dashboard-library-item > span, .appearance-settings .layout-row__subtitle, .appearance-helper', 13],
         ['.dashboard-chart-values, .dashboard-chart-labels, .dashboard-chart-legend', 12],
       ];

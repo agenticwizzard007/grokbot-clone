@@ -46,3 +46,5 @@
 .appearance-button > button { width: 100%; }
 .layout-page.layout-page .appearance-settings .toggle .toggle__knob { width: 20px; height: 20px; left: 4px; top: 12px; transform: none; }
 .layout-page.layout-page .appearance-settings .toggle.is-on .toggle__knob { left: 20px; transform: none; }
+
+.appearance-settings .menu__item { font-size: 14px; line-height: 20px; padding: 8px; gap: 8px; }
