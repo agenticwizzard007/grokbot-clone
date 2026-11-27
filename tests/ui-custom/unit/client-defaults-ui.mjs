@@ -20,7 +20,12 @@ if (!baseline && !validBaseline) {
   const root = path.resolve('.'), checkout = path.join(output, `main-${baselineSpec.commit}`);
   if (!fs.existsSync(checkout)) {
     execFileSync('git', ['worktree', 'add', '--detach', checkout, baselineSpec.commit], { stdio: 'inherit' });
-    for (const relative of ['node_modules', 'web/node_modules']) fs.symlinkSync(path.join(root, relative), path.join(checkout, relative), 'dir');
+    fs.symlinkSync(path.join(root, 'node_modules'), path.join(checkout, 'node_modules'), 'dir');
+    // Each checkout needs its own Vite cache when local checks run concurrently.
+    const dependencies = path.join(checkout, 'web/node_modules'); fs.mkdirSync(dependencies);
+    for (const entry of fs.readdirSync(path.join(root, 'web/node_modules'))) {
+      if (entry !== '.vite' && entry !== '.vite-temp') fs.symlinkSync(path.join(root, 'web/node_modules', entry), path.join(dependencies, entry));
+    }
   }
   execFileSync(process.execPath, [new URL(import.meta.url).pathname], { stdio: 'inherit', env: { ...process.env, CLIENT_BASELINE: '1', CLIENT_MAIN_ROOT: checkout } });
 }
@@ -44,6 +49,16 @@ try {
     await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
     await context.addInitScript(theme => { if (location.origin === 'null') return; localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
     const page = await context.newPage(); page.setDefaultTimeout(15000); await installSnapshotReadiness(page);
+    const pending = new Set(); let lastRequest = 0;
+    page.on('request', request => {
+      const url = new URL(request.url());
+      if (url.origin === server.base && (['/api/handoff-settings', '/api/handoff-task-links'].includes(url.pathname)
+        || /^\/api\/bots\/[^/]+\/flow$/.test(url.pathname))) {
+        pending.add(request); lastRequest = Date.now();
+      }
+    });
+    const finished = request => { if (pending.delete(request)) lastRequest = Date.now(); };
+    page.on('requestfinished', finished); page.on('requestfailed', finished);
     // History routing must not disable caching of this checkout's immutable assets.
     const network = await context.newCDPSession(page);
     await network.send('Network.setCacheDisabled', { cacheDisabled: false });
@@ -76,6 +91,20 @@ try {
       if (route.state) { await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().bots.some(bot => bot.id === id), server.fixture.bot.id); await page.locator('.composer__input:not([disabled])').waitFor(); await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().transcripts[id]?.loaded, server.fixture.bot.id); await preparePbeState(page, route.state, server.fixture.bot.id); await page.waitForTimeout(400); }
       // ActionPreview is lazy: compare the complete card, never its loading fallback.
       if (route.state === 'approval' || route.state === 'declined') await page.locator('.approval-card .tool-preview').waitFor();
+      // Configuration Markdown also loads lazily when its file reader enters view.
+      if (route.name === 'bot-setup/files') {
+        const markdown = page.locator('.agent-config__content:not([hidden]) .agent-config__file .md');
+        await markdown.scrollIntoViewIfNeeded();
+        await markdown.locator('h1, h2, p').first().waitFor();
+      }
+      // HO-I enables task and message actions after its policy request resolves.
+      // Wait for Flow and handoff responses and their renders before measuring boxes.
+      const deadline = Date.now() + 15000;
+      while (pending.size || Date.now() - lastRequest < 500) {
+        if (Date.now() > deadline) throw new Error(`${key}: Flow and handoff data did not settle`);
+        await page.waitForTimeout(50);
+      }
+      await page.evaluate(() => document.fonts.ready);
       await waitForSnapshotReadiness(page);
       const result = await page.evaluate(() => {
         // Ignore transient chat scroll restoration when comparing structure.
