@@ -1,3 +1,8 @@
+import { useModels } from '../../lib/models';
+import { useReportedPlanUsage } from '../../lib/accessPlanUsage';
+import { cliApi, type CliStatus } from '../../lib/cliApi';
+import { modelAccessStatus } from '../../lib/modelAccessStatus';
+import { Section, Card, Row } from '../layout';
 import { modelDisplayName } from '../../lib/modelDisplay';
 import { ProviderLabel, ProviderMark } from '../ProviderMark';
 import { SettingIcon } from './SettingRow';
@@ -61,19 +66,6 @@ export function niceTicks(max: number): number[] {
 }
 
 // ---------- pieces ----------
-
-/** The same selected period is visible at every width. */
-function PageHead({ span }: { span: string | null }) {
-  return (
-    <div className="app-settings__head usage-head">
-      <div className="usage-head__text">
-        <h1>Understand reported usage</h1>
-        <p>Filter the report before comparing charges or downloading a CSV.</p>
-        {span && <p className="usage-head__span">{span}</p>}
-      </div>
-    </div>
-  );
-}
 
 /** Requests and costs grouped by the billing source recorded in this period. */
 function Hero({ data, hasComputer }: { data: UsageReport; hasComputer: boolean }) {
@@ -290,9 +282,7 @@ function ComputerCard({ data }: { data: UsageReport }) {
   const stateLabel = n ? ({ running: 'Running', asleep: 'Asleep', archived: 'Archived (disk kept)' } as const)[n.state] : null;
   const size = n?.cpus ? `${n.cpus} vCPU${n.memoryMb ? ` · ${(n.memoryMb / 1024).toFixed(2).replace(/\.?0+$/, '')} GB memory` : ''}${n.diskGb ? ` · ${n.diskGb} GB disk` : ''}` : '';
   return (
-    <section className="cfg-section">
-      <div className="cfg-section__label">Computer</div>
-      <div className="usage-card">
+    <Section  title={<>Computer</>}><div className="usage-card">
         {n && (
           <div className="usage-vm-now">
             <div className="usage-vm-now__line">
@@ -310,13 +300,12 @@ function ComputerCard({ data }: { data: UsageReport }) {
         </div>
         <p className="usage-card__note">{computerTimeNote}{data.timezone && data.timezone !== 'UTC' && ' Daily computer estimates are split from UTC totals to fit your time zone.'}</p>
         <details className="usage-explain">
-          <summary>How it’s estimated</summary>
+          <summary>How it's estimated</summary>
           <p className="usage-card__note">{isOrgo
             ? `Estimated at Orgo's pay-as-you-go rates: ${fmtUsd(r.orgo.runningHour)} an hour running, ${fmtUsd(r.orgo.stoppedHour)} stopped. Your Orgo plan may include this time.`
             : `Estimated from Fly.io's published prices: ${fmtUsd(r.fly.cpuMonth)} per shared vCPU and ${fmtUsd(r.fly.ramGbMonth)} per extra GB of RAM a month while running, ${fmtUsd(r.fly.volumeGbMonth)} per GB of disk a month always, and only the root disk while asleep. Fly bills by the second and doesn't report each VM's cost back, so Swarm adds it up every minute.`}</p>
         </details>
-      </div>
-    </section>
+      </div></Section>
   );
 }
 
@@ -370,9 +359,7 @@ function RankedList({ title, rows, byCost, models = false }: { title: string; ro
 function ProviderCard({ data }: { data: ProviderUsage }) {
   const o = data.openrouter;
   return (
-    <section className="cfg-section">
-      <AccessRow icon={CircleUserRound} title="Provider account" description={data.note} />
-      {o && <div className="usage-card">
+    <Section  ><AccessRow icon={CircleUserRound} title="Provider account" description={data.note} />{o && <div className="usage-card">
         <div className="usage-card__title"><ProviderMark provider="openrouter" /> OpenRouter{o.label ? ` · ${o.label}` : ''}</div>
         <div className="usage-tiles usage-tiles--compact">
           <Tile label="Today" value={fmtUsd(o.usage.today)} />
@@ -388,8 +375,7 @@ function ProviderCard({ data }: { data: ProviderUsage }) {
           ? <AccessRow icon={Gauge} key={i} title={`Budget${b.scope ? ` (${b.scope})` : ''}`} description="Spend not reported" status={`${fmtUsd(b.limitUsd)} limit`} />
           : <Meter key={i} label={`Budget${b.scope ? ` (${b.scope})` : ''}`} used={b.spendUsd} limit={b.limitUsd!}
             figure={`${fmtUsd(b.spendUsd)} of ${fmtUsd(b.limitUsd)}`} note={b.resetInterval ? `Resets ${b.resetInterval}.` : undefined} />)}
-      </div>}
-    </section>
+      </div>}</Section>
   );
 }
 
@@ -401,6 +387,25 @@ export function UsageSection() {
 }
 
 function AccountUsageReport() {
+  const models = useModels();
+  const quota = useReportedPlanUsage(models.usage);
+  const bots = useStore(s => s.bots);
+  const [plans, setPlans] = useState<CliStatus | null>(null);
+  const [planError, setPlanError] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      try {
+        const value = await cliApi.status();
+        if (!alive) return;
+        setPlans(value); setPlanError(false);
+        if (value.statusChecking) timer = setTimeout(refresh, 2000);
+      } catch { if (alive) { setPlanError(true); timer = setTimeout(refresh, 5000); } }
+    };
+    void refresh();
+    return () => { alive = false; clearTimeout(timer); };
+  }, []);
   const [range, setRange] = useState<UsageRange>('7d');
   const [scope, setScope] = useState<'me' | 'all'>('me');
   const [report, setReport] = useState<{ range: UsageRange; scope: 'me' | 'all'; data: UsageReport } | null>(null);
@@ -432,6 +437,10 @@ function AccountUsageReport() {
     return () => { alive = false; };
   }, [canSeeProvider, providerAttempt]);
 
+  const openrouterCosts = data?.billing.sources.filter(source => source.provider === 'openrouter') ?? [];
+  const recordedCost = openrouterCosts.reduce((sum, source) => sum + source.costUsd, 0);
+  const unpriced = openrouterCosts.some(source => source.unpricedRequests > 0);
+  const estimated = openrouterCosts.some(source => source.estimatedUsd > 0);
   const t = data?.totals;
   const vm = data?.computer;
   const hasComputer = !!vm && (vm.costUsd > 0 || vm.runningHours > 0 || vm.asleepHours > 0 || vm.archivedHours > 0 || !!vm.now);
@@ -444,14 +453,29 @@ function AccountUsageReport() {
 
   return (
     <div className="usage-page">
-      <PageHead span={span} />
+      {error && <div role="alert" className="cfg-error">{error} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setAttempt(value => value + 1)}>Retry report</button></div>}
+      <Section title={range === '7d' ? 'This week' : RANGES.find(item => item.value === range)?.label}><Card>
+        <Row title="AI requests" trailing={<strong>{t ? compact(t.requests) : 'Loading'}</strong>} />
+        <div className="settings-usage-chart" role="img" aria-label={days.length ? days.map(day => `${dayLabel(day.day)}: ${day.requests} requests`).join(', ') : 'No requests recorded'}>
+          {days.map(day => <div key={day.day}><span style={{height: `${Math.max(2, 100 * day.requests / Math.max(1, ...days.map(d => d.requests)))}%`}} /><small>{new Date(`${day.day}T00:00:00Z`).toLocaleDateString('en', {weekday: 'short', timeZone: 'UTC'})}</small></div>)}
+        </div>
+      </Card></Section>
+      <Section title="Plans"><Card variant="list">{(['claude', 'codex'] as const).map(id => {
+        const connection = modelAccessStatus(plans, id, planError);
+        const windows = models.provider === `${id}-cli` && models.billing === 'plan' ? quota.windows : [];
+        return <Row key={id} leading={<ProviderMark provider={id} />} title={id === 'claude' ? 'Claude' : 'ChatGPT'} trailing={<span className="cfg-chip">{connection.connection}</span>}>
+          {windows.map(window => <div key={window.label} className="settings-quota"><span>{window.label}: {window.usedPercent}%</span><meter min="0" max="100" value={window.usedPercent} aria-label={window.label} /></div>)}
+        </Row>;
+      })}<Row leading={<ProviderMark provider="openrouter" />} title="OpenRouter" subtitle="Recorded cost" trailing={<span>{!data ? 'Loading' : !openrouterCosts.length ? 'No usage' : unpriced ? 'Price incomplete' : `${fmtUsd(recordedCost)}${estimated ? ' estimated' : ''}`}</span>} /></Card></Section>
+      <Section title="By Bot"><Card variant="list">{data?.byBot.length ? data.byBot.map(row => <Row key={row.key} leading={<ProviderMark provider={bots.find(bot => bot.id === row.key)?.model} />} title={row.label} trailing={<span>{compact(row.requests)}</span>} />) : <Row title="No usage yet" />}</Card></Section>
+      <details className="settings-disclosure"><summary>Learn more</summary><div className="settings-stack">
+      {span && <p>{span}</p>}
       <div className="usage-filters">
         <label className="cfg-field"><SettingIcon icon={Clock3} /><span className="cfg-field__label">Report period</span><select className="text-input" value={range} onChange={event => setRange(event.target.value as UsageRange)}>{RANGES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label className="cfg-field"><SettingIcon icon={CircleUserRound} /><span className="cfg-field__label">Scope</span><select className="text-input" value={scope} onChange={event => setScope(event.target.value === 'all' ? 'all' : 'me')} disabled={!canSeeAll}><option value="me">Me</option>{canSeeAll && <option value="all">Everyone</option>}</select>{!canSeeAll && <span className="cfg-field__hint">Only admins can view usage for everyone.</span>}</label>
       </div>
 
-      {error && <div role="alert" className="cfg-error">{error} <button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => setAttempt(value => value + 1)}>Retry report</button></div>}
-      {!data && !error && <div className="cfg-empty cfg-empty--flat" role="status">Loading usage report…</div>}
+      {!data && !error && <div className="cfg-empty cfg-empty--flat" role="status">Loading usage report</div>}
 
       {data && t && (
         <div className="usage-root">
@@ -494,7 +518,7 @@ function AccountUsageReport() {
       )}
 
       {canSeeProvider && provider && <ProviderCard data={provider} />}
-      {canSeeProvider && !provider && (providerError ? <div className="cfg-error" role="alert">{providerError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setProviderAttempt(value => value + 1)}>Retry provider usage</button></div> : <p className="usage-card__note" role="status">Checking provider usage…</p>)}
+      {canSeeProvider && !provider && (providerError ? <div className="cfg-error" role="alert">{providerError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setProviderAttempt(value => value + 1)}>Retry provider usage</button></div> : <p className="usage-card__note" role="status">Checking provider usage</p>)}
 
       {/* Phones: export sits at the end, with where the numbers come from. */}
       {data && (
@@ -502,6 +526,7 @@ function AccountUsageReport() {
           <a className="cfg-btn cfg-btn--primary" href={csv} download><Download size={16} strokeWidth={1.75} aria-hidden />Download CSV</a>
         </div>
       )}
+      </div></details>
     </div>
   );
 }

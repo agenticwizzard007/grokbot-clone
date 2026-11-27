@@ -1,18 +1,18 @@
-import { ProviderLabel, ProviderMark, ProviderText } from '../ProviderMark';
+import { ApprovalLevelSettings } from './ApprovalLevelSettings';
+import { Page, Section, Card, Row, ButtonGroup } from '../layout';
+import { Modal } from '../modals/Modal';
+import { InfoTip, SettingsMenu } from './SettingsControls';
+import { ProviderLabel, ProviderMark } from '../ProviderMark';
 import { OpenRouterSettings } from './OpenRouterSettings';
 import { CredentialReauthPrompt } from './ReauthPrompt';
 import { planLabel } from '../../lib/planLabel';
-import { ApprovalLevelSettings } from './ApprovalLevelSettings';
-import { SettingIcon } from './SettingRow';
 import { useModels } from '../../lib/models';
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Copy, ExternalLink, RefreshCw, Terminal, KeyRound, Monitor } from 'lucide-react';
 import { cliApi, getCachedCliStatus, type CliProvider, type CliProviderStatus, type CliStatus, type CliRun } from '../../lib/cliApi';
 import { modelAccessStatus } from '../../lib/modelAccessStatus';
 import { refreshModels } from './ModelPicker';
 import { CliLoginTerminal } from './CliLoginTerminal';
 import { ApiError } from '../../lib/api';
-import { AccessRow } from './AccessRow';
 import { useReportedPlanUsage } from '../../lib/accessPlanUsage';
 import { useStore } from '../../store';
 import { cancelResume, planResume, useConfigUI, type ResumeAction } from '../../configStore';
@@ -34,16 +34,6 @@ const PROVIDERS: { id: CliProvider; name: string; plan: string; install: string;
 const ready = (provider: CliProviderStatus) => provider.installed && provider.authenticated && provider.subscription && !provider.error;
 const needsSession = (err: unknown): err is ApiError => err instanceof ApiError && err.status === 401;
 
-function providerState(provider: CliProviderStatus | undefined, connected: boolean) {
-  if (!provider) return 'Not checked';
-  if (!connected) return 'Bridge offline · status unverified';
-  if (provider.error) return 'Needs attention';
-  if (!provider.installed) return 'CLI not installed';
-  if (!provider.authenticated) return 'Not connected';
-  if (!provider.subscription) return 'Eligible subscription required';
-  return 'Ready';
-}
-
 type Action = 'load' | 'pair' | 'refresh' | 'codex' | 'claude' | 'api' | 'revoke' | 'reset';
 
 export function SubscriptionSettings() {
@@ -64,10 +54,10 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   const [verifyingResume, setVerifyingResume] = useState(!!resumed);
   const [resumeLogin, setResumeLogin] = useState(false);
   const [credentialReauth, setCredentialReauth] = useState<string | null>(null);
+  const [sheet, setSheet] = useState(resumed?.action === 'login' || !!requestedProvider);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
-  useEffect(() => { setConfirmReset(false); }, [providerTab]);
-  const [authMethod, setAuthMethod] = useState<'cli' | 'api'>('cli');
+  const [, setAuthMethod] = useState<'cli' | 'api'>('cli');
   const [loginProvider, setLoginProvider] = useState<CliProvider | null>(null);
   const [loginAttempt, setLoginAttempt] = useState(0);
   const [loginRunning, setLoginRunning] = useState(false);
@@ -108,7 +98,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
 
   useEffect(() => {
     if (requestedProvider && !authLocked && !loginRunning) {
-      tabPicked.current = true; setProviderTab(requestedProvider); setAuthMethod('cli');
+      tabPicked.current = true; setProviderTab(requestedProvider); setAuthMethod('cli'); setSheet(true);
     }
   }, [requestedProvider]);
 
@@ -272,7 +262,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
         closeLogin();
         setCommand(null); setCopied(false); setCopyError(false);
         setAuthMethod('cli');
-        setNotice('Connection reset. Both CLIs are signed out on your Swarm server. Choose Login to connect Claude Code or Codex again.');
+        setNotice('Connections reset. Sign in to reconnect.');
       }
       update(result, epoch);
       refreshModels();
@@ -293,10 +283,8 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   const health = status?.providers[providerTab];
   const reportedPlan = modelCatalog.provider === `${providerTab}-cli` && modelCatalog.status === 'ready' && !modelCatalog.error ? modelCatalog.plan : null;
   const tabStatus = modelAccessStatus(status, providerTab, stale, reportedPlan);
-  const { probeFailed, hasSavedState } = tabStatus;
   const planReady = tabStatus.connected;
   const disabled = !!busy || loginRunning || !status || stale || authLocked;
-  const loginLabel = runtime === 'bridge' ? 'Use server login' : health?.authenticated ? 'Log in again' : 'Login';
   const startLogin = () => {
     if (disabled || loginActive.current) return;
     tabPicked.current = true;
@@ -312,226 +300,96 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
   useEffect(() => {
     if (!resumeLogin || disabled || loginActive.current) return;
     setResumeLogin(false);
-    startLogin();
+    setSheet(true); startLogin();
   }, [resumeLogin, disabled]);
 
-  return (
-    <div className="subscription-settings">
-      <div className="app-settings__head">
-        <h1>Choose how models are billed</h1>
-        <p>Use an eligible plan through CLI authentication, or choose API billing.</p>
-      </div>
-
-      <div className="subscription-settings__tabs" role="tablist" aria-label="CLI provider">
-        {(['codex', 'claude'] as const).map((id) => (
-          <button key={id} id={`subscription-tab-${id}`} role="tab" type="button" aria-selected={providerTab === id} aria-controls="subscription-auth-panel" tabIndex={providerTab === id ? 0 : -1} disabled={authLocked || loginRunning} onClick={() => { tabPicked.current = true; setProviderTab(id); setAuthMethod('cli'); }} onKeyDown={(event) => {
-            if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft' && event.key !== 'Home' && event.key !== 'End') return;
-            event.preventDefault();
-            const next = event.key === 'Home' ? 'codex' : event.key === 'End' ? 'claude' : id === 'claude' ? 'codex' : 'claude';
-            tabPicked.current = true; setProviderTab(next); setAuthMethod('cli');
-            document.getElementById(`subscription-tab-${next}`)?.focus();
-          }}>
-            <ProviderMark provider={id} />{id === 'claude' ? 'Claude Code' : 'Codex'}
-          </button>
-        ))}
-      </div>
-
-      {recovery && <section className="cfg-card subscription-reauth" aria-label="Continue connection">
-        <div className="subscription-reauth__body">
-          <p role="alert">{recovery.reason}</p>
-          <p>Continue to check your Swarm session and return to this connection.</p>
-          {recovery.action === 'reset' && <p>Reset may already have stopped login sessions or removed saved connections. Review the refreshed status before retrying.</p>}
-          <div className="subscription-settings__actions">
-            <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => {
-              planResume({ section: 'subscriptions', provider: providerTab, accountId, action: recovery.action });
-              const url = new URL(window.location.href);
-              url.searchParams.delete('login'); url.searchParams.delete('openrouter');
-              history.replaceState(history.state, '', url.pathname + url.search + '#settings/subscriptions');
-              window.location.reload();
-            }}>Continue connection</button>
-            <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { invalidateStatus(); cancelResume(); setRecovery(null); }}>Not now</button>
-          </div>
-        </div>
-      </section>}
-
-      <div className="subscription-settings__panel" role="tabpanel" id="subscription-auth-panel" aria-labelledby={`subscription-tab-${providerTab}`}>
-      <section className="cfg-section" aria-label="Plan connection">
-        <AccessRow icon={Terminal} title={<ProviderLabel provider={providerTab}>{providerTab === 'claude' ? 'Claude plan' : 'ChatGPT plan'}</ProviderLabel>} description={<ProviderLabel provider={providerTab}>{tabStatus.details}</ProviderLabel>}
-          status={<><span role="status">{tabStatus.connection}{tabStatus.currentlyInUse ? ' · Currently in use' : ''}</span><span className="plan-check-hint" style={{ visibility: tabStatus.connected && tabStatus.checking ? 'visible' : 'hidden' }} aria-hidden={!tabStatus.checking}>Checking</span></>}>
-          {tabStatus.unavailable && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void refresh()}>Retry status</button>}
-          {planReady
-            ? selected !== providerTab && <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled} onClick={() => void select(providerTab)}><ProviderMark provider={providerTab} />{tabStatus.action}</button>
-            : tabStatus.canConnect && <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled || runtime === 'bridge' || !status?.serverLoginAvailable || (providerTab === 'codex' && status.connected && !health?.installed)} onClick={startLogin}>{!loginRunning && <ProviderMark provider={providerTab} />}{loginRunning ? 'Login in progress…' : tabStatus.action}</button>}
-          {selected === providerTab && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || loginRunning || authLocked} onClick={() => void select(null)}>Disconnect</button>}
-        </AccessRow>
-        <p className="subscription-settings__current-route"><ProviderText>{tabStatus.currentRoute}</ProviderText></p>
-        <p>Complete sign-in with the official CLI on the computer running your Bots. Credentials stay in that CLI's profile.{selected === providerTab && ' Disconnect switches your Bots to API billing and leaves this CLI signed in.'}</p>
-        {runtime === 'bridge' && !planReady && <p>Run <code>{provider.login}</code> on your computer, complete the official sign-in, then refresh status and choose Use {providerTab === 'claude' ? 'Claude' : 'ChatGPT'} plan.</p>}
-        {status?.connected && !health?.installed && <p>Install the official {providerTab === 'claude' ? 'Claude Code' : 'Codex'} CLI on {runtime === 'bridge' ? 'your computer' : "your Bot's computer"}, then refresh status. <a href={provider.docs} target="_blank" rel="noreferrer">Installation and sign-in instructions</a></p>}
-      </section>
-
-      {loginProvider && <CliLoginTerminal key={loginAttempt} provider={loginProvider} onClose={closeLogin} onSessionRequired={() => { closeLogin(); requestSession('login', 'Your Swarm session needs to be checked before connecting.'); }} onStateChange={(next) => {
-        const running = next === 'running' || next === 'verifying';
-        loginActive.current = running; setLoginRunning(running);
-        if ((next === 'failed' || next === 'cancelled') && !working.current) void readStatus().catch(() => {});
-      }} onConnected={() => { refreshModels(); void refresh(); }} />}
-
-      <section className="cfg-section subscription-settings__auth">
-        <AccessRow icon={Terminal} title="CLI authentication" description="Manage sign-in on the Swarm server or use the computer bridge below.">
-          {authMethod === 'api' && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={() => setAuthMethod('cli')}>Set up CLI authentication</button>}
-          {(planReady || runtime === 'bridge' || status?.serverLoginAvailable === false || providerTab === 'codex' && health?.installed === false) && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={startLogin}>{loginRunning ? 'Login in progress…' : loginLabel}</button>}
-        </AccessRow>
-        <AccessRow icon={KeyRound} title="API providers" description="API turns use your saved OpenRouter key, or server defaults if you have never added one. Add or manage your key below. Connected plans stay signed in." status={status && !stale && !status.statusUnavailable && !selected ? 'Currently in use' : undefined}>
-          <button type="button" className="cfg-btn cfg-btn--secondary" aria-pressed={!!status && !selected} disabled={disabled} onClick={() => void select(null)}>Use API providers</button>
-          <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('keys')}>Manage API keys</button>
-        </AccessRow>
-        {credentialReauth && <CredentialReauthPrompt accountEmail={accountEmail} reason={credentialReauth} resume={{ section: 'subscriptions', accountId, action: 'credentials' }} retryLabel="Save and verify or remove your key" terminalActive={loginRunning} onCancel={() => setCredentialReauth(null)} />}
-        <OpenRouterSettings refreshToken={status?.selected} disabled={!!busy || loginRunning || authLocked || !!credentialReauth} onReauth={error => setCredentialReauth(error.message)} onChanged={() => { void readStatus().catch(() => {}); }} />
-        <ApprovalLevelSettings selectedCli={status?.selected} />
-        <AccessRow icon={RefreshCw} title="Authorization status" description="Refresh after signing in or reconnecting.">
-          <button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => void refresh()}>{busy === 'refresh' ? 'Refreshing…' : status?.statusUnavailable || stale || probeFailed ? 'Retry' : 'Refresh status'}</button>
-        </AccessRow>
-        <AccessRow icon={ExternalLink} title="Provider instructions" description="Review eligibility and official authentication steps.">
-          <a className="cfg-btn cfg-btn--secondary" href={provider.docs} target="_blank" rel="noreferrer">Official auth docs</a>
-        </AccessRow>
-        <details className="subscription-settings__context">
-          <summary>Account and login details</summary>
-          <dl className="subscription-settings__details">
-          <div><dt>Swarm account</dt><dd>{accountEmail.endsWith('@openrouter.invalid') ? 'Your OpenRouter sign-in' : accountEmail}</dd></div>
-          <div><dt>Provider</dt><dd>{status && !selected ? 'API providers' : <ProviderLabel provider={providerTab}>{provider.name}</ProviderLabel>}</dd></div>
-          {(!status || selected) && <>
-          <div><dt>Eligible plan</dt><dd><ProviderLabel provider={providerTab}>{provider.plan}</ProviderLabel></dd></div>
-          <div><dt>Login location</dt><dd>{runtime === 'bridge' ? 'Your computer · advanced bridge' : 'Swarm server · private account profile'}</dd></div>
-          </>}
-          {status && !selected ? <>
-            <RunDetails title="Last model run" run={status.apiRuns?.latest ?? null} />
-            <RunDetails title="Last tool run" run={status.apiRuns?.lastToolRun ?? null} />
-          </> : <>
-            <RunDetails title="Last CLI run" run={status?.runsByProvider?.[providerTab]?.latest ?? (status?.lastRun?.provider === providerTab ? status.lastRun : null)} />
-            <RunDetails title="Last tool run" run={status?.runsByProvider?.[providerTab]?.lastToolRun ?? null} />
-          </>}
-          </dl>
-        </details>
-        {blocked && <p className="subscription-settings__blocked">The selected subscription is blocked until its login is ready. There is no automatic fallback to API providers.</p>}
-        {error && <div className="cfg-error" role="alert">{error}</div>}
-        {readError && <p role="note">Connection status could not be verified. Refresh status to try again.</p>}
-        {verifyingResume && <p role="status">Verifying your sign-in…</p>}
-        {notice && !recovery && <p className="subscription-settings__notice" role="status">{notice}</p>}
-        {status?.serverLoginAvailable === false && <p>Server login is currently unavailable. Try Login for the server’s instructions, or use the computer bridge under Advanced.</p>}
-        {health?.error && !probeFailed && hasSavedState && <p role="note">{health.error}</p>}
-      </section>
-
-      <details className="subscription-settings__advanced">
-        <summary className="cfg-row"><SettingIcon icon={Monitor} /><span>Advanced<small>Reset saved sign-ins or connect your computer.</small></span><span className="cfg-btn cfg-btn--secondary">Options <ChevronDown size={16} aria-hidden /></span></summary>
-        <div className="subscription-settings__advanced-content">
-        {hasSavedState && <AccessRow icon={Terminal} title="CLI connection" description="Clear saved Claude Code and Codex sign-ins and start over.">
-            <button type="button" className={`cfg-btn ${confirmReset ? 'cfg-btn--danger' : 'cfg-btn--secondary'}`} disabled={authLocked || !!busy} onClick={() => confirmReset ? reset() : setConfirmReset(true)}>{busy === 'reset' ? 'Resetting…' : confirmReset ? 'Confirm reset' : 'Reset connection'}</button>
-            {confirmReset && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmReset(false)}>Cancel</button>}
-        </AccessRow>}
-        {confirmReset && hasSavedState && <p role="note">Reset removes the saved Claude Code and Codex logins from your Swarm server, revokes any computer bridge, cancels a sign-in in progress and clears cached status, then checks both CLIs again. Your selected subscription stays selected and blocked until you log in again or choose API providers.</p>}
-
-      <section className="cfg-section" aria-labelledby="subscription-bridge-title">
-        <h2 className="cfg-section__label" id="subscription-bridge-title">Computer bridge</h2>
-        <div className="cfg-card">
-          <p className="subscription-settings__inset">Generating a command switches model requests for this account to your computer. That computer must stay awake and online.</p>
-          <div className="cfg-row"><SettingIcon icon={Terminal} />
-            <div className="cfg-row__text">
-              <div className="cfg-row__title">{runtime === 'server' ? 'Optional computer bridge' : !status ? 'Bridge status unknown' : stale ? 'Bridge status unverified' : status.connected ? 'Connected' : 'Disconnected'}</div>
-              <div className="cfg-row__sub">{status?.device ? `Computer: ${status.device}` : 'Run the bridge on the computer where your CLIs are installed.'}</div>
-            </div>
-          </div>
-          <div className="subscription-settings__actions subscription-settings__inset">
-            <button type="button" className="cfg-btn cfg-btn--primary" disabled={authLocked || !!busy || loginRunning || !!command} onClick={() => void generate()}>
-              {busy === 'pair' ? 'Generating…' : 'Generate connect command'}
-            </button>
-            <button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => void refresh()}>
-              <RefreshCw size={14} aria-hidden />{busy === 'refresh' ? 'Refreshing…' : status?.statusUnavailable || stale || probeFailed ? 'Retry' : 'Refresh status'}
-            </button>
-          </div>
-          {command && (
-            <div className="subscription-settings__pair">
-              <div className="cfg-row__title">Run this in a terminal on your computer</div>
-              <p>This command contains a private pairing secret. Copy it directly to your terminal. The secret is hidden here and discarded when you leave this page.</p>
-              <pre tabIndex={0} aria-label="Connect command, secret hidden"><code>node swarm-cli-bridge.mjs --server [your server] --token [hidden]</code></pre>
-              <div className="subscription-settings__actions">
-                <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => void copy()}>
-                  {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}{copied ? 'Copied' : 'Copy connect command'}
-                </button>
-                <button type="button" className="cfg-btn cfg-btn--secondary" onClick={dismiss}>Dismiss command</button>
-              </div>
-              <p role="status">{copyError ? 'Clipboard access failed. Allow clipboard access, then try Copy connect command again.' : 'After starting the bridge, use Refresh status, then select a provider.'}</p>
-            </div>
-          )}
-          {runtime === 'bridge' && <div className="subscription-settings__revoke">
-            <p>Revoking disconnects the bridge and invalidates its pairing. A selected subscription stays selected and blocked until you reconnect or choose API providers.</p>
-            <div className="subscription-settings__actions">
-              <button type="button" className={`cfg-btn ${confirmRevoke ? 'cfg-btn--danger' : 'cfg-btn--ghost-danger'}`} disabled={authLocked || !!busy || loginRunning} onClick={() => confirmRevoke ? void revoke() : setConfirmRevoke(true)}>
-                {busy === 'revoke' ? 'Revoking…' : confirmRevoke ? 'Confirm revoke bridge' : 'Revoke bridge'}
-              </button>
-              {confirmRevoke && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmRevoke(false)}>Cancel</button>}
-            </div>
-          </div>}
-        </div>
-      </section>
-
-      <section className="cfg-section" aria-labelledby="subscription-providers-title">
-        <h2 className="cfg-section__label" id="subscription-providers-title">Install on your computer</h2>
-        <p>Install Node.js 22.22 or newer and the official CLI on your computer, then sign in with your subscription account. Keep the bridge running while using a subscription.</p>
-        {PROVIDERS.map((provider) => {
-          const health = status?.providers[provider.id];
-          const isSelected = selected === provider.id;
-          const available = runtime === 'bridge' && !!status?.connected && !!health && ready(health) && !stale;
-          return (
-            <div className="cfg-card subscription-settings__provider" key={provider.id}>
-              <div className="cfg-row"><SettingIcon icon={Terminal} />
-                <div className="cfg-row__text">
-                  <div className="cfg-row__title"><ProviderLabel provider={provider.id}>{provider.name}</ProviderLabel></div>
-                  <div className="cfg-row__sub"><ProviderLabel provider={provider.id}>{provider.plan}</ProviderLabel></div>
-                </div>
-                {isSelected && <span className="cfg-chip">Selected{blocked ? ' · Blocked' : ''}</span>}
-              </div>
-              <div className="subscription-settings__provider-body">
-                <div className="subscription-settings__health" role="status">{stale ? 'Status unverified · refresh required' : runtime === 'bridge' ? providerState(health, !!status?.connected) : 'Connect the bridge to check this computer.'}</div>
-                {runtime === 'bridge' && health?.error && <div className="cfg-error">{health.error}</div>}
-                <div className="subscription-settings__command-label">Install</div>
-                <pre tabIndex={0}><code>{provider.install}</code></pre>
-                <div className="subscription-settings__command-label">Sign in with your subscription</div>
-                <pre tabIndex={0}><code>{provider.login}</code></pre>
-                {provider.id === 'codex' && <p>For device sign-in, use <code>codex login --device-auth</code>.</p>}
-                <div className="subscription-settings__actions">
-                  <button type="button" className={`cfg-btn ${isSelected ? 'cfg-btn--secondary' : 'cfg-btn--primary'}`} disabled={authLocked || !!busy || loginRunning || isSelected || !available} aria-pressed={isSelected} onClick={() => void select(provider.id)}>
-                    {busy === provider.id ? 'Selecting…' : isSelected ? 'Selected' : `Use ${provider.id === 'codex' ? 'ChatGPT' : 'Claude'}`}
-                  </button>
-                  <a href={provider.docs} target="_blank" rel="noreferrer">Official auth docs <ExternalLink size={12} aria-hidden /></a>
-                </div>
-                {!available && !isSelected && <p>Connect the bridge, install and sign in to this CLI with an eligible plan, then refresh status to enable selection.</p>}
-              </div>
-            </div>
-          );
-        })}
-      </section>
-
-        </div>
-      </details>
-
-      <AccessRow icon={Monitor} title="Manage device access" description="Pair or manage the separate computer your Bots work on.">
-        <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Computer settings</button>
-      </AccessRow>
-      <section className="cfg-section subscription-settings__coverage" aria-labelledby="subscription-limits-title">
-        <h2 className="cfg-section__label" id="subscription-limits-title">Usage and coverage</h2>
-        {providerTab === 'codex' && <p>Codex chooses its default model. The model list, plan name and usage limits are unavailable through this CLI connection. Check your ChatGPT account for plan details.</p>}
-        <p>When a plan is currently in use, all your Bots share it across desktop, phone and linked iMessage or WhatsApp. Your provider's usage limits and extra usage charges still apply.</p>
-        <p>Browser and computer tools use the computer selected in Settings. Choose a server-hosted computer there to use those tools while your personal computer is off.</p>
-        {tabStatus.currentlyInUse && modelCatalog.provider === `${providerTab}-cli` && modelCatalog.billing === 'plan' && <div className="cfg-card" aria-label="Connected plan usage">
-          <p>{modelCatalog.plan && <ProviderMark provider={modelCatalog.provider} />} {modelCatalog.plan ? `Reported plan: ${planLabel(modelCatalog.provider, modelCatalog.plan)}` : 'Plan name unavailable from the CLI.'}</p>
-          {modelCatalog.status === 'loading' ? <p>Checking plan usage…</p> : planUsage.state === 'reported' ? planUsage.windows.map(w => <p key={w.label}>{w.label}: {w.usedPercent}% used{w.resetsAt !== null ? ` · Resets ${new Date(w.resetsAt).toLocaleString()}` : ''}</p>) : <p>{planUsage.state === 'stale' ? 'Reported usage has expired. ' : 'Usage limits were not reported. '}Check your provider account for current limits.</p>}
-          {modelCatalog.usage && <p>Checked {new Date(modelCatalog.usage.checkedAt).toLocaleString()}</p>}
-        </div>}
-        <p>Plan billing covers model usage. Platform-provided voice and external services are separate and have their own billing.</p>
-      </section>
-      </div>
-    </div>
-  );
+  return <div className="subscription-settings settings-stack">
+    <Row className="settings-billing-row" title={<span className="settings-inline">Bots use <InfoTip label="About billing">Plan uses your subscription. API key pays per use.</InfoTip></span>}
+      trailing={<ButtonGroup className="settings-billing cfg-seg" role="group" aria-label="Bots use">
+        <button type="button" className={selected ? 'is-active' : ''} aria-pressed={!!selected} disabled={disabled} onClick={() => {
+          const available = (['claude', 'codex'] as const).find(id => modelAccessStatus(status, id, stale).connected);
+          if (available) void select(available); else setSheet(true);
+        }}>Plan</button>
+        <button type="button" className={!selected ? 'is-active' : ''} aria-pressed={!!status && !selected} disabled={disabled} onClick={() => void select(null)}>API key</button>
+      </ButtonGroup>} />
+    <Section title="Plans"><Card variant="list">
+      {(['claude', 'codex'] as const).map(id => {
+        const connection = modelAccessStatus(status, id, stale);
+        const name = id === 'claude' ? 'Claude' : 'ChatGPT';
+        return <Row key={id} data-provider={id} leading={<ProviderMark provider={id} />} title={<span className="settings-provider">{name}<span className={`cfg-chip ${connection.connected ? 'is-connected' : ''}`} role="status">{connection.connection}</span></span>}
+          trailing={connection.connected ? <SettingsMenu label="Manage" ariaLabel={`Manage ${name}`} disabled={!!busy || authLocked || loginRunning} items={[
+            ...(connection.connected && selected !== id ? [{ label: `Use ${name}`, onSelect: () => void select(id) }] : []),
+            { label: 'Refresh status', onSelect: () => { setProviderTab(id); void refresh(); } },
+            { label: 'Reset connection', onSelect: () => { setProviderTab(id); setConfirmReset(true); } },
+            { label: 'Disconnect', disabled: selected !== id, onSelect: () => void select(null) },
+            { label: 'Connection details', onSelect: () => { setProviderTab(id); setSheet(true); } },
+          ]} /> : <button type="button" className="cfg-btn cfg-btn--primary" disabled={!!busy || authLocked || loginRunning} onClick={() => { tabPicked.current = true; setProviderTab(id); setSheet(true); }}>Connect</button>} />;
+      })}
+    </Card></Section>
+    {confirmReset && <Card><p>Reset both saved plan logins and the computer bridge?</p><ButtonGroup>
+      <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setConfirmReset(false)}>Cancel</button>
+      <button type="button" className="cfg-btn cfg-btn--danger" disabled={authLocked || !!busy} onClick={reset}>Confirm reset</button>
+    </ButtonGroup></Card>}
+    <Section title="Pay per use"><Card variant="list"><OpenRouterSettings compact disabled={!!busy || loginRunning || authLocked || !!credentialReauth} refreshToken={status?.selected} onReauth={error => setCredentialReauth(error.message)} onChanged={() => { void readStatus().catch(() => {}); }} /></Card></Section>
+    {credentialReauth && <CredentialReauthPrompt accountEmail={accountEmail} reason={credentialReauth} resume={{ section: 'subscriptions', accountId, action: 'credentials' }} retryLabel="Save or remove your key" terminalActive={loginRunning} onCancel={() => setCredentialReauth(null)} />}
+    {recovery && <Card className="subscription-reauth"><p role="alert">{recovery.reason}</p><ButtonGroup>
+      <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => {
+        planResume({ section: 'subscriptions', provider: providerTab, accountId, action: recovery.action });
+        const url = new URL(window.location.href); url.searchParams.delete('login'); url.searchParams.delete('openrouter');
+        history.replaceState(history.state, '', url.pathname + url.search + '#settings/subscriptions'); window.location.reload();
+      }}>Continue connection</button>
+      <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { invalidateStatus(); cancelResume(); setRecovery(null); }}>Not now</button>
+    </ButtonGroup></Card>}
+    {error && !sheet && <p className="cfg-error" role="alert">{error}</p>}
+    {readError && <Row title="Status unavailable" trailing={<button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => void refresh()}>Retry</button>} />}
+    {verifyingResume && <p role="status">Checking sign-in</p>}
+    {notice && !recovery && !sheet && <p role="status">{notice}</p>}
+    <details className="settings-disclosure subscription-settings__context"><summary>Learn more</summary><div className="settings-stack">
+      <a href="https://docs.swarms.so" target="_blank" rel="noreferrer">Documentation</a>
+      <ApprovalLevelSettings selectedCli={selected} />
+      <Section title="API diagnostics"><Card><dl><RunDetails title="Last model run" run={status?.apiRuns?.latest ?? null} /><RunDetails title="Last tool run" run={status?.apiRuns?.lastToolRun ?? null} /></dl></Card></Section>
+      <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Computer settings</button>
+    </div></details>
+    {sheet && <Modal label={`Connect ${providerTab === 'claude' ? 'Claude' : 'ChatGPT'}`} className="settings-connect-sheet" onClose={() => { setSheet(false); closeLogin(); dismiss(); }}>
+      <Page type="form" title={`Connect ${providerTab === 'claude' ? 'Claude' : 'ChatGPT'}`}>
+        <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { setSheet(false); closeLogin(); dismiss(); }}>Close</button>
+        <Card><Row leading={<ProviderMark provider={providerTab} />} title={providerTab === 'claude' ? 'Claude' : 'ChatGPT'} subtitle={tabStatus.connection} trailing={<button className="cfg-btn cfg-btn--primary" disabled={disabled} onClick={startLogin}>{loginRunning ? 'Connecting' : 'Sign in'}</button>} /></Card>
+        {error && <p role="alert" className="cfg-error">{error}</p>}
+        {notice && <p role="status">{notice}</p>}
+        {loginProvider && <CliLoginTerminal key={loginAttempt} provider={loginProvider} onClose={closeLogin} onSessionRequired={() => { closeLogin(); requestSession('login', 'Sign in to Swarm to continue.'); }} onStateChange={next => {
+          const running = next === 'running' || next === 'verifying'; loginActive.current = running; setLoginRunning(running);
+          if ((next === 'failed' || next === 'cancelled') && !working.current) void readStatus().catch(() => {});
+        }} onConnected={() => { refreshModels(); void refresh(); }} />}
+        {selected === providerTab && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={disabled} onClick={() => void select(null)}>Disconnect</button>}
+        {planReady && selected !== providerTab && <button type="button" className="cfg-btn cfg-btn--primary" disabled={disabled} onClick={() => void select(providerTab)}>Use {providerTab === 'claude' ? 'Claude' : 'ChatGPT'}</button>}
+        <details className="settings-disclosure"><summary>Learn more</summary><div className="settings-stack">
+          <p>{tabStatus.details}</p><p>{tabStatus.currentRoute}</p>
+          {!tabStatus.connected && tabStatus.hasSavedState && <SettingsMenu ariaLabel="Manage saved connection" disabled={disabled} items={[
+            { label: 'Refresh status', onSelect: () => void refresh() },
+            { label: 'Reset connection', onSelect: () => { setSheet(false); setConfirmReset(true); } },
+            { label: 'Disconnect', disabled: selected !== providerTab, onSelect: () => void select(null) },
+          ]} />}
+          <p>Sign in through the official {providerTab === 'claude' ? 'Claude Code' : 'Codex'} app.</p>
+          <a href={provider.docs} target="_blank" rel="noreferrer">Sign-in instructions</a>
+          <Section title="Computer bridge"><Card>
+            <Row title={status?.device || 'Your computer'} subtitle={runtime === 'bridge' && status?.connected ? 'Connected' : 'Not connected'} />
+            <p>Model requests run here while it stays online.</p>
+            <ButtonGroup stack><button type="button" className="cfg-btn cfg-btn--primary" disabled={authLocked || !!busy || loginRunning || !!command} onClick={() => void generate()}>Generate connect command</button><button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => void refresh()}>Refresh status</button></ButtonGroup>
+            {command && <><pre aria-label="Connect command, secret hidden"><CommandText command="node swarm-cli-bridge.mjs --server [server] --token [hidden]" /></pre><ButtonGroup><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy command'}</button><button type="button" className="cfg-btn cfg-btn--secondary" onClick={dismiss}>Dismiss</button></ButtonGroup>{copyError && <p role="alert">Allow clipboard access and try again.</p>}</>}
+            {runtime === 'bridge' && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={authLocked || !!busy || loginRunning} onClick={() => confirmRevoke ? void revoke() : setConfirmRevoke(true)}>{confirmRevoke ? 'Confirm revoke bridge' : 'Revoke bridge'}</button>}
+          </Card></Section>
+          <Section title="Install"><Card><CommandText command={provider.install} /><CommandText command={provider.login} /></Card></Section>
+          <Section title="Diagnostics"><Card><dl><RunDetails title="Last model run" run={status?.runsByProvider?.[providerTab]?.latest ?? null} /><RunDetails title="Last tool run" run={status?.runsByProvider?.[providerTab]?.lastToolRun ?? null} /></dl></Card></Section>
+          <Section title="Usage"><Card>{tabStatus.currentlyInUse && modelCatalog.provider === `${providerTab}-cli` && modelCatalog.billing === 'plan' ? <>
+            <ProviderLabel provider={providerTab}>{modelCatalog.plan ? planLabel(providerTab, modelCatalog.plan) : 'Plan'}</ProviderLabel>
+            {planUsage.state === 'reported' ? planUsage.windows.map(w => <p key={w.label}>{w.label}: {w.usedPercent}% used</p>) : <p>Usage unavailable</p>}
+          </> : <p>Check your provider account for current limits.</p>}</Card></Section>
+          {blocked && <p>Reconnect the selected plan or choose API key.</p>}
+          {health?.error && <p role="note">{health.error}</p>}
+        </div></details>
+      </Page>
+    </Modal>}
+  </div>;
 }
 
 function RunDetails({ title, run }: { title: string; run: CliRun | null }) {
@@ -546,4 +404,8 @@ function RunDetails({ title, run }: { title: string; run: CliRun | null }) {
       <div><dt>Error code</dt><dd>{run.result === 'denied' ? 'None' : run.errorCode ?? 'None'}</dd></div>
     </>}
   </>;
+}
+
+function CommandText({ command }: { command: string }) {
+  return <code className="settings-command">{command.split(' ').map((word, index) => <span key={index}>{word}{index < command.split(' ').length - 1 ? ' ' : ''}</span>)}</code>;
 }

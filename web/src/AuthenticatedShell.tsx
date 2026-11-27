@@ -1,3 +1,4 @@
+import { openConversation } from './configStore';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { TasksLoader, preloadTasks } from './components/TasksLoader';
 import { startEvents } from './lib/events';
@@ -63,8 +64,16 @@ function Shell() {
   const topLevel = screen.kind === 'bots' || screen.kind === 'search' || (screen.kind === 'settings' && !screen.section) || (screen.kind === 'work' && !screen.route.botSlug);
   const hasBack = screen.kind !== 'bots' || navigation.trail.length > 0;
   const backTarget = parseScreen(navigation.trail.at(-1) ?? '') ?? parentScreen(screen) ?? { kind: 'bots' };
-  const backText = mobile ? 'Back' : backTarget.kind === 'chat' ? 'Back to chat' : backLabel(backTarget, bots);
-  const back = () => navigation.back(parentScreen(screen) ?? { kind: 'bots' });
+  const backText = mobile ? 'Back' : screen.kind === 'settings' ? 'Back to chat' : backTarget.kind === 'chat' ? 'Back to chat' : backLabel(backTarget, bots);
+  const back = () => {
+    if (!mobile && screen.kind === 'settings') {
+      const bot = bots.find(bot => bot.id === selectedBotId) ?? bots.find(bot => bot.isPrimary);
+      if (bot) openConversation(bot.id);
+      else useConfigUI.getState().setView('bots');
+      return;
+    }
+    navigation.back(parentScreen(screen) ?? { kind: 'bots' });
+  };
   const headerTitle = !mobile && screen.kind === 'settings' ? 'Settings' : screenTitle(screen, bots).replace(/ · Swarm$/, '').replace(/^Settings · /, '');
   const headerBot = 'bot' in screen ? routeBot(screen.bot, bots) : undefined;
   const botSubtitle = headerBot ? headerTitle.replace(`${headerBot.name} · `, '') : '';

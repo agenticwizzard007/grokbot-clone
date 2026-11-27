@@ -133,7 +133,7 @@
 .app-settings__nav { display: flex; flex-direction: column; flex-shrink: 0; }
 .app-settings__main { position: relative; flex: 1 1 0; min-width: 0; overflow-y: auto; background: var(--color-bg-pane); }
 .app-settings__close { position: absolute; top: 14px; right: 16px; }
-.app-settings__page { display: flex; flex-direction: column; gap: 28px; max-width: 680px; margin: 0 auto; padding: 48px 32px 64px; }
+.app-settings__page:not(.layout-page) { display: flex; flex-direction: column; gap: 28px; max-width: 680px; margin: 0 auto; padding: 48px 32px 64px; }
 .app-settings__head h1 { margin: 0; font-size: var(--text-page-title); font-weight: 600; line-height: 1.2; letter-spacing: -0.2px; color: var(--color-text-primary); }
 .app-settings__head p { margin: 6px 0 0; font-size: 13px; line-height: 19px; color: var(--color-text-tertiary); }
 

@@ -135,15 +135,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     for (const provider of ['claude', 'codex']) {
       const label = provider === 'claude' ? 'Claude' : 'ChatGPT';
       await page.getByRole('button', { name: `Connect ${label} plan`, exact: true }).click();
-      await page.getByRole('tab', { name: provider === 'claude' ? 'Claude Code' : 'Codex', exact: true }).waitFor();
-      assert.equal(await page.getByRole('tab', { name: provider === 'claude' ? 'Claude Code' : 'Codex', exact: true }).getAttribute('aria-selected'), 'true');
-      const connection = page.getByRole('region', { name: 'Plan connection', exact: true });
-      await connection.getByRole('button', { name: `Connect ${label} plan`, exact: true }).click();
+      const connection = page.getByRole('dialog', { name: `Connect ${label}`, exact:true });
+      await connection.waitFor();
+      await connection.getByRole('button', { name: 'Sign in', exact: true }).click();
       await page.getByRole('region', { name: /login terminal$/ }).waitFor();
       assert.equal(loginProvider, provider);
       loginComplete = true;
-      await connection.getByText('Connected · Currently in use', { exact: true }).waitFor();
-      if (provider === 'claude') await connection.getByText(/Claude Code installed · Signed in · Claude Max plan/).waitFor();
+      await connection.getByText('Connected', { exact: true }).first().waitFor();
+      assert.equal(status.selected,provider);
       await page.getByRole('button', { name: 'Done', exact: true }).click();
       await closeSettings();
       await page.locator('.model-pill').click();
@@ -165,6 +164,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
       }
       await connection.getByRole('button', { name: 'Disconnect', exact: true }).click();
       await connection.getByText('Connected', { exact: true }).waitFor();
+      await connection.locator('summary').filter({hasText:'Learn more'}).click();
       await connection.getByText(/^Your Bots currently use API providers;/).waitFor();
       assert.equal(status.providers[provider].authenticated, true);
       assert.ok(!mutations.some(m => m.path === '/api/cli/reset' || (m.path === '/api/cli/pair' && m.method === 'DELETE')), 'disconnect must not remove CLI credentials');
@@ -174,15 +174,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
 
     await page.getByRole('button', { name: 'Back to models', exact: true }).click();
     await page.getByRole('button', { name: 'Manage API keys', exact: true }).click();
-    await page.getByRole('region', { name: 'Connect a plan', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Default API model', exact:true }).waitFor();
     assert.equal(await page.evaluate(() => window.settingsSection()), 'keys');
-    await page.getByRole('button', { name: 'Use Claude plan', exact: true }).click();
-    await page.getByRole('region', { name: 'Plan connection', exact: true }).waitFor();
-    await page.locator('.subscription-settings__advanced > summary').click();
+    await page.evaluate(async () => (await import('/src/configStore.ts')).useConfigUI.getState().openAppSettings('subscriptions','claude'));
+    await page.getByRole('dialog').locator('summary').filter({hasText:'Learn more'}).click();
     await page.getByRole('button', { name: 'Generate connect command', exact: true }).click();
     await page.getByLabel('Connect command, secret hidden', { exact: true }).waitFor();
     assert.equal((await page.content()).includes(pairingSecret), false, 'pairing secret must stay out of rendered HTML');
-    await page.getByRole('button', { name: 'Copy connect command', exact: true }).click();
+    await page.getByRole('button', { name: 'Copy command', exact: true }).click();
     assert.equal(await page.evaluate(value => navigator.clipboard.readText().then(text => text.includes(value)), pairingSecret), true);
     await page.screenshot({ path: `.context/plan-connections/masked-pairing-${width}-${theme}.png` });
     await closeSettings();
@@ -191,7 +190,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     status = { ...status, runtime: 'server', connected: true, providers: { ...status.providers, claude: { installed: false, authenticated: false, subscription: false } } };
     await openPlans(); await page.getByText('Not connected', { exact: true }).first().waitFor();
     await page.getByRole('button', { name: 'Connect Claude plan', exact: true }).click();
-    assert.equal(await page.getByRole('region', { name: 'Plan connection', exact: true }).getByRole('button', { name: 'Connect Claude plan', exact: true }).isEnabled(), true, 'a missing Claude install keeps the explicit connect flow available');
+    assert.equal(await page.getByRole('dialog').getByRole('button', { name: 'Sign in', exact: true }).isEnabled(), true, 'a missing Claude install keeps the explicit connect flow available');
     await closeSettings();
     status = { ...status, runtime: 'bridge', connected: false };
     await openPlans(); await page.getByText('Unavailable', { exact: true }).first().waitFor();

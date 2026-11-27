@@ -1,3 +1,4 @@
+import { Page, Section, Card } from '../layout';
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ChevronRight, Search } from 'lucide-react';
 import { NAV, matches, SettingsNavButton } from './settingsNavigation';
@@ -7,6 +8,7 @@ import { useCompactLayout } from '../../lib/useCompactLayout';
 import '../../styles/config.css';
 import '../../styles/settings.css';
 import '../../styles/access-settings.css';
+import '../../styles/settings-v3.css';
 
 // Only page contents wait for code or data. Navigation stays mounted and usable.
 const ConfigLayer = lazy(() => import('./ConfigLayer').then(m => ({ default: m.ConfigLayer })));
@@ -100,12 +102,11 @@ export function AppSettings() {
         />
       </label>
       {groups.map((g) => (
-        <div key={g.group} className="settings-nav__group" role="group" aria-label={g.group}>
-          <h3 className="settings-nav__label">{g.group}</h3>
-          <div className="settings-nav__items">
+        <Section key={g.group} className="settings-nav__group" title={g.group} aria-label={g.group}>
+          <Card variant="list" className="settings-nav__items">
             {g.items.map(it => <SettingsNavButton key={it.id} item={it} compact={compact} active={section === it.id && !(compact && listView)} onSelect={pick} />)}
-          </div>
-        </div>
+          </Card>
+        </Section>
       ))}
       {!groups.length && <div className="settings-nav__empty" role="status">No settings match “{q}”.</div>}
     </nav>
@@ -116,11 +117,11 @@ export function AppSettings() {
     {!compact && <aside className="app-settings__nav">{nav}</aside>}
     <div className="app-settings__main" ref={main}>
       <span ref={heading} tabIndex={-1} className="sr-only">{showList ? 'Settings' : sectionLabel}</span>
-      {showList ? nav : <div className="app-settings__page" key={section}>
+      {showList ? <Page type="form">{nav}</Page> : <Page type="form" title={compact ? undefined : section === 'subscriptions' ? 'Models & access' : sectionLabel} className="app-settings__page" key={section}>
         <Suspense fallback={<div className="settings-page-loading" role="status">Loading settings</div>}>
           <ConfigLayer />
         </Suspense>
-      </div>}
+      </Page>}
     </div>
   </div>;
 }

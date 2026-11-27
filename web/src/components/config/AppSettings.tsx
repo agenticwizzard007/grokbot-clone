@@ -1,12 +1,13 @@
-import { modelDisplayName } from '../../lib/modelDisplay';
-import { ProviderLabel, ProviderMark } from '../ProviderMark';
+import { SettingsMenu } from './SettingsControls';
+import { Section, Card, Row, ButtonGroup } from '../layout';
+import { ProviderMark } from '../ProviderMark';
 import { ApprovalLevelSettings } from './ApprovalLevelSettings';
 import { InputLatencyDiagnostics } from '../InputLatencyDiagnostics';
 import { prefetchApps } from '../../lib/appsCatalogCache';
-import { visibleConnections, connectionStatus, connectionSummary } from '@shared/connection-details';
-import { ConnectedAccountDetails, ConnectedAccounts, type DisplayAccount } from '../ConnectedAccountDetails';
+import { visibleConnections, connectionStatus } from '@shared/connection-details';
+import { ConnectedAccountDetails, type DisplayAccount } from '../ConnectedAccountDetails';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Blocks, ChevronRight, CircleUserRound, Clock3, TextCursorInput, KeyRound, Monitor, PanelLeftOpen, Settings2, ShieldCheck } from 'lucide-react';
+import { Blocks, ChevronRight, CircleUserRound, Clock3, TextCursorInput, Monitor, PanelLeftOpen, Settings2, ShieldCheck } from 'lucide-react';
 import { SettingRow, SettingIcon } from './SettingRow';
 export { SettingRow } from './SettingRow';
 import type { Toolkit, User } from '@shared/types';
@@ -22,7 +23,7 @@ import { ConfirmButton, Segmented, Switch } from './ui';
 import { McpSettings } from './McpSettings';
 import { MessagingSettings } from './MessagingSettings';
 import { SubscriptionSettings } from './SubscriptionSettings';
-import { PlanConnections } from '../PlanConnections';
+import { openrouterApi } from '../../lib/openrouterApi';
 import { OpenRouterSettings } from './OpenRouterSettings';
 import { PrivateKeysSettings } from './PrivateKeysSettings';
 import { AppleSignIn } from '../AppleSignIn';
@@ -94,26 +95,16 @@ function GeneralSection() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const shortcuts = SHORTCUTS.filter(s => !(s.web && isNativeApp));
   return <div className="settings-general">
-    <PageHead title="General" />
-    <section className="cfg-section settings-appearance" aria-label="Appearance">
-      <div className="cfg-card">
-        <SettingRow icon={Settings2} title="Theme">
+    <Section className="settings-appearance" aria-label="Appearance" ><Card variant="list" ><SettingRow icon={Settings2} title="Theme">
           <Segmented label="Theme" value={theme} onChange={setTheme} options={(['light', 'dark', 'system'] as const).map(t => ({ value: t, label: t === 'system' ? 'Auto' : THEME_LABEL[t] }))} />
-        </SettingRow>
-        <SettingRow icon={PanelLeftOpen} title="Show details panel">
+        </SettingRow><SettingRow icon={PanelLeftOpen} title="Show details panel">
           <Switch label="Show details panel" on={detailsDefault} onChange={v => { writeDetailsDefault(accountId, v); setDetailsDefault(v); }} />
-        </SettingRow>
-        <SettingRow icon={Clock3} title="Time zone" sub={(user as (User & { timezone?: string }) | null)?.timezone || browserTimeZone()}>
+        </SettingRow><SettingRow icon={Clock3} title="Time zone" sub={(user as (User & { timezone?: string }) | null)?.timezone || browserTimeZone()}>
           <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('account')}>Change</button>
-        </SettingRow>
-        <SettingRow icon={TextCursorInput} title="Keyboard shortcuts">
+        </SettingRow><SettingRow icon={TextCursorInput} title="Keyboard shortcuts">
           <button type="button" className="cfg-btn cfg-btn--secondary" aria-expanded={shortcutsOpen} aria-controls="general-shortcuts" onClick={() => setShortcutsOpen(!shortcutsOpen)}>{shortcutsOpen ? 'Hide' : 'View'}</button>
-        </SettingRow>
-      </div>
-    </section>
-    {shortcutsOpen && <section id="general-shortcuts" className="cfg-card settings-shortcuts" aria-label="Keyboard shortcuts">
-      {shortcuts.map(shortcut => <SettingRow icon={TextCursorInput} key={shortcut.label} title={shortcut.label}><Keys keys={shortcutKeys(shortcut)} /></SettingRow>)}
-    </section>}
+        </SettingRow></Card></Section>
+    {shortcutsOpen && <Card variant="list" id="general-shortcuts" className="settings-shortcuts" aria-label="Keyboard shortcuts">{shortcuts.map(shortcut => <SettingRow icon={TextCursorInput} key={shortcut.label} title={shortcut.label}><Keys keys={shortcutKeys(shortcut)} /></SettingRow>)}</Card>}
     <button type="button" className="link-btn settings-diagnostics" aria-expanded={diagnosticsOpen} onClick={() => setDiagnosticsOpen(!diagnosticsOpen)}>Diagnostics</button>
     {diagnosticsOpen && <InputLatencyDiagnostics />}
   </div>;
@@ -122,59 +113,29 @@ function GeneralSection() {
 // ---------------------------------------------------------------------------
 // API keys: the server's provider keys, entered in the app and verified before saving.
 
-const sourceText = (s: KeyStatus) => (s.source === 'app' ? 'saved in the app' : s.source === 'env' ? 'from the server’s .env file' : '');
-
-function KeyCard({ name, title, what, link, status, canEdit, required, onChange }: {
-  name: 'voice' | 'direct' | 'composio' | 'openrouter'; title: string; what: string; link?: { href: string; label: string };
-  status: KeyStatus; canEdit: boolean; required?: boolean; onChange: (r: KeysResponse) => void;
+function KeyCard({ name, title, status, canEdit, onChange }: {
+  name: 'voice' | 'direct' | 'composio' | 'openrouter'; title: string;
+  status: KeyStatus; canEdit: boolean; onChange: (r: KeysResponse) => void;
 }) {
   const [value, setValue] = useState('');
-  const [busy, setBusy] = useState<'save' | 'clear' | null>(null);
-  const [note, setNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
-  const save = async () => {
-    setBusy('save'); setNote(null);
-    try {
-      const r = await configApi.saveKey(name, value.trim());
-      setValue('');
-      setNote({ tone: 'ok', text: r.modelOk === false ? `Key works, but ${modelDisplayName(r.model.value)} isn't available on it. Pick a model above.` : 'Verified and saved. Bots use it right away.' });
-      onChange(r);
-    } catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
-    finally { setBusy(null); }
-  };
-  const clear = async () => {
-    setBusy('clear'); setNote(null);
-    try { onChange(await configApi.clearKey(name)); } catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
-    finally { setBusy(null); }
-  };
-  return (
-    <div className="cfg-card cfg-key">
-      <div className="cfg-row"><SettingIcon icon={KeyRound} />
-        <div className="cfg-row__text">
-          <div className="cfg-row__title"><ProviderLabel provider={name === "voice" ? "xai" : name}>{title}</ProviderLabel> · {status.set ? 'Connected' : required ? 'Needed' : 'Not set'}</div>
-          <div className="cfg-row__sub">{what}{status.set && canEdit ? ` ${status.hint ? `Key ${status.hint}, ` : 'Key '}${sourceText(status)}.` : ''}</div>
-        </div>
-        {status.source === 'app' && canEdit && (
-          <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Remove key" onConfirm={clear}>{busy === 'clear' ? 'Removing…' : 'Remove'}</ConfirmButton>
-        )}
-      </div>
-      {canEdit ? (
-        <form className="cfg-key__form" onSubmit={(e) => {
-          e.preventDefault();
-          if (value.trim()) void save();
-          else { document.getElementById(`key-input-${name}`)?.focus(); setNote({ tone: 'error', text: 'Paste your key in the box first.' }); }
-        }}>
-          <input id={`key-input-${name}`} className="text-input cfg-key__input" type="password" autoComplete="off" spellCheck={false} placeholder={status.set ? 'Paste a new key to replace it' : 'Paste your key'} value={value} onChange={(e) => { setValue(e.target.value); if (note?.tone === 'error') setNote(null); }} aria-label={`${title} API key`} />
-          <button type="submit" className="cfg-btn cfg-btn--primary" disabled={!!busy}>{busy === 'save' ? 'Verifying…' : 'Save & verify'}</button>
-        </form>
-      ) : null}
-      <div className="cfg-key__foot">
-        {note
-          ? <span className={note.tone === 'error' ? 'cfg-key__err' : 'cfg-key__ok'} role="status">{note.text}</span>
-          : name === 'voice' && !canEdit ? 'Managed by your platform admin. No personal voice key is needed.'
-            : link ? <a href={link.href} target="_blank" rel="noreferrer">{link.label}</a> : 'Use any compatible provider key.'}
-      </div>
-    </div>
-  );
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return <div className="settings-key-row">
+    <Row leading={<ProviderMark provider={name === 'voice' ? 'xai' : name} />} title={<span className="settings-provider">{title}<span className="cfg-chip">{status.set ? 'Key saved' : 'Not connected'}</span></span>} trailing={<button type="button" className="cfg-btn cfg-btn--secondary" disabled={!canEdit || busy} aria-expanded={editing} onClick={() => setEditing(v => !v)}>{status.set ? 'Replace' : 'Add key'}</button>} />
+    {editing && <form className="settings-inline-form" onSubmit={async e => {
+      e.preventDefault(); if (!value.trim() || busy) return;
+      setBusy(true); setError('');
+      try { const r = await configApi.saveKey(name, value.trim()); onChange(r); setValue(''); setEditing(false); if (r.modelOk === false) setError('Choose an available default model.'); }
+      catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+    }}>
+      <label htmlFor={`key-input-${name}`}>{title} API key</label>
+      <input id={`key-input-${name}`} className="text-input" type="password" autoComplete="off" spellCheck={false} value={value} onChange={e => setValue(e.target.value)} autoFocus />
+      <ButtonGroup><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => { setValue(''); setEditing(false); }}>Cancel</button><button type="submit" className="cfg-btn cfg-btn--primary" disabled={busy || !value.trim()}>Save</button></ButtonGroup>
+      {status.source === 'app' && <ConfirmButton disabled={busy} confirmLabel="Remove key" onConfirm={async () => { setBusy(true); try { onChange(await configApi.clearKey(name)); setEditing(false); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>Remove key</ConfirmButton>}
+    </form>}
+    {error && <p role="alert" className="cfg-error">{error}</p>}
+  </div>;
 }
 
 function KeysSection() {
@@ -189,16 +150,15 @@ function AccountKeysSection({ accountId, accountEmail }: { accountId: string; ac
   const onReauth = (error: Error) => reauth.request('verify-credentials', error.message);
   return <>
     {reauth.pending && <ReauthPrompt accountEmail={accountEmail} reason={reauth.pending.reason} resume={{ section: 'keys', accountId, action: 'login' }} retryLabel="the credential action" terminalActive={false} onCancel={reauth.cancel} />}
-    {reauth.checking && <p role="status">Verifying your sign-in…</p>}
-    {reauth.returned && <p role="status">You’re signed in again. Review your credentials and retry the change.</p>}
+    {reauth.checking && <p role="status">Verifying your sign-in</p>}
+    {reauth.returned && <p role="status">You're signed in again. Review your credentials and retry the change.</p>}
     {reauth.error && <p className="cfg-error" role="alert">{reauth.error}</p>}
-    <OpenRouterSettings onReauth={onReauth} />
-    <PlanConnections settings />
     <ServerKeysSection accountId={accountId} onReauth={onReauth} />
   </>;
 }
 
 function ServerKeysSection({ accountId, onReauth }: { accountId: string; onReauth: (error: Error) => void }) {
+  const [personalRevision, refreshPersonal] = useState(0);
   const [keys, setKeys] = useState<KeysResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
@@ -208,75 +168,41 @@ function ServerKeysSection({ accountId, onReauth }: { accountId: string; onReaut
   const changed = (r: KeysResponse) => { setKeys((k) => (k ? { ...k, ...r } : r)); refreshModels(); setPickerKey((n) => n + 1); };
   const save = async (name: 'provider' | 'model' | 'openrouter_model', value: string) => {
     setNote(null);
-    try { changed(await configApi.saveKey(name, value)); setNote({ tone: 'ok', text: 'Saved. Bots use it from their next message.' }); }
+    try { changed(await configApi.saveKey(name, value)); setNote({ tone: 'ok', text: 'Saved.' }); }
     catch (e) { setNote({ tone: 'error', text: (e as Error).message }); }
   };
 
-  if (error) return <div className="cfg-error">Could not load server defaults: {error}</div>;
-  if (!keys) return <div className="cfg-empty cfg-empty--flat">Loading server defaults…</div>;
-  if (keys.isolated) return <PrivateKeysSettings accountId={accountId} onReauth={onReauth} />;
-  const running = keys.provider.value;
-  const chosen = keys.provider.chosen ?? running;
-  const keyFor = (p: 'direct' | 'openrouter') => (p === 'openrouter' ? keys.openrouter.set : keys.direct.set);
-  const nameOf = (p: 'direct' | 'openrouter') => (p === 'openrouter' ? 'OpenRouter' : 'custom provider');
+  if (error) return <p className="cfg-error" role="alert">{error}</p>;
+  if (!keys) return <p role="status">Loading</p>;
+  if (keys.isolated) return <><Card variant="list"><OpenRouterSettings onReauth={onReauth} onChanged={() => refreshPersonal(value => value + 1)} /><PrivateKeysSettings accountId={accountId} onReauth={onReauth} /></Card><PersonalDefaultModel onReauth={onReauth} revision={personalRevision} /></>;
+  const chosen = keys.provider.chosen ?? keys.provider.value;
   const current = chosen === 'openrouter' ? keys.openrouterModel.value : keys.model.value;
-  // OpenRouter's catalog is public, so a model can be chosen before the key is added; direct provider needs the key.
-  const canPick = keys.canEdit && (chosen === 'openrouter' || keys.direct.set);
-  const choose = async (p: 'direct' | 'openrouter') => {
-    if (p === chosen) { if (!keyFor(p)) document.getElementById(`key-input-${p}`)?.focus(); return; }
-    await save('provider', p);
-    if (!keyFor(p)) {
-      document.getElementById(`key-input-${p}`)?.focus();
-      setNote({ tone: 'ok', text: `Paste your ${nameOf(p)} key below to finish switching.${keyFor(p === 'direct' ? 'openrouter' : 'direct') ? ` Until then Bots keep using ${nameOf(p === 'direct' ? 'openrouter' : 'direct')}.` : ''}` });
-    }
-  };
-  const status = !keyFor(chosen)
-    ? keyFor(running) && running !== chosen
-      ? `Waiting for your ${nameOf(chosen)} key. Bots use ${modelDisplayName(running === 'openrouter' ? keys.openrouterModel.value : keys.model.value)} through ${nameOf(running)} until then.`
-      : `Add your ${nameOf(chosen)} key below so Bots can run.`
-    : `Bots use ${modelDisplayName(current)} through ${nameOf(chosen)}.`;
-  return (
-    <>
-      <section className="cfg-section">
-        <h2 className="cfg-section__label">Platform voice</h2>
-        <KeyCard name="voice" title="xAI · Platform voice" what="One platform key enables live calls, dictation and spoken replies for all existing and new accounts on iOS, macOS and web. Works with any text-model connection. Voice usage is billed to the platform’s xAI account."
-          link={{ href: 'https://console.x.ai', label: 'Get a voice-enabled API key at console.x.ai' }} status={keys.voice} canEdit={keys.canEdit} onChange={changed} />
-      </section>
-      <h2 className="cfg-section__label">Server defaults</h2>
-      <p className="cfg-field__hint">These shared keys apply when you choose server defaults. Your personal OpenRouter connection or selected subscription takes priority. Only the server owner can change shared keys.</p>
+  return <>
+    <Section><Card variant="list">
+      <OpenRouterSettings onReauth={onReauth} onChanged={() => refreshPersonal(value => value + 1)} />
+      <KeyCard name="direct" title="Model API" status={keys.direct} canEdit={keys.canEdit} onChange={changed} />
+      <KeyCard name="voice" title="xAI voice" status={keys.voice} canEdit={keys.canEdit} onChange={changed} />
+    </Card></Section>
+    <PersonalDefaultModel onReauth={onReauth} revision={personalRevision} />
+    {note && <p role="status" className={note.tone === 'error' ? 'cfg-error' : ''}>{note.text}</p>}
+    <details className="settings-disclosure"><summary>Server defaults</summary><div className="settings-stack">
+      <Section title="Default API model"><ModelPicker key={`${chosen}-${pickerKey}`} provider={chosen} label="Default API model" value={current} disabled={!keys.canEdit} onChange={id => { if (id && id !== current) void save(chosen === 'openrouter' ? 'openrouter_model' : 'model', id); }} /></Section>
+      <Row title="Provider" trailing={<Segmented label="Model provider" value={chosen} options={[{value:'direct',label:'Model API'},{value:'openrouter',label:'OpenRouter'}]} onChange={value => { if (keys.canEdit) void save('provider',value); }} />} />
+      <Card variant="list"><KeyCard name="openrouter" title="Server OpenRouter" status={keys.openrouter} canEdit={keys.canEdit} onChange={changed} /><KeyCard name="composio" title="Connected apps" status={keys.composio} canEdit={keys.canEdit} onChange={changed} /></Card>
+    </div></details>
+  </>;
+}
 
-      <section className="cfg-section">
-        <h2 className="cfg-section__label">Models</h2>
-        <div className="cfg-card cfg-key">
-          <div className="cfg-row cfg-key__form"><SettingIcon icon={KeyRound} />
-            <div className="cfg-row__text"><div className="cfg-row__title">Run Bots on</div><div className="cfg-row__sub">OpenRouter gives one key for Claude, GPT, Gemini and hundreds more.</div></div>
-            <div className="cfg-seg" role="radiogroup" aria-label="Model provider">
-              {(['openrouter', 'direct'] as const).map((p) => (
-                <button key={p} type="button" role="radio" aria-checked={chosen === p} className={chosen === p ? 'is-active' : ''} disabled={!keys.canEdit} onClick={() => void choose(p)}>
-                  <ProviderMark provider={p} />{p === 'openrouter' ? 'OpenRouter' : 'Custom provider'}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="cfg-row cfg-key__form"><span className="cfg-key__icon-space" aria-hidden="true" />
-            <div className="cfg-row__text"><div className="cfg-row__title">Default model</div><div className="cfg-row__sub">Used by every Bot unless you pick one in its settings.</div></div>
-            <ModelPicker key={`${chosen}-${pickerKey}`} provider={chosen} label="Default model" value={current} disabled={!canPick}
-              onChange={(id) => { if (id && id !== current) void save(chosen === 'openrouter' ? 'openrouter_model' : 'model', id); }} />
-          </div>
-          <div className="cfg-key__foot">
-            {note ? <span className={note.tone === 'error' ? 'cfg-key__err' : 'cfg-key__ok'} role="status">{note.text}</span> : status}
-          </div>
-        </div>
-      </section>
-
-      <section className="cfg-section">
-        <h2 className="cfg-section__label">Keys</h2>
-        <KeyCard name="openrouter" title="OpenRouter" what="Recommended: one key for 290+ models that can use tools, with per-token pricing." link={{ href: 'https://openrouter.ai/keys', label: 'Get a key at openrouter.ai/keys' }} status={keys.openrouter} canEdit={keys.canEdit} onChange={changed} />
-        <KeyCard name="direct" title="Custom provider" what="Direct model access through a compatible provider." status={keys.direct} canEdit={keys.canEdit} onChange={changed} />
-        <KeyCard name="composio" title="Composio · Connected apps" what="One project key enables connected apps for everyone on this server. Each person connects their own accounts; their connections stay private." link={{ href: 'https://platform.composio.dev', label: 'Create a Composio account or get a project key' }} status={keys.composio} canEdit={keys.canEdit} onChange={changed} />
-      </section>
-    </>
-  );
+function PersonalDefaultModel({ onReauth, revision }: { onReauth: (error: Error) => void; revision: number }) {
+  const accountId = useStore(s => s.user?.id);
+  const current = useAccessPanel(accountId);
+  const [status, setStatus] = useState<Awaited<ReturnType<typeof openrouterApi.status>> | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => { openrouterApi.status().then(r => { if (current()) setStatus(r); }).catch(e => { if (current()) setError(e.message); }); }, [current, revision]);
+  return <Section title="Default API model"><ModelPicker provider="openrouter" label="Default API model" value={status?.model ?? null} disabled={!status?.connected} onChange={model => {
+    if (!model || !accountId || !current()) return;
+    void verifyAccessAccount(accountId).then(async () => { if (current()) { const r = await openrouterApi.update({model}); if (current()) { setStatus(r); refreshModels(); } } }).catch(e => { if (current()) { if (needsReauth(e)) onReauth(e); else setError(e.message); } });
+  }} />{error && <p role="alert" className="cfg-error">{error}</p>}</Section>;
 }
 
 const screenLabel = (id: string) => (id === 'default' ? 'Main screen' : `Screen ${Number(id.replace('screen-', '')) - 98 || id}`);
@@ -322,48 +248,18 @@ function ComputerSection() {
 
   return (
     <>
-      <PageHead title="Computer" sub="Manage where Bots work and which device they can use." />
-      <section className="cfg-section cloud-computer" aria-label="Cloud computer">
-        <h2 className="cfg-section__label">Cloud computer</h2>
-        <p className="cfg-field__hint">Each Bot has its own cloud computer. Bots can browse and run commands there without asking. Connected app actions that change data still ask first.</p>
-        <div className="cfg-card">
-          <div className="cfg-row"><SettingIcon icon={Monitor} />
-            <div className="cfg-row__text">
-              <div className="cfg-row__title">Bots' computer · {computerStatusText(computer ?? null)}</div>
-              <div className="cfg-row__sub">
-                {details ? `Goes to sleep after ${details.hibernation.idleMinutes} idle minutes when nobody is watching. Starts again on its own once a Bot has work.` : 'Checking…'}
-              </div>
-            </div>
-            <div className="settings-row__actions">
-              {watchBot && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={watch} title={`Watch ${watchBot.name}'s screen`}>Watch</button>}
-              {running || status === 'suspending' ? (
-                <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!running || !!busy} onClick={() => act('sleep')}>{busy === 'sleep' || status === 'suspending' ? 'Going to sleep…' : 'Sleep'}</button>
-              ) : (
-                <button type="button" className="cfg-btn cfg-btn--primary" disabled={transitioning || !!busy} onClick={() => act('wake')}>{busy === 'wake' || transitioning ? 'Waking…' : 'Wake'}</button>
-              )}
-            </div>
-          </div>
-          {computer?.error && status === 'error' && <div className="cfg-error cfg-error--inset" role="alert">{computer.error} <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => act('wake')}>Try again</button></div>}
-          {note && <div className="cfg-error cfg-error--inset">{note}</div>}
-          <AskBeforeComputerRow />
-        </div>
-      </section>
+      <Card variant="list"><Row leading={<SettingIcon icon={Monitor} />} title={<span className="settings-provider">Cloud computer <span className="cfg-chip">{computerStatusText(computer ?? null)}</span></span>} trailing={<SettingsMenu items={[
+        {label: 'Watch', disabled: !watchBot, onSelect: watch},
+        {label: running ? 'Sleep' : 'Wake', disabled: transitioning || !!busy, onSelect: () => void act(running ? 'sleep' : 'wake')},
+      ]} />} />{note && <p role="alert" className="cfg-error">{note}</p>}{computer?.error && <p role="alert" className="cfg-error">{computer.error}</p>}<AskBeforeComputerRow /></Card>
+      <details className="settings-disclosure"><summary>Learn more</summary><div className="settings-stack"><p>{details ? `Sleeps after ${details.hibernation.idleMinutes} idle minutes. Wakes when a Bot needs it.` : 'Checking computer status.'}</p>
 
-      <section className="cfg-section">
-        <h2 className="cfg-section__label">Screens in use</h2>
-        <div className="cfg-card">
-          {detailsError ? <div className="cfg-error" role="alert">{detailsError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={load}>Try again</button></div> : !details ? <div className="cfg-empty cfg-empty--flat" role="status">Loading…</div> : details.screens.length === 0 ? (
+      <Section  title={<>Screens in use</>}><Card variant="list" >{detailsError ? <div className="cfg-error" role="alert">{detailsError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={load}>Try again</button></div> : !details ? <div className="cfg-empty cfg-empty--flat" role="status">Loading</div> : details.screens.length === 0 ? (
             <div className="cfg-empty cfg-empty--flat">No Bot screens are open.</div>
           ) : details.screens.map((s) => {
             const bot = byId.get(s.botId);
             return (
-              <div key={s.botId} className="cfg-row"><SettingIcon icon={Monitor} />
-
-                <div className="cfg-row__text">
-                  <div className="cfg-row__title">{bot?.name ?? 'Removed Bot'}</div>
-                  <div className="cfg-row__sub">{screenLabel(s.screenId)} · used {relativeShort(s.lastUsedAt) === 'now' ? 'just now' : `${relativeShort(s.lastUsedAt)}${/^\d/.test(relativeShort(s.lastUsedAt)) ? ' ago' : ''}`}</div>
-                </div>
-                <ConfirmButton
+              <Row key={s.botId}  leading={<SettingIcon icon={Monitor} />} title={<>{bot?.name ?? 'Removed Bot'}</>} subtitle={<><div className="cfg-row__sub">{screenLabel(s.screenId)} · used {relativeShort(s.lastUsedAt) === 'now' ? 'just now' : `${relativeShort(s.lastUsedAt)}${/^\d/.test(relativeShort(s.lastUsedAt)) ? ' ago' : ''}`}</div></>} trailing={<><ConfirmButton
                   className="cfg-btn cfg-btn--secondary"
                   confirmLabel="Reset screen"
                   disabled={!running}
@@ -371,14 +267,11 @@ function ComputerSection() {
                   onConfirm={async () => { try { await configApi.resetScreen(s.botId); setNote(null); load(); } catch (e) { setNote((e as Error).message); } }}
                 >
                   Reset
-                </ConfirmButton>
-              </div>
+                </ConfirmButton></>} />
             );
-          })}
-        </div>
-        <div className="cfg-field__hint">Reset closes every window on that Bot's screen, so it starts clean next time. {(computer ?? details?.computer)?.provider === 'cloudvm' ? 'Every Bot has its own screen; the computer grows as you add Bots.' : 'Up to 4 Bots can have a screen at once.'}</div>
-      </section>
+          })}</Card><div className="cfg-field__hint">Reset closes every window on that Bot's screen, so it starts clean next time. {(computer ?? details?.computer)?.provider === 'cloudvm' ? 'Every Bot has its own screen; the computer grows as you add Bots.' : 'Up to 4 Bots can have a screen at once.'}</div></Section>
       <DeviceAccessSection />
+      </div></details>
     </>
   );
 }
@@ -394,7 +287,7 @@ function AskBeforeComputerRow() {
     let alive = true;
     setError('');
     api.preferences().then(p => { if (alive && useStore.getState().user?.id === accountId) setOn(!!p?.askBeforeComputer); })
-      .catch(e => { if (alive) setError(`Couldn’t load this setting: ${(e as Error).message}`); });
+      .catch(e => { if (alive) setError(`Couldn't load this setting: ${(e as Error).message}`); });
     return () => { alive = false; };
   }, [accountId, attempt]);
   const change = async (next: boolean) => {
@@ -404,11 +297,11 @@ function AskBeforeComputerRow() {
       const saved = await api.updatePreferences({ askBeforeComputer: next });
       if (useStore.getState().user?.id === accountId) setOn(typeof saved?.askBeforeComputer === 'boolean' ? saved.askBeforeComputer : next);
     } catch (e) {
-      if (useStore.getState().user?.id === accountId) { setOn(!next); setError(`Couldn’t save: ${(e as Error).message}`); }
+      if (useStore.getState().user?.id === accountId) { setOn(!next); setError(`Couldn't save: ${(e as Error).message}`); }
     } finally { setBusy(false); }
   };
   return <>
-    <SettingRow icon={ShieldCheck} title="Ask before Bots use their computer" sub="When on, Bots show an approval card before browsing, running commands or using the desktop. Choose Always allow on a card to stop asking for that kind of action.">
+    <SettingRow icon={ShieldCheck} title="Ask before computer use">
       <Switch label="Ask before Bots use their computer" on={!!on} disabled={on === null || busy} onChange={v => void change(v)} />
     </SettingRow>
     {error && <div className="cfg-error cfg-error--inset" role="alert">{error} {on === null && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(n => n + 1)}>Retry</button>}</div>}
@@ -448,7 +341,6 @@ function LocalComputerSection({ details, detailsError, reload }: { details: Comp
   };
   const byId = new Map(bots.map((b) => [b.id, b]));
   const desktop = !!computer?.desktop;
-  const connectOnly = !!computer && !!details && !connected && !nativeMac && !paired && !here?.available;
 
   // Once the PC connects, the one-time command has done its job.
   useEffect(() => { if (connected) setPairing(null); }, [connected]);
@@ -468,7 +360,7 @@ function LocalComputerSection({ details, detailsError, reload }: { details: Comp
   };
   const copy = async () => {
     if (!pairing) return;
-    try { await navigator.clipboard.writeText(pairing.command); setCopied(true); } catch { setNote('Couldn’t copy. Select the command and copy it yourself.'); }
+    try { await navigator.clipboard.writeText(pairing.command); setCopied(true); } catch { setNote('Couldn\'t copy. Select the command and copy it yourself.'); }
   };
   const changeConnection = async () => {
     if (!confirm || busy || nativeMac || !accountId || !current()) return;
@@ -483,94 +375,31 @@ function LocalComputerSection({ details, detailsError, reload }: { details: Comp
       if (!current()) return;
       if (confirm === 'disconnect') setPairing(null);
       setConfirm(null);
-    } catch (err) { if (current()) setNote(err instanceof Error ? err.message : 'Couldn’t change the computer connection.'); }
+    } catch (err) { if (current()) setNote(err instanceof Error ? err.message : 'Couldn\'t change the computer connection.'); }
     finally { if (current()) setBusy(false); }
   };
 
-  return (
-    <>
-      <PageHead title={connectOnly ? 'Connect your PC' : 'Computer'} sub={connectOnly ? 'Pair a computer to give your Bots access.' : nativeMac ? 'Manage this Mac’s device access and connection for your account.' : desktop
-        ? 'Your Bots use your own computer: its full desktop and apps, your default browser, and a shell. They take turns, one Bot at a time.'
-        : 'Your Bots use a Chrome browser on your own PC. Each Bot gets its own browser profile there, separate from yours.'} />
-      <DeviceAccessSection />
-      {detailsError && <div className="cfg-error" role="alert">{detailsError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={reload}>Try again</button></div>}
-      <section className="cfg-section">
-        {!connectOnly && <h2 className="cfg-section__label">Status</h2>}
-        <div className="cfg-card">
-          <div className="cfg-row"><SettingIcon icon={Monitor} />
-            <div className="cfg-row__text">
-              <div className="cfg-row__title">{nativeMac ? 'Your Mac' : 'Your PC'}</div>
-              <div className="cfg-row__sub">
-                {connected
-                  ? `${computer?.device?.name ?? 'PC'}${computer?.device?.platform ? ` · ${computer.device.platform}` : ''} · ${desktop ? 'Your Bots can use this desktop now.' : 'Your Bots can browse now.'}`
-                  : nativeMac ? 'Use the Swarm Mac app to connect. Tasks wait while this Mac is offline.' : paired ? 'Paired, but the companion isn’t running. Start it again on your PC, or connect a new one.' : 'No companion PC is connected.'}
-              </div>
-              <div className="cfg-row__sub">{connectOnly ? 'Not connected' : computerStatusText(computer)}</div>
-            </div>
-            {!nativeMac && details && !connectOnly && <div className="settings-row__actions">
-              {!connected && here?.available && !here.active && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={useHere}>{busy ? 'Starting…' : 'Use this computer'}</button>}
-              {!connected && here?.active && <span className="cfg-row__sub">Starting…</span>}
-              {!connected && !here?.active && <button type="button" className={`cfg-btn ${here?.available ? 'cfg-btn--secondary' : 'cfg-btn--primary'}`} disabled={busy} onClick={pair}>{busy ? 'Preparing…' : here?.available ? 'Connect another PC' : paired ? 'New connect command' : 'Connect your PC'}</button>}
-              {here?.active && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setConfirm('stop')}>Stop</button>}
-              {paired && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setConfirm('disconnect')}>Disconnect</button>}
-            </div>}
-          </div>
-          {nativeMac && <div className="access-callout">Manage approvals in the Swarm Mac app. Stop keeps this Mac selected but offline. Disconnect revokes device access and returns Bots to the server’s default computer.</div>}
-          {confirm && <div className="access-callout" role="group" aria-label={confirm === 'stop' ? 'Stop this computer?' : 'Disconnect this PC?'}>
-            <strong>{confirm === 'stop' ? 'Stop this computer?' : 'Disconnect this PC?'}</strong>
-            <p>{confirm === 'stop' ? 'Stop the companion process on this computer. Its pairing is kept.' : 'Revoke this account’s PC pairing. To use the computer again, start a new pairing.'}</p>
-            <div className="access-row-actions"><button type="button" className="cfg-btn cfg-btn--danger" disabled={busy} onClick={() => void changeConnection()}>{busy ? 'Working…' : confirm === 'stop' ? 'Stop this computer' : 'Disconnect PC'}</button><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setConfirm(null)}>Cancel</button></div>
-          </div>}
-          {pairing && !connected && (
-            <div className="cfg-pair">
-              <div className="cfg-pair__step">On your PC (needs <b>Node.js 22+</b>{desktop ? <> on macOS or Linux</> : <> and <b>Google Chrome</b></>}), run this in a terminal and keep it running:</div>
-              <div className="cfg-pair__cmd">
-                <code className="cfg-pair__code" aria-label="Connect command">{pairing.command}</code>
-                <button type="button" className="cfg-btn cfg-btn--secondary" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
-              </div>
-              {desktop
-                ? <div className="cfg-field__hint">It contains a private token: anyone who has it can connect their PC as your Bots' computer. On macOS, allow the terminal app in System Settings → Privacy &amp; Security → <b>Accessibility</b> and <b>Screen Recording</b>. Waiting for your PC to connect…</div>
-                : <div className="cfg-field__hint">It contains a private token: anyone who has it can connect their PC as your Bots' browser. Add <code className="cfg-code">--headed</code> to see the browser windows on your PC. Waiting for your PC to connect…</div>}
-            </div>
-          )}
-          {note && <div className="cfg-error cfg-error--inset" role="alert">{note}</div>}
-        </div>
-        {connectOnly && !pairing && <button type="button" className="cfg-btn cfg-btn--primary access-device-pair" disabled={busy} onClick={pair}>{busy ? 'Preparing…' : 'Connect your PC'}</button>}
-      </section>
-
-      {!connectOnly && <section className="cfg-section">
-        <h2 className="cfg-section__label">{desktop ? 'Bots using the desktop' : 'Browsers in use'}</h2>
-        <div className="cfg-card">
-          {!details ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : details.screens.length === 0 ? (
-            <div className="cfg-empty cfg-empty--flat">{connected ? (desktop ? 'No Bot has used the desktop yet.' : 'No Bot has opened a browser yet.') : 'None while your PC is disconnected.'}</div>
-          ) : details.screens.map((s) => {
-            const bot = byId.get(s.botId);
-            return (
-              <div key={s.botId} className="cfg-row"><SettingIcon icon={Monitor} />
-
-                <div className="cfg-row__text">
-                  <div className="cfg-row__title">{bot?.name ?? 'Removed Bot'}</div>
-                  <div className="cfg-row__sub">{desktop ? 'Desktop' : 'Browser'} · used {relativeShort(s.lastUsedAt) === 'now' ? 'just now' : `${relativeShort(s.lastUsedAt)}${/^\d/.test(relativeShort(s.lastUsedAt)) ? ' ago' : ''}`}</div>
-                </div>
-                {!desktop && <ConfirmButton
-                  className="cfg-btn cfg-btn--secondary"
-                  confirmLabel="Close browser"
-                  disabled={!connected}
-                  title="Closes this Bot's browser on your PC. Its logins are kept."
-                  onConfirm={async () => { try { await configApi.resetScreen(s.botId); setNote(null); reload(); } catch (e) { setNote((e as Error).message); } }}
-                >
-                  Close
-                </ConfirmButton>}
-              </div>
-            );
-          })}
-        </div>
-        {desktop
-          ? <div className="cfg-field__hint">Bots act as you: they can open any app, read and change your files, and run shell commands. You can watch or take over any time from a Bot's screen. Press <b>Stop</b> (or Ctrl+C in the companion) to cut them off.</div>
-          : <div className="cfg-field__hint">Bots only get a browser on your PC: no files and no shell. Local-network addresses are blocked unless you start the companion with <code className="cfg-code">--allow-private-network</code>.</div>}
-      </section>}
-    </>
-  );
+  return <>
+    <Section><Card variant="list"><Row leading={<SettingIcon icon={Monitor} />} title={nativeMac ? 'Your Mac' : 'Your PC'} subtitle={<span className="cfg-chip">{connected ? 'Connected' : 'Not connected'}</span>} trailing={!nativeMac && details && <>
+      {!connected && <button type="button" className="cfg-btn cfg-btn--primary" disabled={busy} onClick={here?.available && !here.active ? useHere : pair}>Connect</button>}
+      {(here?.active || paired) && <SettingsMenu disabled={busy} items={[
+        ...(here?.active ? [{ label: 'Stop', onSelect: () => setConfirm('stop') }] : []),
+        ...(paired ? [{ label: 'Disconnect', danger: true, onSelect: () => setConfirm('disconnect') }] : []),
+        { label: 'Connect another PC', onSelect: () => void pair() },
+      ]} />}
+    </>} /></Card></Section>
+    {detailsError && <p className="cfg-error" role="alert">{detailsError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={reload}>Retry</button></p>}
+    {confirm && <Card><p>{confirm === 'stop' ? 'Stop this computer? Its pairing is kept.' : 'Disconnect this PC? Pair again to reconnect.'}</p><ButtonGroup><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setConfirm(null)}>Cancel</button><button type="button" className="cfg-btn cfg-btn--danger" disabled={busy} onClick={() => void changeConnection()}>{confirm === 'stop' ? 'Stop' : 'Disconnect'}</button></ButtonGroup></Card>}
+    {pairing && !connected && <Card><p>Run the command on your PC with Node.js.</p><button type="button" className="cfg-btn cfg-btn--primary" onClick={copy}>{copied ? 'Copied' : 'Copy command'}</button><p>Keep it private and leave the program running.</p></Card>}
+    {note && <p className="cfg-error" role="alert">{note}</p>}
+    <details className="settings-disclosure"><summary>Device access</summary><div className="settings-stack">
+      <DeviceAccessSection /><AskBeforeComputerRow />
+      <Section title={desktop ? 'Screens' : 'Browsers'}><Card variant="list">
+        {!details ? <p role="status">Loading</p> : !details.screens.length ? <Row title="None open" /> : details.screens.map(screen => <Row key={screen.botId} leading={<SettingIcon icon={Monitor} />} title={byId.get(screen.botId)?.name ?? 'Removed Bot'} subtitle={relativeShort(screen.lastUsedAt)} trailing={!desktop && <ConfirmButton className="cfg-btn cfg-btn--secondary" confirmLabel="Close browser" disabled={!connected} onConfirm={async () => { try { await configApi.resetScreen(screen.botId); setNote(null); reload(); } catch (e) { setNote((e as Error).message); } }}>Close</ConfirmButton>} />)}
+      </Card></Section>
+      <p>{desktop ? 'Bots can use your desktop, apps and files.' : 'Bots use separate Chrome profiles on this PC.'}</p>
+    </div></details>
+  </>;
 }
 
 // ---------------------------------------------------------------------------
@@ -597,38 +426,24 @@ function PermissionsSection() {
   useEffect(() => { load(); }, [load]);
   const askAgain = (tool: string) => {
     setRowError(null);
-    configApi.deletePolicy(tool).then(load).catch((e) => setRowError({ tool, text: `Couldn’t reset this permission: ${(e as Error).message}` }));
+    configApi.deletePolicy(tool).then(load).catch((e) => setRowError({ tool, text: `Couldn't reset this permission: ${(e as Error).message}` }));
   };
   return (
     <>
-      <PageHead title="Permissions" sub="Choose when Bots ask before taking action." />
       <ApprovalLevelSettings explain />
-      <section className="cfg-section">
-        <h2 className="cfg-section__label">Actions you’ve always allowed</h2>
-        <p>These are individual tool approvals. Remove a choice to have your Bots ask again.</p>
-        <div className="cfg-card">
-          {loadError ? <div className="cfg-error" role="alert">Couldn’t load permissions. {loadError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={load}>Retry</button></div>
-            : policies === null ? <div className="cfg-empty cfg-empty--flat">Loading…</div> : policies.length === 0 ? (
-            <div className="cfg-empty cfg-empty--flat">Nothing here yet. When you choose “Always allow” on an approval, it shows up here.</div>
+      <Section  title="Always allowed"><Card variant="list" >{loadError ? <div className="cfg-error" role="alert">Couldn't load permissions. {loadError} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={load}>Retry</button></div>
+            : policies === null ? <div className="cfg-empty cfg-empty--flat">Loading</div> : policies.length === 0 ? (
+            <div className="cfg-empty cfg-empty--flat">None</div>
           ) : policies.map((p) => {
             const displayTool = p.tool.replace(/^api_max:/, '');
             const h = mcpNames[displayTool.replace(/:bot:.*$/, '')] ?? (displayTool.startsWith('mcp_') ? { app: 'MCP server', action: 'Previous tool permission' } : humanizeTool(displayTool));
             return (
-              <div key={p.tool} className="cfg-row"><SettingIcon icon={ShieldCheck} />
-                <div className="cfg-row__text">
-                  <div className="cfg-row__title">{h.app}{h.action ? ` · ${h.action}` : ''}</div>
-                  <div className="cfg-row__sub">{p.tool.startsWith('api_max:') ? 'Ask before every action only · ' : 'Standard and CLI plans · '}{p.mode === 'always_allow' ? 'Always allowed' : p.mode === 'blocked' ? 'Never allowed' : 'Asks first'}{!displayTool.startsWith('mcp_') && <> · <code className="cfg-code">{displayTool}</code></>}</div>
-                </div>
-                <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => askAgain(p.tool)}>Ask again</button>
-                {rowError?.tool === p.tool && <div className="cfg-error cfg-error--inset" role="alert">{rowError.text}</div>}
-              </div>
+              <Row key={p.tool}  leading={<SettingIcon icon={ShieldCheck} />} title={<>{h.app}{h.action ? ` · ${h.action}` : ''}</>} subtitle={<><div className="cfg-row__sub">{p.tool.startsWith('api_max:') ? 'Ask before every action only · ' : 'Standard and CLI plans · '}{p.mode === 'always_allow' ? 'Always allowed' : p.mode === 'blocked' ? 'Never allowed' : 'Asks first'}{!displayTool.startsWith('mcp_') && <> · <code className="cfg-code">{displayTool}</code></>}</div></>} trailing={<><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => askAgain(p.tool)}>Ask again</button>{rowError?.tool === p.tool && <div className="cfg-error cfg-error--inset" role="alert">{rowError.text}</div>}</>} />
             );
-          })}
-        </div>
-      </section>
+          })}</Card></Section>
       <div className="device-access-link" data-swarm-device-access-link="">
-        <span>Looking for device access?</span>
-        <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Computer settings <ChevronRight size={14} aria-hidden /></button>
+
+        <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => useConfigUI.getState().openAppSettings('computer')}>Computer <ChevronRight size={14} aria-hidden /></button>
       </div>
     </>
   );
@@ -661,6 +476,7 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [catalog, setCatalog] = useState(false);
+  const [query, setQuery] = useState('');
   const [disconnectId, setDisconnectId] = useState<string | null>(null);
   const disconnectButton = useRef<HTMLButtonElement>(null);
   const connectionsRequest = useRef(0);
@@ -755,25 +571,6 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
     }
   };
   const visible = visibleConnections(connections ?? []);
-  const connectedCount = connectionSummary(connections ?? []).connectedCount;
-  const active = visible.filter(c => connectionStatus(c.status, c.isDisabled) === 'active');
-  const expired = visible.filter(c => c.status === 'EXPIRED');
-  const other = visible.filter(c => c.status !== 'EXPIRED' && connectionStatus(c.status, c.isDisabled) !== 'active');
-  const accountDetails = (c: SettingsAppConnection, index: number) => {
-    const app = apps?.find(app => app.slug === c.toolkit);
-    const name = toolkitDisplayName(c.toolkit, app?.name);
-    return <>
-      <div className="cfg-row__text">
-        <div className="cfg-row__title" title={`Connection ID: ${c.id}`}>{name} · Account {index + 1}</div>
-        <ConnectedAccountDetails account={c} />
-        <div className="access-apps-settings__statuses">
-          {c.isDisabled && <span className="cfg-chip">Disabled</span>}
-          {c.status === 'ACTIVE' && !c.isDisabled && c.isDefault && <span className="cfg-chip">Default</span>}
-        </div>
-        {c.status === 'EXPIRED' && c.authorizationIncomplete && <div className="cfg-row__sub">Authorization was not completed</div>}
-      </div>
-    </>;
-  };
   const reconnect = async (toolkit: string) => {
     if (managing.current || !current()) return;
     managing.current = true; setBusy(true); setError('');
@@ -788,89 +585,26 @@ function AccountAppsSection({ accountId }: { accountId: string }) {
     } catch (e) { popup?.close(); if (current()) setError((e as Error).message); }
     finally { managing.current = false; if (current()) setBusy(false); }
   };
-  const reconnectAction = (c: SettingsAppConnection) => connectionStatus(c.status, c.isDisabled) === 'needs_reauth'
-    ? <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void reconnect(c.toolkit)}>Reconnect</button> : null;
   const openApps = () => { setDisconnectId(null); setCatalog(true); };
   if (catalog) return <ConnectAppsCatalog inline onClose={() => setCatalog(false)} />;
-  return (
-    <div className="access-apps-settings">
-      <div className="access-apps__heading">
-        <PageHead title="Connected apps" sub="Apps your Bots can use for you, like email, calendar and docs." />
-        <button type="button" className="cfg-btn cfg-btn--primary access-apps-settings__manage" onClick={openApps}>{apps === null || apps.length ? 'Manage apps' : 'Connect apps'}</button>
-      </div>
-      {(connectionsError || appsError) && <div className="access-apps-settings__errors">
-        {connectionsError && <div className="cfg-error" role="alert">Accounts could not be refreshed: {connectionsError}</div>}
-        {appsError && <div className="cfg-error" role="alert">Apps could not be refreshed: {appsError}</div>}
-        <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy || refreshing} onClick={() => void refresh()}>Retry refresh</button>
-      </div>}
-      {error && <div className="cfg-error" role="alert">{error}</div>}
-      <button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy || refreshing} onClick={() => void refresh()}>{refreshing ? 'Refreshing…' : 'Refresh status'}</button>
-      <section className="cfg-section" aria-label="Your apps">
-        <h2 className="cfg-section__label">Your apps</h2>
-        <div className="access-apps-settings__summary" role="status">
-          <strong>{connections === null ? (connectionsError ? 'Apps unavailable' : 'Checking…') : connectedCount ? `${connectedCount} app${connectedCount === 1 ? '' : 's'} connected` : 'No apps connected yet'}</strong>
-          <p className="cfg-field__hint">Bots ask before doing anything that changes data in an app.</p>
-        </div>
-        {!!apps?.length && (
-          <div className="cfg-card">
-            {apps.map((a) => (
-              <div key={a.slug} className="cfg-row access-apps-settings__row"><SettingIcon icon={Blocks} />
-                <div className="cfg-row__text">
-                  <div className="access-apps-settings__name"><span className="cfg-row__title">{a.name}</span><span className="cfg-chip">Connected</span></div>
-                  <ConnectedAccounts accounts={a.accounts} />
-                  {a.description && <div className="cfg-row__sub access-apps-settings__description">{a.description}</div>}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-      <section className="cfg-section" aria-label="Your connected accounts">
-        <h2 className="cfg-section__label">Your connected accounts</h2>
-        <p className="cfg-field__hint">Choose a default when you have several accounts for an app. Otherwise, select the account explicitly when asking a Bot to use it.</p>
-        <div className="cfg-card">
-          {connections === null ? <div className="cfg-empty cfg-empty--flat">{connectionsError ? 'Accounts unavailable' : 'Loading accounts…'}</div>
-            : !active.length ? <div className="cfg-empty cfg-empty--flat">No active accounts connected.</div>
-              : active.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}><SettingIcon icon={CircleUserRound} />
-                {accountDetails(c, index)}
-                <div className="settings-row__actions">
-                  <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy || c.isDefault} onClick={() => void manage(c.id, 'default')}>Use by default</button>
-                  <button ref={disconnectId === c.id ? disconnectButton : undefined} className={`cfg-btn access-apps-settings__disconnect ${disconnectId === c.id ? 'cfg-btn--danger' : 'cfg-btn--secondary'}`} type="button" disabled={busy} onClick={() => {
-                    if (disconnectId === c.id) void manage(c.id, 'disconnect');
-                    else { setError(''); setDisconnectId(c.id); }
-                  }}>{disconnectId === c.id ? (busy ? 'Disconnecting…' : 'Confirm disconnect') : 'Disconnect'}</button>
-                  {disconnectId === c.id && <button className="cfg-btn cfg-btn--secondary" type="button" disabled={busy} onClick={() => { disconnectButton.current?.focus(); setDisconnectId(null); }}>Cancel</button>}
-                </div>
-              </div>)}
-        </div>
-      </section>
-      {!!other.length && <section className="cfg-section" aria-label="Other connections">
-        <h2 className="cfg-section__label">Other connections</h2>
-        <p className="cfg-field__hint">These accounts are unavailable for Bots to use. Their current status is shown below.</p>
-        <div className="cfg-card">
-          {other.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}><SettingIcon icon={CircleUserRound} />{accountDetails(c, index)}<div className="settings-row__actions">{reconnectAction(c)}</div></div>)}
-        </div>
-      </section>}
-      {!!expired.length && <section className="cfg-section" aria-label="Expired connections">
-        <details className="cfg-card access-apps-settings__disclosure">
-          <summary className="cfg-row"><SettingIcon icon={CircleUserRound} />
-            <span className="cfg-row__text">
-              <span className="cfg-row__title">Expired connections ({expired.length})</span>
-              <span className="cfg-row__sub">Review and remove expired records one at a time.</span>
-            </span>
-            <ChevronRight size={18} strokeWidth={1.75} aria-hidden />
-          </summary>
-          {expired.map((c, index) => <div className="cfg-row access-apps-settings__row" key={c.id}><SettingIcon icon={CircleUserRound} />
-            {accountDetails(c, index)}
-            <div className="settings-row__actions">
-              {reconnectAction(c)}
-              <ConfirmButton disabled={busy} confirmLabel="Confirm removal" title="Remove only this expired connection record" onConfirm={() => manage(c.id, 'remove-expired')}>Remove expired record</ConfirmButton>
-            </div>
-          </div>)}
-        </details>
-      </section>}
-    </div>
-  );
+  return <div className="settings-stack access-apps-settings">
+    <Row title={<input className="text-input" type="search" aria-label="Search connected apps" placeholder="Search apps" value={query} onChange={e => setQuery(e.target.value)} />} trailing={<button type="button" className="cfg-btn cfg-btn--primary" onClick={openApps}>Connect</button>} />
+    {(connectionsError || appsError) && <p className="cfg-error" role="alert">{connectionsError || appsError}</p>}
+    {error && <p className="cfg-error" role="alert">{error}</p>}
+    <Card variant="list">{connections === null ? <Row title="Loading" /> : !visible.length ? <Row title="No connections" /> : visible.filter(c => `${c.toolkit} ${JSON.stringify(c)}`.toLowerCase().includes(query.toLowerCase())).map(c => {
+      const status = connectionStatus(c.status, c.isDisabled);
+      const name = toolkitDisplayName(c.toolkit, apps?.find(a => a.slug === c.toolkit)?.name);
+      return <div key={c.id}><Row leading={<SettingIcon icon={Blocks} />} title={<span className="settings-provider">{name}<span className="cfg-chip">{status === 'active' ? 'Connected' : status === 'needs_reauth' ? 'Sign in needed' : c.isDisabled ? 'Disabled' : 'Not connected'}</span></span>} subtitle={<ConnectedAccountDetails account={c} />} trailing={<SettingsMenu ariaLabel={`Manage ${name}`} disabled={busy} items={[
+        {label: 'Refresh status', disabled: refreshing, onSelect: () => void refresh()},
+        ...(status === 'needs_reauth' ? [{label: 'Sign in again', onSelect: () => void reconnect(c.toolkit)}] : []),
+        ...(status === 'active' ? [{label: 'Use by default', disabled: c.isDefault, onSelect: () => void manage(c.id, 'default')}, {label: 'Disconnect', onSelect: () => setDisconnectId(c.id)}] : []),
+        ...(c.status === 'EXPIRED' ? [{label: 'Remove record', onSelect: () => setDisconnectId(c.id)}] : []),
+      ]} />} />
+      {disconnectId === c.id && <div className="settings-stack"><p>{c.status === 'EXPIRED' ? 'Remove this expired record?' : `Disconnect ${name}?`}</p><ButtonGroup stack><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => setDisconnectId(null)}>Cancel</button><button ref={disconnectButton} type="button" className="cfg-btn cfg-btn--danger" disabled={busy} onClick={() => void manage(c.id, c.status === 'EXPIRED' ? 'remove-expired' : 'disconnect')}>Confirm</button></ButtonGroup></div>}
+      </div>;
+    })}</Card>
+    <button type="button" className="link-btn" disabled={busy || refreshing} onClick={() => void refresh()}>Refresh status</button>
+  </div>;
 }
 
 // ---------------------------------------------------------------------------
@@ -895,11 +629,11 @@ function TimeZoneRow({ user }: { user: User }) {
       state.set({ user: { ...(result?.user ?? state.user), timezone: next } as User });
       toast(`Time zone set to ${zones.find(zone => zone.value === next)?.label ?? next}`);
     } catch (e) {
-      if (useStore.getState().user?.id === user.id) { setValue(previous); setError(`Couldn’t save the time zone: ${(e as Error).message}`); }
+      if (useStore.getState().user?.id === user.id) { setValue(previous); setError(`Couldn't save the time zone: ${(e as Error).message}`); }
     } finally { setBusy(false); }
   };
   return <>
-    <SettingRow icon={Clock3} title="Time zone" sub={saved ? 'Schedules and analytics use this as the account default.' : 'No time zone is saved. UTC is the account default for schedules and analytics.'}>
+    <SettingRow icon={Clock3} title="Time zone" >
       <TimeZonePicker value={value} options={zones} disabled={busy} onChange={next => void change(next)} />
     </SettingRow>
     {!saved && browserZone && <div className="settings-timezone-suggestion"><button type="button" className="cfg-btn cfg-btn--secondary" disabled={busy} onClick={() => void change(canonicalTimeZone(browserZone))}>Use {zones.find(zone => zone.value === canonicalTimeZone(browserZone))?.label ?? browserZone}</button></div>}
@@ -951,49 +685,33 @@ function AccountSettings({ user }: { user: User }) {
     }
   }
 
-  if (reauth.checking) return <><PageHead title="Your account" /><p role="status">Verifying your sign-in…</p></>;
+  if (reauth.checking) return <><PageHead title="Your account" /><p role="status">Verifying your sign-in</p></>;
   if (reauth.pending) return <>
     <PageHead title="Delete your Swarm account?" />
     <ReauthPrompt accountEmail={user.email} reason={reauth.pending.reason} resume={{ section: 'account', accountId: user.id, action: 'login' }} retryLabel="Delete my account" terminalActive={false} onCancel={() => { reauth.cancel(); setDeleting(false); }} />
   </>;
   if (deleting) return <div className="account-delete">
     <div className="app-settings__head"><h1 ref={deleteHeading} tabIndex={-1}>Delete your Swarm account?</h1><p>This permanently removes your account, Bots and conversations. Apple access is revoked if linked.</p></div>
-    {reauth.returned && <p role="status" className="access-section-note">You’re signed in again. Nothing has been deleted.</p>}
-    <div className="account-delete__warning"><strong>This can’t be undone</strong><p>Deleting your account is different from signing out or clearing local data.</p></div>
+    {reauth.returned && <p role="status" className="access-section-note">You're signed in again. Nothing has been deleted.</p>}
+    <div className="account-delete__warning"><strong>This can't be undone</strong><p>Deleting your account is different from signing out or clearing local data.</p></div>
     <SettingRow icon={CircleUserRound} title="Account to delete" sub={email} />
-    <section className="cfg-section">
-      <h2 className="cfg-section__label">Before you continue</h2>
-      <p>Cancel to keep your account and return to Account settings.</p>
-      {error && <div className="cfg-error" role="alert">{error}</div>}
-      <div className="access-row-actions">
-        <button type="button" className="cfg-btn cfg-btn--danger" disabled={!!busy} onClick={() => void act('delete')}>{busy ? 'Deleting…' : 'Delete my account'}</button>
-        <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => { setDeleting(false); setError(null); }}>Cancel</button>
-      </div>
-    </section>
+    <Section  title={<>Before you continue</>}><p>Cancel to keep your account and return to Account settings.</p>{error && <div className="cfg-error" role="alert">{error}</div>}<ButtonGroup stack ><button type="button" className="cfg-btn cfg-btn--danger" disabled={!!busy} onClick={() => void act('delete')}>{busy ? 'Deleting' : 'Delete my account'}</button><button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => { setDeleting(false); setError(null); }}>Cancel</button></ButtonGroup></Section>
   </div>;
 
-  return (
-    <>
-      <PageHead title="Your account" sub="Review the identity and sign-in methods for this Swarm account." />
-      <section className="cfg-section access-account" aria-label="Profile and sign-in methods">
-        {reauth.error && <div className="cfg-error" role="alert">{reauth.error}</div>}
-        <div className="cfg-card">
-          <div className="cfg-row"><SettingIcon icon={CircleUserRound} /><div className="cfg-row__text"><div className="cfg-row__title">{user.name || 'Swarm member'}</div><div className="cfg-row__sub">{email}</div><div className="cfg-row__sub">Signed in</div></div></div>
-          {(appleLogin || appleLinked) && <SettingRow icon={CircleUserRound} title="Sign in with Apple" sub={appleLinked ? 'Connected. Use it to sign in to this account on the web or in the Swarm app.' : 'Use your Apple account on the web or in the Swarm app.'}>
-            {appleLinked ? <span className="cfg-chip">Connected</span> : <AppleSignIn link />}
-          </SettingRow>}
-          {(googleLogin || googleLinked) && <SettingRow icon={CircleUserRound} title="Sign in with Google" sub={googleLinked ? 'Connected. Use it to sign in to this account on the web or in the Swarm app.' : 'Google sign-in uses Composio and requests Gmail access to verify your email address.'}>
-            {googleLinked ? <span className="cfg-chip">Connected</span> : <AuthLink className="signin__google" href="/api/auth/google/start?intent=link">Connect Google</AuthLink>}
-          </SettingRow>}
-          <TimeZoneRow user={user} />
-          <SettingRow icon={ShieldCheck} title="Delete your account" sub="Permanently removes your account, Bots and conversations.">
-            <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => { setError(null); setDeleting(true); }}>Delete account…</button>
-          </SettingRow>
-        </div>
-        <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy} onClick={() => void act('signout')}>{busy ? 'Signing out…' : 'Sign out'}</button>
-        {error && <div className="cfg-error" role="alert">{error}</div>}
-      </section>
-      <AccountSessions accountId={user.id} />
-    </>
-  );
+  return <>
+    {reauth.error && <p className="cfg-error" role="alert">{reauth.error}</p>}
+    <Section><Card variant="list">
+      <Row leading={<SettingIcon icon={CircleUserRound} />} title={user.name || 'Your account'} subtitle={email} trailing={<SettingsMenu disabled={!!busy} items={[
+        { label: 'Sign out', onSelect: () => void act('signout') },
+        { label: 'Delete account', danger: true, onSelect: () => { setError(null); setDeleting(true); } },
+      ]} />} />
+      <TimeZoneRow user={user} />
+    </Card></Section>
+    <details className="settings-disclosure"><summary>Sign-in methods</summary><Card variant="list">
+      {(appleLogin || appleLinked) && <Row title="Apple" trailing={appleLinked ? <span className="cfg-chip">Connected</span> : <AppleSignIn link />} />}
+      {(googleLogin || googleLinked) && <Row title="Google" trailing={googleLinked ? <span className="cfg-chip">Connected</span> : <AuthLink className="cfg-btn cfg-btn--secondary" href="/api/auth/google/start?intent=link">Connect</AuthLink>} />}
+    </Card></details>
+    <details className="settings-disclosure"><summary>Sessions</summary><AccountSessions accountId={user.id} /></details>
+    {error && <p className="cfg-error" role="alert">{error}</p>}
+  </>;
 }

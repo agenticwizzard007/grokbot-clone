@@ -1,0 +1,62 @@
+/* Settings presentation. Shared layout primitives own page, card and control geometry. */
+.paper-settings .settings-nav { gap: var(--space-4); }
+.paper-settings .settings-nav__items { border: 0; background: none; padding: 0; }
+.paper-settings .settings-nav__text { overflow: visible; text-overflow: clip; white-space: normal; }
+.paper-settings .settings-nav .settings-nav__item { height: auto; min-height: var(--control-h); }
+.paper-settings .settings-nav__group { margin: 0; }
+.paper-settings .settings-nav .layout-section__header { padding-inline: var(--space-2); }
+.paper-settings .settings-nav__items .settings-nav__item { padding-inline: var(--space-2); }
+.paper-settings .app-settings__page > .layout-page__content > :is(.settings-general, .native-panel, .usage-page, .settings-stack) { margin: 0; padding: 0; width: 100%; max-width: none; }
+.settings-stack, .settings-general, .settings-inline-form { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.settings-stack > p, .layout-card > p { margin: 0; }
+.settings-provider, .settings-inline, .settings-label-info { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.settings-provider .cfg-chip { font-size: 12px; font-weight: 500; white-space: normal; }
+.settings-provider .is-connected { color: var(--color-success); background: var(--color-success-bg); }
+.settings-menu, .settings-info { position: relative; display: inline-flex; flex-shrink: 0; }
+.settings-info__button { display: inline-flex; align-items: center; justify-content: center; width: var(--control-h); color: var(--color-text-2); }
+.settings-info__content { position: fixed; z-index: 30; top: 100%; left: 0; width: min(240px, 65vw); padding: var(--space-2); background: var(--color-elevated); border: 1px solid var(--color-border); border-radius: var(--radius-card); box-shadow: var(--shadow-popover); font: 400 13px/18px var(--font-stack); }
+.settings-billing { width: 100%; }
+.settings-billing-row { border-bottom: 0; }
+.settings-billing-row > .layout-row__trailing { width: 100%; }
+.paper-settings .layout-row:has(.settings-provider) .layout-row__text { flex-basis: 116px; }
+.settings-inline-form { padding-block: var(--space-3); }
+.settings-inline-form input { width: 100%; min-width: 0; }
+.settings-disclosure > summary, .paper-settings .learning-disclosure > summary { cursor: pointer; min-height: var(--control-h); display: flex; align-items: center; gap: var(--space-2); font-size: 14px; }
+.settings-disclosure > summary::before, .paper-settings .learning-disclosure > summary::before { content: '+'; }
+.settings-disclosure[open] > summary::before, .paper-settings .learning-disclosure[open] > summary::before { content: '-'; }
+.settings-disclosure > .settings-stack { padding-top: var(--space-3); }
+.settings-connect-sheet .layout-page { max-height: 85vh; overflow-y: auto; }
+.settings-connect-sheet .settings-command { display: flex; flex-wrap: wrap; gap: 0 0.5ch; white-space: normal; }
+.settings-command > span { white-space: nowrap; }
+.paper-settings .learning-fields { gap: var(--space-3); }
+.paper-settings .learning-disclosure { border: 0; padding: 0; background: none; }
+.paper-settings .learning-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+.paper-settings .usage-page { display: flex; flex-direction: column; gap: var(--space-4); }
+.settings-usage-chart { height: 160px; display: flex; align-items: end; gap: var(--space-2); padding-block: var(--space-3) var(--space-4); }
+.settings-usage-chart > div { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: end; align-items: center; position: relative; }
+.settings-usage-chart span { width: 100%; background: var(--color-primary); border-radius: var(--space-1); }
+.settings-usage-chart small { position: absolute; top: calc(100% + 4px); font-size: 11px; }
+.settings-quota { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-2); }
+.settings-quota meter { width: 100%; }
+@media (max-width: 760px) {
+  .paper-settings .access-nav--phone { padding: 0; }
+  .paper-settings .access-nav--phone .settings-nav__items { border: 1px solid var(--color-border); background: var(--color-elevated); padding-inline: var(--space-3); }
+  .paper-settings .settings-account { margin: 0; width: 100%; }
+  .paper-settings .settings-search { margin: 0; }
+  .paper-settings .layout-row__trailing:has(.cfg-seg, .model-picker) { width: 100%; }
+  .paper-settings .layout-row__trailing > .cfg-seg { width: 100%; }
+  .paper-settings .layout-row__trailing > .cfg-seg button { flex: 1 1 0; }
+  .paper-settings .settings-menu > button { width: 100%; }
+}
+
+.paper-settings .subscription-settings { gap: var(--space-4); }
+.paper-settings .learning-grid > label { grid-template-columns: 20px minmax(0, 1fr); gap: var(--space-2); }
+.paper-settings .learning-grid > label > :is(input, small) { grid-column: 2; }
+.paper-settings .mcp-editor > .layout-button-group { margin-top: var(--space-3); }
+.paper-settings .mcp-editor .layout-row__trailing { flex: 1 1 240px; }
+.paper-settings .mcp-editor .settings-field__control { width: 100%; }
+
+/* User file identifiers retain their full value when a single token exceeds the column. */
+.paper-settings .mcp-folder-path, .paper-settings .mcp-folder-choice { overflow-wrap: anywhere; }
+
+.paper-settings .mcp-server__actions { width: auto; padding: 0; margin: 0; max-width: 100%; }

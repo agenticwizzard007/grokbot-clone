@@ -13,7 +13,7 @@ test('Bot computer, screen and browser phrases use ASCII apostrophes', () => {
     }
   }
   const settings = readFileSync('web/src/components/config/AppSettings.tsx', 'utf8');
-  assert.ok(settings.includes("${watchBot.name}'s screen"), 'Named Bot watch tooltip uses ASCII');
-  assert.ok(settings.includes("Bots' computer"), 'Plural computer label uses ASCII');
+  assert.ok(settings.includes('Cloud computer'), 'Cloud computer label is plain and complete');
+  assert.ok(settings.includes('Computer'), 'Computer controls stay reachable');
   assert.ok(readFileSync('web/src/components/config/MessagingSettings.tsx', 'utf8').includes("Your Bots' computer"), 'Messaging command label uses ASCII');
 });

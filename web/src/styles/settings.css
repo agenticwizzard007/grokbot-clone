@@ -65,9 +65,9 @@
 /* ---------- page ---------- */
 .app-settings .app-settings__main { background: var(--color-bg-pane); scrollbar-width: thin; }
 .app-settings .app-settings__close { top: 14px; right: 16px; z-index: 2; color: var(--color-text-secondary); }
-.app-settings .app-settings__page { gap: 36px; max-width: 784px; padding: 56px 32px 80px; animation: settings-in 180ms var(--ease-out); }
+.app-settings .app-settings__page:not(.layout-page) { gap: 36px; max-width: 784px; padding: 56px 32px 80px; animation: settings-in 180ms var(--ease-out); }
 @keyframes settings-in { from { opacity: 0; transform: translateY(4px); } }
-@media (prefers-reduced-motion: reduce) { .app-settings .app-settings__page { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .app-settings .app-settings__page:not(.layout-page) { animation: none; } }
 .app-settings .app-settings__head h1 { font-size: var(--text-page-title); font-weight: 600; line-height: 1.2; letter-spacing: -0.02em; }
 .app-settings .app-settings__head p { max-width: 600px; margin-top: 6px; font-size: 14px; line-height: 20px; color: var(--color-text-secondary); }
 .app-settings__head--action { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
@@ -167,7 +167,7 @@
 /* ---------- medium windows (and the Mac app at its default 1200px) ---------- */
 @media (max-width: 1200px) {
   .app-settings .app-settings__nav { width: 248px; }
-  .app-settings .app-settings__page { padding: 48px 32px 72px; }
+  .app-settings .app-settings__page:not(.layout-page) { padding: 48px 32px 72px; }
 }
 @media (max-width: 960px) {
   .settings-field { flex-direction: column; gap: 8px; }
@@ -197,7 +197,7 @@
   .app-settings .settings-nav__item:active .settings-nav__chev { transform: translateX(2px); }
   .settings-nav__empty { padding: 24px 32px; font-size: 15px; }
 
-  .app-settings .app-settings__page { gap: 28px; max-width: none; padding: 4px 16px max(40px, env(safe-area-inset-bottom)); }
+  .app-settings .app-settings__page:not(.layout-page) { gap: 28px; max-width: none; padding: 4px 16px max(40px, env(safe-area-inset-bottom)); }
   .app-settings .app-settings__head h1 { font-size: var(--text-page-title); line-height: 1.2; }
   .app-settings .app-settings__head p { font-size: 15px; line-height: 21px; }
   .app-settings__head--action { flex-direction: column; align-items: stretch; }
@@ -251,7 +251,7 @@
 .paper-shell .paper-settings .settings-nav__item.is-active { font-weight: 600; }
 .paper-shell .paper-settings .settings-nav__text { overflow: visible; text-overflow: clip; overflow-wrap: normal; word-break: normal; white-space: normal; }
 .paper-shell .paper-settings .app-settings__main { flex: 1; min-width: 0; }
-.paper-shell .paper-settings .app-settings__page { width: 100%; max-width: 720px; padding: 28px 40px; gap: 16px; margin: 0; }
+.paper-shell .paper-settings .app-settings__page:not(.layout-page) { width: 100%; max-width: 720px; padding: 28px 40px; gap: 16px; margin: 0; }
 .paper-shell .paper-settings .app-settings__head { margin: 0 0 16px; }
 .paper-shell .paper-settings .app-settings__head h1 { font-size: 24px; line-height: 32px; font-weight: 600; }
 .paper-shell .settings-general .cfg-card { border: 0; border-radius: 0; }
@@ -260,8 +260,8 @@
 .paper-shell .settings-general .cfg-row__sub { font-size: 13px; line-height: 18px; }
 .paper-shell .settings-general :is(.cfg-row__title, .cfg-row__sub) { overflow-wrap: normal; word-break: normal; white-space: normal; overflow: visible; text-overflow: clip; }
 .paper-shell .settings-general .cfg-seg { padding: 4px; gap: 0; background: var(--color-bg-tertiary); border-radius: 12px; }
-.paper-shell .settings-general .cfg-seg button { min-height: 36px; height: 36px; padding: 0 10px; border-radius: 8px; }
-.paper-shell .settings-general .cfg-btn { flex: 0 0 auto; min-height: 36px; padding: 0 16px; border: 1px solid var(--color-border-secondary); border-radius: 10px; background: var(--color-bg-elevated); }
+.paper-shell .settings-general .cfg-seg button { padding: 0 10px; border-radius: 8px; }
+.paper-shell .settings-general .cfg-btn { flex: 0 0 auto; padding: 0 16px; border: 1px solid var(--color-border-secondary); border-radius: 10px; background: var(--color-bg-elevated); }
 .paper-shell .settings-general .settings-diagnostics { margin-top: 16px; font-size: 12px; color: var(--color-text-tertiary); }
 .settings-account { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--color-border-secondary); border-radius: 16px; text-align: left; }
 .settings-account > span:nth-child(2) { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
@@ -269,19 +269,19 @@
 .settings-account small { font-size: 13px; line-height: 18px; color: var(--color-text-tertiary); }
 .paper-shell .settings-account .account__initials { width: 44px; height: 44px; font-size: 15px; }
 @media (min-width: 761px) and (max-width: 1100px) {
-  .paper-shell .paper-settings .app-settings__page { padding: 24px 16px; }
+  .paper-shell .paper-settings .app-settings__page:not(.layout-page) { padding: 24px 16px; }
   .paper-shell .settings-general .cfg-row { flex-wrap: wrap; }
   .paper-shell .settings-general .cfg-row__text { flex-basis: calc(100% - 52px); }
   .paper-shell .settings-general .cfg-row > :last-child:not(.cfg-row__text) { margin-left: 36px; }
 }
 @media (max-width: 760px) {
-  .paper-shell .paper-settings .settings-nav { padding: 16px; gap: 10px; }
+  .paper-shell .paper-settings .settings-nav { padding: 0; gap: var(--space-4); }
   .paper-shell .paper-settings .settings-nav__label { padding: 6px 0 8px; }
-  .paper-shell .paper-settings .settings-nav__items { padding: 0 12px; gap: 0; border: 1px solid var(--color-border-secondary); border-radius: 16px; }
+  .paper-shell .paper-settings .settings-nav__items { padding: 0 12px; gap: 0; border: 1px solid var(--color-border-secondary); border-radius: var(--radius-card); }
   .paper-shell .paper-settings .settings-nav__item { min-height: 48px; padding: 12px 0; border-radius: 0; font-size: 15px; }
   .paper-shell .paper-settings .settings-nav__item + .settings-nav__item { border-top: 1px solid var(--color-border-tertiary); }
   .paper-shell .paper-settings .settings-nav__chev { display: block; }
-  .paper-shell .paper-settings .app-settings__page { padding: 16px; max-width: 672px; margin: 0 auto; }
+  .paper-shell .paper-settings .app-settings__page:not(.layout-page) { padding: 16px; max-width: 672px; margin: 0 auto; }
   .paper-shell .settings-general .app-settings__head { display: none; }
   .paper-shell .settings-general .cfg-row { flex-wrap: wrap; }
   .paper-shell .settings-general .cfg-row__text { flex: 1 1 calc(100% - 52px); }

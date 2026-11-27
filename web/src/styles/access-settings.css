@@ -3,7 +3,7 @@
   --access-divider: var(--color-border-secondary);
 }
 .app-settings.access-settings--in-shell { left: var(--app-settings-rail-width, 272px); }
-.access-settings .app-settings__page { box-sizing: border-box; width: 100%; max-width: calc(var(--content-width) + 64px); padding: var(--space-5) var(--space-6) var(--space-9); gap: var(--space-5); }
+.access-settings .app-settings__page:not(.layout-page) { box-sizing: border-box; width: 100%; max-width: calc(var(--content-width) + 64px); padding: var(--space-5) var(--space-6) var(--space-9); gap: var(--space-5); }
 .access-settings .app-settings__head h1,
 .access-settings .cfg-section__label,
 .access-nav--phone .settings-nav__label { font-family: 'Instrument Sans Variable', 'Instrument Sans', var(--font-stack); }
@@ -113,7 +113,7 @@
 .access-settings [hidden] { display: none !important; }
 
 @media (max-width: 760px) {
-  .access-settings .app-settings__page { padding: 24px 16px max(32px, env(safe-area-inset-bottom)); gap: 24px; }
+  .access-settings .app-settings__page:not(.layout-page) { padding: 24px 16px max(32px, env(safe-area-inset-bottom)); gap: 24px; }
   .access-settings .app-settings__head h1 { font-size: var(--text-page-title); }
   .access-settings .app-settings__head p { margin-top: var(--space-2); }
   .access-settings .app-settings__main { background: var(--color-bg-pane); }

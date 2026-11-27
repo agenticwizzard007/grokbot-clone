@@ -1,4 +1,6 @@
+import { Row, Section, Card, ButtonGroup } from '../layout';
 import { SettingIcon } from './SettingRow';
+import { SettingsMenu } from './SettingsControls';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight, CircleUserRound, Blocks, KeyRound, Server, ShieldCheck } from 'lucide-react';
 import type { McpServerInput, McpServerView } from '@shared/types';
@@ -58,15 +60,9 @@ function pairs(text: string, label: string): Record<string, string> | undefined 
 /** A form row: label and hint on the left, the field on the right (stacked on phones). */
 function FormRow({ label, hint, children }: { label: string; hint?: ReactNode; children: (ids: { id: string; describedBy?: string }) => ReactNode }) {
   const id = useId();
-  return (
-    <div className="settings-field"><SettingIcon icon={Server} />
-      <div className="settings-field__text">
-        <label className="settings-field__label" htmlFor={id}>{label}</label>
-        {hint && <div className="settings-field__hint" id={`${id}-hint`}>{hint}</div>}
-      </div>
-      <div className="settings-field__control">{children({ id, describedBy: hint ? `${id}-hint` : undefined })}</div>
-    </div>
-  );
+  return <Row leading={<SettingIcon icon={Server} />} title={<label htmlFor={id}>{label}</label>}
+    subtitle={hint && <div id={`${id}-hint`}>{hint}</div>}
+    trailing={<div className="settings-field__control">{children({ id, describedBy: hint ? `${id}-hint` : undefined })}</div>} />;
 }
 
 function FolderPicker({ selected, onChange }: { selected: string[]; onChange: (folders: string[]) => void }) {
@@ -84,19 +80,9 @@ function FolderPicker({ selected, onChange }: { selected: string[]; onChange: (f
   }, [folder, page]);
   const open = (value: string) => { setFolder(value); setPage(''); };
   const overlaps = (value: string) => selected.some(s => s === value || s.startsWith(value + '/') || value.startsWith(s + '/'));
-  return <div className="cfg-row"><SettingIcon icon={Blocks} /><div className="cfg-row__text">
-    <div className="cfg-row__title">Shared folders</div>
-    <p className="cfg-row__sub">Choose up to eight folders from Files this server can read. Folder access includes their contents and subfolders. It cannot change your files.</p>
-    {selected.map((value, index) => <div className="mcp-actions mcp-folder-row" key={value}><span className="mcp-folder-path">{value} · <code>/workspace/folders/{index + 1}</code></span><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => onChange(selected.filter(s => s !== value))}>Remove folder</button></div>)}
-    {!selected.length && <p className="cfg-row__sub">No folders shared.</p>}
-    <div className="mcp-actions mcp-folder-row"><span className="mcp-folder-path">{folder || 'Files'}</span>{folder && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => open(folder.includes('/') ? folder.slice(0, folder.lastIndexOf('/')) : '')}>Up</button>}
+  return <Row  leading={<SettingIcon icon={Blocks} />} title={<>Shared folders</>} subtitle={<><p className="cfg-row__sub">Choose up to eight folders from Files this server can read. Folder access includes their contents and subfolders. It cannot change your files.</p>{selected.map((value, index) => <div className="mcp-actions mcp-folder-row" key={value}><span className="mcp-folder-path">{value} · <code>/workspace/folders/{index + 1}</code></span><button className="cfg-btn cfg-btn--secondary" type="button" onClick={() => onChange(selected.filter(s => s !== value))}>Remove folder</button></div>)}{!selected.length && <p className="cfg-row__sub">No folders shared.</p>}<div className="mcp-actions mcp-folder-row"><span className="mcp-folder-path">{folder || 'Files'}</span>{folder && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => open(folder.includes('/') ? folder.slice(0, folder.lastIndexOf('/')) : '')}>Up</button>}
       {folder && <button type="button" className="cfg-btn cfg-btn--secondary" disabled={loading || !!error || selected.length >= 8 || overlaps(folder)} onClick={() => onChange([...selected, folder])}>Share this folder</button>}
-    </div>
-    {loading ? <p className="cfg-row__sub">Loading folders…</p> : choices.map(choice => <button type="button" className="cfg-btn cfg-btn--secondary mcp-folder-choice" key={choice.path} onClick={() => open(choice.path)}>{choice.name}</button>)}
-    {!loading && !choices.length && !error && <p className="cfg-row__sub">No folders here.</p>}
-    {next && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setPage(next)}>Next folders</button>}
-    {error && <p role="alert" className="cfg-error">{error}</p>}
-  </div></div>;
+    </div>{loading ? <p className="cfg-row__sub">Loading folders</p> : choices.map(choice => <button type="button" className="cfg-btn cfg-btn--secondary mcp-folder-choice" key={choice.path} onClick={() => open(choice.path)}>{choice.name}</button>)}{!loading && !choices.length && !error && <p className="cfg-row__sub">No folders here.</p>}{next && <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setPage(next)}>Next folders</button>}{error && <p role="alert" className="cfg-error">{error}</p>}</>}  />;
 }
 
 function McpEditor({ server, recovered, locked, stdioAvailable = true, onSave, onCancel, onRemove }: { server: McpServerView | null; recovered?: SafeDraft; locked: boolean; stdioAvailable?: boolean; onSave: (input: McpServerInput) => Promise<void>; onCancel: () => void; onRemove?: () => Promise<void> }) {
@@ -110,19 +96,16 @@ function McpEditor({ server, recovered, locked, stdioAvailable = true, onSave, o
   const bots = useStore(s => s.bots).filter(b => b.kind !== 'room');
   const set = <K extends keyof McpServerInput>(key: K, value: McpServerInput[K]) => setDraft(d => ({ ...d, [key]: value }));
   const stdio = draft.transport === 'stdio';
-  return <section className="cfg-section" hidden={locked}>
-    <h2 className="cfg-section__label">{server ? `Edit ${server.name}` : 'New server'}</h2>
-    {recovered && <div className="access-callout" role="status">
-      You’re signed in again. Review your draft and choose Save &amp; test connection again.
+  return <Section  hidden={locked} title={<>{server ? `Edit ${server.name}` : 'New server'}</>}>{recovered && <div className="access-callout" role="status">
+      You're signed in again. Review your draft and choose Save &amp; test connection again.
       {recovered.reenterEndpoint && ' Re-enter the connection URL or command and its arguments.'}
-      {recovered.credentialsChanged && ' Re-enter any credentials you want to change; they weren’t carried through sign-in.'}
-    </div>}
-    <form className="cfg-card mcp-editor" aria-label={server ? 'Edit MCP server' : 'Add MCP server'} onSubmit={async e => {
+      {recovered.credentialsChanged && ' Re-enter any credentials you want to change; they weren\'t carried through sign-in.'}
+    </div>}<Card><form className="mcp-editor" aria-label={server ? 'Edit MCP server' : 'Add MCP server'} onSubmit={async e => {
       e.preventDefault(); if (busy || locked) return; setBusy(true); setError('');
       try { await onSave({ ...draft, folders: JSON.stringify(draft.folders) === JSON.stringify(server?.folders ?? []) ? undefined : draft.folders, bearerToken: clearToken ? '' : token || undefined, headers: pairs(headers, 'Headers'), env: pairs(env, 'Environment variables') }); }
       catch (e) {
         if (needsReauth(e)) { setToken(''); setClearToken(false); setHeaders(''); setEnv(''); }
-        else setError(e instanceof Error ? e.message : 'Couldn’t save this MCP server.');
+        else setError(e instanceof Error ? e.message : 'Couldn\'t save this MCP server.');
       }
       finally { setBusy(false); }
     }}>
@@ -144,10 +127,7 @@ function McpEditor({ server, recovered, locked, stdioAvailable = true, onSave, o
             {!draft.botIds.length && <span className="cfg-field__hint">No Bot can use this server until you pick one.</span>}
           </div>}
         </>}</FormRow>
-        <div className="cfg-row"><SettingIcon icon={ShieldCheck} />
-          <div className="cfg-row__text"><div className="cfg-row__title">Ask before using tools</div><div className="cfg-row__sub">You can allow single tools for good from their approval cards.</div></div>
-          <Switch label="Ask before using tools" on={draft.requireApproval} onChange={v => set('requireApproval', v)} />
-        </div>
+        <Row  leading={<SettingIcon icon={ShieldCheck} />} title={<>Ask before using tools</>} subtitle={<><div className="cfg-row__sub">You can allow single tools for good from their approval cards.</div></>} trailing={<><Switch label="Ask before using tools" on={draft.requireApproval} onChange={v => set('requireApproval', v)} /></>} />
         <details className="mcp-advanced">
           <summary className="cfg-row"><SettingIcon icon={KeyRound} />
             <span className="cfg-row__text"><span className="cfg-row__title">{stdio ? 'Environment variables' : 'Authentication & headers'}</span><span className="cfg-row__sub">{stdio ? 'Optional. Secrets the command needs.' : 'Optional. A bearer token or custom headers.'}</span></span>
@@ -157,7 +137,7 @@ function McpEditor({ server, recovered, locked, stdioAvailable = true, onSave, o
             {stdio ? <>
               <FormRow label="Environment variables (JSON)" hint={server?.envNames.length ? `Saved: ${server.envNames.join(', ')}. Leave blank to keep them; enter {} to clear them.` : undefined}>{({ id, describedBy }) => <textarea id={id} aria-describedby={describedBy} className="text-input" spellCheck={false} autoComplete="off" rows={3} value={env} onChange={e => setEnv(e.target.value)} placeholder={'{"API_KEY": "your-key"}'} />}</FormRow>
             </> : <>
-              <div className="cfg-row"><SettingIcon icon={CircleUserRound} /><div className="cfg-row__text"><div className="cfg-row__title">Sign in with OAuth</div><div className="cfg-row__sub">Save this server, then connect your account.</div></div><Switch label="Use OAuth" on={draft.oauth ?? false} onChange={value => set('oauth', value)} /></div>
+              <Row  leading={<SettingIcon icon={CircleUserRound} />} title={<>Sign in with OAuth</>} subtitle={<><div className="cfg-row__sub">Save this server, then connect your account.</div></>} trailing={<><Switch label="Use OAuth" on={draft.oauth ?? false} onChange={value => set('oauth', value)} /></>} />
               <FormRow label="Bearer token (optional)" hint={server?.hasBearerToken ? <label className="mcp-check"><input type="checkbox" checked={clearToken} onChange={e => { setClearToken(e.target.checked); setToken(''); }} />Remove saved token</label> : undefined}>{({ id }) => <input id={id} className="text-input" type="password" autoComplete="off" value={token} onChange={e => { setToken(e.target.value); setClearToken(false); }} placeholder={server?.hasBearerToken ? 'Saved - leave blank to keep' : 'Paste access token'} />}</FormRow>
               <FormRow label="Custom headers (JSON, optional)" hint={server?.headerNames.length ? `Saved: ${server.headerNames.join(', ')}. Leave blank to keep them; enter {} to clear them.` : 'Use the token or headers your MCP provider gives you.'}>{({ id, describedBy }) => <textarea id={id} aria-describedby={describedBy} className="text-input" rows={3} spellCheck={false} autoComplete="off" value={headers} onChange={e => setHeaders(e.target.value)} placeholder={'{"X-API-Key": "your-key"}'} />}</FormRow>
             </>}
@@ -165,14 +145,12 @@ function McpEditor({ server, recovered, locked, stdioAvailable = true, onSave, o
         </details>
       </fieldset>
       {error && <div className="cfg-error cfg-error--inset" role="alert">{error}</div>}
-      <div className="mcp-actions">
-        {onRemove && <ConfirmButton className="cfg-btn cfg-btn--ghost-danger" confirmLabel="Remove server" disabled={busy} onConfirm={onRemove}>Remove…</ConfirmButton>}
-        <span className="mcp-actions__spacer" />
+      <ButtonGroup stack>
+        {onRemove && <ConfirmButton className="cfg-btn cfg-btn--ghost-danger" confirmLabel="Remove server" disabled={busy} onConfirm={onRemove}>Remove</ConfirmButton>}
         <button className="cfg-btn cfg-btn--secondary" disabled={busy} type="button" onClick={onCancel}>Cancel</button>
-        <button className="cfg-btn cfg-btn--primary" disabled={busy} type="submit">{busy ? 'Connecting…' : 'Save & test connection'}</button>
-      </div>
-    </form>
-  </section>;
+        <button className="cfg-btn cfg-btn--primary" disabled={busy} type="submit" aria-label="Save & test connection">{busy ? 'Connecting' : 'Save'}</button>
+      </ButtonGroup>
+    </form></Card></Section>;
 }
 
 const transportText = (s: McpServerView) => (s.transport === 'stdio' ? 'Local command' : s.transport === 'sse' ? 'Remote SSE' : 'Remote HTTP');
@@ -236,7 +214,7 @@ function AccountMcpSettings({ accountId, accountEmail }: { accountId: string; ac
     catch (err) {
       if (!current()) return;
       if (intent && needsReauth(err)) reauth.request(intent, err.message);
-      else setError(err instanceof Error ? err.message : 'Couldn’t update MCP settings.');
+      else setError(err instanceof Error ? err.message : 'Couldn\'t update MCP settings.');
     } finally { action.current = false; if (current()) setBusy(null); }
   }
 
@@ -247,17 +225,14 @@ function AccountMcpSettings({ accountId, accountEmail }: { accountId: string; ac
     if (current()) upsert(result.server);
   });
   return <>
-    <div className="app-settings__head">
-      <h1>MCP servers</h1><p>Allow Bots to use only the servers and tools they need.</p>
-    </div>
     {error && <div className="cfg-error" role="alert">{error}</div>}
     {reauth.error && <div className="cfg-error" role="alert">{reauth.error}</div>}
-    {reauth.checking && <div className="cfg-empty" role="status">Verifying your sign-in…</div>}
+    {reauth.checking && <div className="cfg-empty" role="status">Verifying your sign-in</div>}
     {reauth.pending && <ReauthPrompt reason={reauth.pending.reason} accountEmail={accountEmail} resume={{ section: 'mcp', action: 'login', accountId }} retryLabel={reauth.pending.intent.action === 'oauth' ? 'Connect account' : 'Save & test connection'} terminalActive={false} onCancel={() => { reauth.cancel(); edit(undefined); }} />}
     {notice && <p className="access-callout" role="status">{notice}</p>}
-    {recoveredOAuth && !locked && <p className="access-callout" role="status">You’re signed in again. Select Connect account on the server to start authorization.</p>}
+    {recoveredOAuth && !locked && <p className="access-callout" role="status">You're signed in again. Select Connect account on the server to start authorization.</p>}
     {!locked && loadError && <div><p className="cfg-error" role="alert">{loadError}</p><button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setReload(value => value + 1)}>Try again</button></div>}
-    {!locked && loading && <div className="cfg-empty cfg-empty--flat" role="status">Loading MCP servers…</div>}
+    {!locked && loading && <div className="cfg-empty cfg-empty--flat" role="status">Loading MCP servers</div>}
     {!loading && !loadError && <>
       {editing !== undefined && <McpEditor key={editing?.id ?? 'new'} server={editing} recovered={recovered} locked={locked} stdioAvailable={stdioAvailable} onCancel={() => edit(undefined)}
         onRemove={editing ? async () => { const id = editing.id; await act(id, async () => { await configApi.deleteMcpServer(id); if (current()) { setServers(list => list.filter(item => item.id !== id)); edit(undefined); } }); } : undefined}
@@ -278,28 +253,16 @@ function AccountMcpSettings({ accountId, accountEmail }: { accountId: string; ac
             throw err;
           } finally { action.current = false; if (current()) setBusy(null); }
         }} />}
-      {!locked && <section className="cfg-section access-mcp">
-        <h2 className="cfg-section__label">Your servers</h2>
-        {!servers.length ? <div className="cfg-empty">{canManage ? (stdioAvailable ? 'No MCP servers yet. Add a remote URL or a local MCP command.' : 'No MCP servers yet. Add a remote URL.') : 'No custom servers are available to this account.'}</div> : <div className="cfg-card">
-          {servers.map(s => <section className="cfg-row mcp-server" key={s.id} aria-label={s.name}><SettingIcon icon={Server} />
-            <div className="cfg-row__text">
-              <div className="cfg-row__title">{s.name}</div>
-              {s.enabled && s.error
+      {!locked && <Section className="access-mcp" >{!servers.length ? null : <Card variant="list" >{servers.map(s => <Row className="mcp-server" key={s.id} aria-label={s.name} leading={<SettingIcon icon={Server} />} title={<>{s.name}</>} subtitle={<>{s.enabled && s.error
                 ? <div className="cfg-row__sub is-error" role="alert">Connection failed: {s.error}</div>
-                : <div className="cfg-row__sub">{summary(s)}</div>}
-              {!!s.tools.length && <details className="mcp-tools"><summary>Available tools ({s.tools.length})</summary>{s.tools.map(t => <div key={t.name}><strong>{t.name}</strong>{t.description && <p>{t.description}</p>}</div>)}</details>}
-              {s.checkedAt && !s.error && !s.tools.length && <div className="cfg-row__sub">This server exposes no tools. MCP resources and prompt templates aren’t supported yet.</div>}
-            </div>
-            {canManage && <div className="mcp-server__actions">
-              {s.oauth && <button className={`cfg-btn ${recoveredOAuth === s.id ? 'cfg-btn--primary' : 'cfg-btn--secondary'}`} disabled={!!busy} type="button" onClick={() => void act(s.id, async () => { const result = await accessApi.authorizeMcpServer(s.id); if (current()) window.location.assign(result.redirectUrl); }, { action: 'oauth', id: s.id })}>Connect account</button>}
-              <Switch label={`Enable ${s.name}`} on={s.enabled} disabled={!!busy} onChange={enabled => void act(s.id, async () => { const result = await accessApi.updateMcpServer(s.id, { enabled }); if (current()) upsert(result.server); })} />
-              {(s.error || !s.checkedAt) && <button className="cfg-btn cfg-btn--secondary" disabled={!!busy} type="button" onClick={() => void test(s)}>{busy === s.id ? 'Testing…' : s.error ? 'Test again' : 'Test'}</button>}
-              <button className="cfg-btn cfg-btn--secondary" disabled={!!busy || editing !== undefined} type="button" onClick={() => setEditing(s)}>Edit</button>
-            </div>}
-          </section>)}
-        </div>}
-        {canManage && editing === undefined && <button className="cfg-btn cfg-btn--primary" type="button" disabled={!!busy} onClick={() => edit(null)}>Add MCP server</button>}
-      </section>}
+                : <div className="cfg-row__sub">{summary(s)}</div>}{!!s.tools.length && <details className="mcp-tools"><summary>Available tools ({s.tools.length})</summary>{s.tools.map(t => <div key={t.name}><strong>{t.name}</strong>{t.description && <p>{t.description}</p>}</div>)}</details>}{s.checkedAt && !s.error && !s.tools.length && <div className="cfg-row__sub">This server exposes no tools. MCP resources and prompt templates aren't supported yet.</div>}</>} trailing={<>{canManage && <div className="mcp-server__actions">
+              <SettingsMenu ariaLabel={`Manage ${s.name}`} disabled={!!busy} items={[
+                ...(s.oauth ? [{ label: 'Connect account', onSelect: () => void act(s.id, async () => { const result = await accessApi.authorizeMcpServer(s.id); if (current()) window.location.assign(result.redirectUrl); }, { action: 'oauth', id: s.id }) }] : []),
+                { label: s.enabled ? 'Disable' : 'Enable', onSelect: () => void act(s.id, async () => { const result = await accessApi.updateMcpServer(s.id, { enabled: !s.enabled }); if (current()) upsert(result.server); }) },
+                { label: 'Test connection', onSelect: () => void test(s) },
+                { label: 'Edit', disabled: editing !== undefined, onSelect: () => setEditing(s) },
+              ]} />
+            </div>}</>} />)}</Card>}{canManage && editing === undefined && <button className="cfg-btn cfg-btn--primary" type="button" disabled={!!busy} onClick={() => edit(null)} aria-label="Add MCP server">Add</button>}</Section>}
     </>}
   </>;
 }
