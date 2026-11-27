@@ -16,7 +16,7 @@ const recorded = fs.existsSync(path.join(output, 'baseline.json')) ? JSON.parse(
 const validBaseline = recorded?.fingerprint === fingerprint && recorded?.passed === baselineSpec.routeViews;
 
 if (!baseline && !validBaseline) {
-  const root = path.resolve('.'), checkout = path.join(output, 'main');
+  const root = path.resolve('.'), checkout = path.join(output, `main-${baselineSpec.commit}`);
   if (!fs.existsSync(checkout)) {
     execFileSync('git', ['worktree', 'add', '--detach', checkout, baselineSpec.commit], { stdio: 'inherit' });
     for (const relative of ['node_modules', 'web/node_modules']) fs.symlinkSync(path.join(root, relative), path.join(checkout, relative), 'dir');
@@ -41,8 +41,14 @@ try {
       await request.fulfill({ response, json: data });
     });
     await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
-    await context.addInitScript(theme => { localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
+    await context.addInitScript(theme => { if (location.origin === 'null') return; localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
     const page = await context.newPage(); page.setDefaultTimeout(15000);
+    // Lazy routes can replace the initial chat after its Page has appeared.
+    // Wait for finite requests, including lazy chunks, before measuring either checkout.
+    const pending = new Set(); let lastResponse = 0;
+    page.on('request', request => { if (!['eventsource', 'websocket'].includes(request.resourceType())) pending.add(request); });
+    const settled = request => { pending.delete(request); lastResponse = Date.now(); };
+    page.on('requestfinished', settled); page.on('requestfailed', settled);
     for (const route of ROUTES) {
       if (process.env.CLIENT_ROUTES && !process.env.CLIENT_ROUTES.split(',').includes(route.name)) continue;
       const key = `${width}-${theme}-${route.name.replaceAll('/', '-')}`;
@@ -55,6 +61,12 @@ try {
       if (route.code) { await page.locator('input[type=tel]').fill('+15555550123'); await page.getByRole('button', { name: 'Continue with phone', exact: true }).click(); await page.getByRole('textbox', { name: '6-digit code' }).waitFor(); }
 
       await page.locator('[data-layout="page"]:visible').first().waitFor();
+      if (route.hash.includes('/details/')) await page.locator('.pb-details [data-layout="page"]:visible').waitFor();
+      const deadline = Date.now() + 15000;
+      while (pending.size || Date.now() - lastResponse < 200) {
+        assert.ok(Date.now() < deadline, `${key}: requests settled before snapshot`);
+        await page.waitForTimeout(50);
+      }
       await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(400);
       if (route.state) { await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().bots.some(bot => bot.id === id), server.fixture.bot.id); await page.locator('.composer__input:not([disabled])').waitFor(); await page.waitForFunction(async id => (await import('/src/store.ts')).useStore.getState().transcripts[id]?.loaded, server.fixture.bot.id); await preparePbeState(page, route.state, server.fixture.bot.id); await page.waitForTimeout(400); }
       const result = await page.evaluate(() => {
