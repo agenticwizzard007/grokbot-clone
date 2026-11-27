@@ -1,4 +1,3 @@
-import { useAdaptedNavigation } from '../AllSections';
 import { Page } from '../layout';
 import { configApi } from '../../lib/configApi';
 import { deliverablesApi } from '../../lib/deliverablesApi';
@@ -42,7 +41,6 @@ function SearchText({ text, fallback, className }: { text: string; fallback: str
 
 /** Search Bots by name and every Bot's visible conversation by message text (MF-028, PD-08 option B). */
 export function SearchModal({ inline = false }: { inline?: boolean }) {
-  const adapted = useAdaptedNavigation();
   const bots = useStore((s) => s.bots);
   const accountId = useStore((s) => s.user?.id);
   const setModal = useStore((s) => s.setModal);
@@ -169,7 +167,6 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
         />
         <button type="button" className="icon-btn" aria-label="Close search" onClick={close}><Icon name="close" size={20} /></button>
       </div>
-      {adapted && <a href="#all" className="cfg-btn" style={{ minHeight: 44 }}>All sections</a>}
       <div className="search-modal__results" ref={listRef} role="listbox" aria-label="Search results">
         {botResults > 0 && <div className="search-modal__section">Bots</div>}
         {results.map((b, i) => (

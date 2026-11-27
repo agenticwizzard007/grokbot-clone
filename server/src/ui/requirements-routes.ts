@@ -3,11 +3,9 @@ import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { requireUser, type AuthVars } from '../lib/auth.js';
 import { patchSchema } from '../ui-config/patch.js';
-import { LENS_IDS } from '../ui-config/adapt-keywords.js';
 import { RequirementsStore } from './requirements-store.js';
 
 const writeSchema = z.union([z.object({ patch: patchSchema }).strict(), z.object({ undoReset: z.string().uuid() }).strict()]);
-const adaptSchema = z.object({ lens: z.enum(LENS_IDS).optional() }).strict();
 const empty = z.object({}).strict();
 export function createRequirementsApi(store: RequirementsStore) {
   const api = new Hono<AuthVars>();
@@ -16,7 +14,7 @@ export function createRequirementsApi(store: RequirementsStore) {
   api.use('*', bodyLimit({ maxSize: 8192, onError: c => c.json({ code: 'limit_exceeded', message: 'Requirements must fit in 8 KB.' }, 413) }));
   api.use('*', async (c, next) => {
     c.header('Cache-Control', 'private, no-store');
-    if (!store.enabled(user(c))) return c.json({ code: 'disabled', message: 'Requirements adaptation is disabled.' }, 404);
+    if (!store.enabled(user(c))) return c.json({ code: 'disabled', message: 'Dashboard suggestions are unavailable.' }, 404);
     if (!['GET', 'HEAD'].includes(c.req.method) && !/^application\/(?:json|json-patch\+json)(?:;|$)/i.test(c.req.header('content-type') ?? ''))
       return c.json({ code: 'invalid_value', message: 'Send a JSON request.' }, 415);
     await next();
@@ -50,7 +48,9 @@ export function createRequirementsApi(store: RequirementsStore) {
   });
   api.put('/', c => write(c, writeSchema, (input, revision) => 'patch' in input ? store.update(user(c), input.patch, revision) : store.undoReset(user(c), revision, input.undoReset)));
   api.delete('/', c => write(c, empty, (_input, revision) => store.reset(user(c), revision)));
-  api.post('/adapt', c => write(c, adaptSchema, (input, revision) => store.preview(user(c), revision, 'user', input.lens)));
+  api.post('/suggest', c => write(c, empty, (_input, revision) => store.preview(user(c), revision)));
+  // Existing clients can still ask explicitly, but only receive a dashboard addition.
+  api.post('/adapt', c => write(c, empty, (_input, revision) => store.preview(user(c), revision)));
   api.onError((_error, c) => c.json({ code: 'invalid_value', message: 'Could not update requirements.' }, 500));
   return api;
 }
