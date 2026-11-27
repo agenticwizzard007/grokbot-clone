@@ -14,13 +14,11 @@ export function exampleDashboard() {
     { id: '$new6', type: 'chart', title: 'Cost by day', span: 6, rows: 3, source: { id: 'usage.series', params: { range: '7d', metric: 'cost' } }, options: { kind: 'bar' } },
   ] };
 }
-export async function dashboardFixture() {
-  const server = await clientFixture();
-  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-  const { db, fixture } = server, { userId, bot } = fixture, at = Date.now();
+export function seedDashboardData(db, fixture) {
+  const { userId, bot } = fixture, at = Date.now(), prefix = userId === 'layout-owner' ? 'qa-dashboard' : userId;
   db.prepare('DELETE FROM tasks WHERE bot_id IN (SELECT id FROM bots WHERE user_id=?)').run(userId);
   for (let n = 0; n < 12; n++) db.prepare('INSERT INTO tasks(id,bot_id,title,state,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
-    .run(`qa-dashboard-task-${n}`, bot.id, `Fixture task ${n + 1}`, ['working', 'needs_input', 'done'][n % 3], 'PRIVATE_FIXTURE_NOTE', at - 1000, at);
+    .run(`${prefix}-task-${n}`, bot.id, `Fixture task ${n + 1}`, ['working', 'needs_input', 'done'][n % 3], 'PRIVATE_FIXTURE_NOTE', at - 1000, at);
   db.prepare("DELETE FROM rows WHERE bot_id=? AND kind='card'").run(bot.id);
   db.prepare('INSERT INTO rows(bot_id,generation,seq,updated_seq,kind,body,created_at) VALUES(?,?,?,?,?,?,?)')
     .run(bot.id, bot.generation, 100, 100, 'card', JSON.stringify({ type: 'card', card: 'question', status: 'pending', question: 'Choose the next task', options: ['Fixture choice'], private: 'PRIVATE_FIXTURE_QUESTION' }), at);
@@ -28,9 +26,14 @@ export async function dashboardFixture() {
   for (let day = 0; day < 30; day++) db.prepare('INSERT INTO usage_events(user_id,bot_id,kind,provider,model,input_tokens,output_tokens,cost_usd,cost_source,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
     .run(userId, bot.id, 'chat', 'direct', 'fixture-model', 100, 20, .25, 'provider', at - day * 86400_000);
   for (let n = 0; n < 2; n++) db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES(?,?,?,?,?,?,?,?)')
-    .run(`qa-dashboard-routine-${n}`, bot.id, `Fixture routine ${n + 1}`, 'PRIVATE_FIXTURE_PROMPT', '0 9 * * *', 'UTC', 1, at);
+    .run(`${prefix}-routine-${n}`, bot.id, `Fixture routine ${n + 1}`, 'PRIVATE_FIXTURE_PROMPT', '0 9 * * *', 'UTC', 1, at);
   for (let n = 0; n < 8; n++) db.prepare('INSERT INTO agent_jobs(id,user_id,bot_id,trigger,state,created_at,started_at,finished_at) VALUES(?,?,?,?,?,?,?,?)')
-    .run(`qa-dashboard-job-${n}`, userId, bot.id, JSON.stringify({ type: 'user', text: 'PRIVATE_FIXTURE_MESSAGE' }), n % 2 ? 'uncertain' : 'completed', at - 1000, at - 900, at);
+    .run(`${prefix}-job-${n}`, userId, bot.id, JSON.stringify({ type: 'user', text: 'PRIVATE_FIXTURE_MESSAGE' }), n % 2 ? 'uncertain' : 'completed', at - 1000, at - 900, at);
+}
+export async function dashboardFixture() {
+  const server = await clientFixture();
+  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+  seedDashboardData(server.db, server.fixture);
   const pages = [];
   return { ...server, browser,
     async page(width = 1280) { const result = await signedInPage(browser, server, width); pages.push(result.context); return result.page; },

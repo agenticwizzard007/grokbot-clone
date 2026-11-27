@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { dashboardAgentFixture } from './dashboard-agent-fixture.mjs';
+import { observeDashboard, agentEdit } from './dashboard-chat-flow.mjs';
+const server = await dashboardAgentFixture(), checks = [];
+try {
+  const account = await server.account({ bot: true }), chat = await server.page(account);
+  await chat.goto(`${server.base}/#bot/${account.bot.id}`);
+  const created = await agentEdit(server, account, chat, [], 'create_dashboard', { name: 'My week', template: 'overview' });
+  const empty = await server.page(account, 390), sent = [];
+  await empty.goto(`${server.base}/#dash/${created.dashboard.id}`);
+  empty.on('request', request => { if (request.method() === 'POST' && /\/messages$/.test(request.url())) sent.push(request); });
+  await empty.getByRole('region', { name: 'Needs you', exact: true }).getByRole('button', { name: 'Ask your agent', exact: true }).click();
+  await empty.waitForFunction(() => document.querySelector('.composer__input')?.value === 'Help me get started with Needs you.');
+  assert.equal(sent.length, 0); await empty.context().close();
+  checks.push('empty action: opens the personal Bot with an unsent, widget-specific draft');
+  const watchers = [];
+  for (const width of [390, 1280]) watchers.push(await observeDashboard(await server.page(account, width), created.dashboard.id));
+  let result = await agentEdit(server, account, chat, watchers, 'add_widget', { dashboardId: created.dashboard.id, type: 'note', title: 'Weekly priorities', options: { text: 'Review the next three tasks.' }, span: 6, rows: 2 });
+  const widgetId = result.dashboard.widgets.at(-1).id;
+  for (const { page } of watchers) await page.getByText('Review the next three tasks.', { exact: true }).waitFor(); checks.push('add_widget: real chat tool, SSE, both widths, reload');
+  result = await agentEdit(server, account, chat, watchers, 'update_widget', { dashboardId: created.dashboard.id, widgetId, set: { span: 12, rows: 3 } });
+  assert.equal(result.dashboard.widgets.at(-1).span, 12); assert.equal(result.dashboard.widgets.at(-1).rows, 3); checks.push('update_widget size: real chat tool, SSE, both widths, reload');
+  result = await agentEdit(server, account, chat, watchers, 'move_widget', { dashboardId: created.dashboard.id, widgetId, after: 'start' });
+  assert.equal(result.dashboard.widgets[0].id, widgetId); checks.push('move_widget: real chat tool, SSE, both widths, reload');
+  result = await agentEdit(server, account, chat, watchers, 'remove_widget', { dashboardId: created.dashboard.id, widgetId });
+  assert.ok(!result.dashboard.widgets.some(widget => widget.id === widgetId)); checks.push('remove_widget: real chat tool, SSE, both widths, reload');
+  const out = '.context/ui-custom/dashboard-chat'; fs.mkdirSync(out, { recursive: true });
+  fs.writeFileSync(`${out}/results.json`, JSON.stringify({ passed: checks.length, failed: 0, checks, transcript: server.transcript, finalDocument: result.saved.doc }, null, 2));
+  console.log(`DASHBOARD CHAT: ${checks.length} passed, 0 failed (4 registered edit tools, 2 open dashboards, SSE, persisted reloads and unsent empty action)`);
+} finally { await server.close(); }
