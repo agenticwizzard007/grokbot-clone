@@ -4,20 +4,20 @@ SNAV=[('Workspace',[('gear','General'),('user','Account'),('msg','Messaging'),('
 def settings_nav(t, active):
     out=f'<div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border-radius: 10px; border: 1px solid {t("border")}; background: {t("pane")}">{icon("search",t("text3"),14)}{txt("Search settings",t("text3"),13)}</div>'
     for g,items in SNAV:
-        out += f'<div style="padding: 12px 10px 4px">{txt(g,t("text3"),12,600)}</div>'
+        out += f'<div style="padding: 12px 10px 4px">{sec_head(t,g)}</div>'
         out += ''.join(f'<div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 9px; background: {t("active") if l==active else "transparent"}">{icon(ic,t("ink") if l==active else t("text2"),16)}{txt(l,t("ink"),14,600 if l==active else 500)}</div>' for ic,l in items)
     return f'<div layer-name="Settings nav" style="display: flex; flex-direction: column; gap: 2px; width: 220px; padding: 20px 12px; border-right: 1px solid {t("bsoft")}; flex-shrink: 0">{out}</div>'
 def settings_page(t, mobile, active, inner, title=None, sub=None):
     title = title or active
     if mobile:
         return [statusbar(t), mtop(t,title,None,'back'), mbody(t, (txt(sub,t('text2'),13) if sub else '') + inner, gap=12), homebar(t)]
-    body = f'<div style="display: flex; flex: 1; min-height: 0">{settings_nav(t,active)}<div style="display: flex; flex-direction: column; gap: 16px; flex: 1; min-width: 0; padding: 28px 40px; overflow: hidden"><div style="display: flex; flex-direction: column; gap: 16px; width: 640px; max-width: 100%">{title_block(t,title,sub)}{inner}</div></div></div>'
+    body = f'<div style="display: flex; flex: 1; min-height: 0">{settings_nav(t,active)}<div layer-name="Content" style="display: flex; flex-direction: column; align-items: center; gap: 16px; flex: 1; min-width: 0; padding: 32px; overflow: hidden"><div style="display: flex; flex-direction: column; gap: 16px; width: 640px; max-width: 100%">{title_block(t,title,sub)}{inner}</div></div></div>'
     return desk(t, dheader(t,'Settings',None,'Back to chat'), body, None, True)
 def s_settings_home(t, mobile):
     if mobile:
         groups=''
         for g,items in SNAV:
-            groups += txt(g,t('text3'),12,600) + card(t, ''.join(f'<div style="display: flex; align-items: center; gap: 12px; height: 48px; {"border-bottom: 1px solid "+t("bsoft")+";" if i<len(items)-1 else ""}">{icon(ic,t("text2"),18)}<div style="flex: 1">{txt(l,t("ink"),15,500)}</div>{icon("cr",t("text3"),16)}</div>' for i,(ic,l) in enumerate(items)), pad=12, gap=0)
+            groups += sec_head(t,g) + card(t, ''.join(f'<div style="display: flex; align-items: center; gap: 12px; height: 48px; {"border-bottom: 1px solid "+t("bsoft")+";" if i<len(items)-1 else ""}">{icon(ic,t("text2"),18)}<div style="flex: 1">{txt(l,t("ink"),15,500)}</div>{icon("cr",t("text3"),16)}</div>' for i,(ic,l) in enumerate(items)), pad=12, gap=0)
         acct = card(t, f'<div style="display: flex; align-items: center; gap: 12px"><div style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 22px; background: {t("primary")}">{txt("TU",t("onprimary"),15,600)}</div><div style="display: flex; flex-direction: column; flex: 1">{txt("Test User",t("ink"),15,600)}{txt("user@example.com",t("text3"),13)}</div>{icon("cr",t("text3"),16)}</div>', pad=14)
         return mob(t, mtop(t,'Settings',None,None), mbody(t, acct + groups, gap=10), 'settings')
     inner = (row(t,'eye','Theme','',seg(t,[('Light',''),('Dark',''),('Auto','')],0 if t.mode=='light' else 1).replace('flex: 1;','')) 
@@ -37,7 +37,7 @@ def s_models(t, mobile, mode='plan'):
     head = f'<div style="display: flex; align-items: center; gap: 8px">{txt("Bots use",t("ink"),15,600)}{info_tip(t,"Plan uses your subscription. API key pays per use.")}</div>'
     plans = card(t, prow(t,'claude','Claude','Connected','Manage','secondary',mobile) + prow(t,'openai','ChatGPT','Not connected','Connect','primary',mobile,last=True), pad=16, gap=0)
     api = card(t, prow(t,'openrouter','OpenRouter','Not connected','Connect','primary',mobile,link='Paste key',last=True), pad=16, gap=0)
-    inner = (head + toggle_ + txt('Plans',t('text3'),12,600) + plans + txt('Pay per use',t('text3'),12,600) + api
+    inner = (head + toggle_ + sec_head(t,'Plans') + plans + sec_head(t,'Pay per use') + api
              + f'<div style="display: flex">{learn_more(t)}</div>')
     return settings_page(t, mobile, 'Models & access', inner, 'Models & access', None)
 def s_keys(t, mobile):
@@ -55,7 +55,7 @@ def s_usage(t, mobile):
     chart = card(t, f'<div style="display: flex; justify-content: space-between; align-items: baseline">{txt("Runs this week",t("ink"),14,600)}{htxt("214",t("ink"),24)}</div><div style="display: flex; gap: 8px; align-items: flex-end">{bars}</div>', pad=16)
     m = meter(t,'Claude plan','claude',42,'Resets Monday 09:00') + meter(t,'ChatGPT plan','openai',0,'Not connected') + meter(t,'OpenRouter credit','openrouter',18,'$3.60 of $20')
     per = ''.join(f'<div style="display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid {t("bsoft")}">{bot_av(t,c,24)}{txt(n,t("ink"),14,500,extra="flex: 1;")}{logo(b,t,16)}{txt(r,t("text2"),13)}</div>' for n,c,b,r in [('Atlas','pink','claude','96 runs'),('Research','green','claude','71 runs'),('Studio','orange','openrouter','47 runs')])
-    return settings_page(t, mobile, 'Usage', chart + f'<div style="display: flex; flex-direction: column">{m}</div>' + txt('By Bot',t('text3'),12,600) + f'<div style="display: flex; flex-direction: column">{per}</div>', 'Usage', '')
+    return settings_page(t, mobile, 'Usage', chart + f'<div style="display: flex; flex-direction: column">{m}</div>' + sec_head(t,'By Bot') + f'<div style="display: flex; flex-direction: column">{per}</div>', 'Usage', '')
 def s_permissions(t, mobile):
     lv = (radio_row(t,'Ask for external actions only','Recommended',True)
           + radio_row(t,'Ask before every action','')
@@ -76,7 +76,7 @@ def s_tasks(t, mobile):
     cols=[('To do',[TASKS[2]]),('Doing',[TASKS[0]]),('Blocked',[TASKS[1]]),('Done',[TASKS[3]])]
     if mobile:
         f = seg(t,[('Open',''),('Done',''),('All','')],0)
-        groups=''.join(txt(c,t('text3'),12,600)+f'<div style="display: flex; flex-direction: column">{"".join(task_row(t,*x) for x in xs)}</div>' for c,xs in cols[:3])
+        groups=''.join(sec_head(t,c)+f'<div style="display: flex; flex-direction: column">{"".join(task_row(t,*x) for x in xs)}</div>' for c,xs in cols[:3])
         return mob(t, mtop(t,'Tasks',None,None,iconbtn('plus',t,40)), mbody(t, f + groups, gap=10), 'tasks')
     def tcard(x): 
         return card(t, f'{txt(x[0],t("ink"),14,500)}<div style="display: flex; align-items: center; gap: 8px">{bot_av(t,{"Atlas":"pink","Studio":"orange","Research":"green","Ledger":"teal"}[x[1].split(" ")[0]],20)}{txt(x[1],t("text3"),12)}</div>', pad=12, gap=8)
@@ -126,7 +126,7 @@ def s_error(t, mobile):
               f'<div style="display: flex; gap: 10px; align-items: flex-start; flex: 1">{icon("wifi",t("dangertext"),18)}<div style="display: flex; flex-direction: column; gap: 2px; flex: 1">{txt("Connection lost",t("dangertext"),14,600)}{txt("Sends when you reconnect.",t("dangertext"),13)}</div></div>{btn("Try again",t,"secondary","refresh",full=mobile)}</div>')
     failed = (f'<div style="display: flex; justify-content: flex-end; width: 100%"><div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px; max-width: 80%"><div style="display: flex; padding: 10px 14px; border-radius: 16px 16px 4px 16px; background: {t("bubbleuser")}; border: 1px solid {t("danger")}">{txt("Send the launch email now",t("ink") if t.mode=="light" else "#FFFFFF",15,400,24)}</div>'
               f'<div style="display: flex; gap: 6px; align-items: center">{icon("alert",t("dangertext"),12)}{txt("Not sent. Tap to retry",t("dangertext"),12,500)}</div></div></div>')
-    plan = card(t, f'<div style="display: flex; gap: 10px; align-items: center">{logo("claude",t,20)}<div style="display: flex; flex-direction: column; gap: 2px; flex: 1">{txt("Claude signed out",t("ink"),14,600)}{txt("",t("text2"),13)}</div></div>{btn("Reconnect Claude",t,"primary",full=mobile)}', pad=14)
+    plan = card(t, f'<div style="display: flex; gap: 10px; align-items: center">{logo("claude",t,20)}<div style="display: flex; flex-direction: column; gap: 2px; flex: 1">{txt("Claude signed out",t("ink"),14,600)}{txt('',t("text2"),13)}</div></div>{btn("Reconnect Claude",t,"primary",full=mobile)}', pad=14)
     th = umsg(t,'Help me plan the next step for our launch.') + amsg(t,'Atlas',['The launch is on track. The next step is to confirm the schedule.']) + failed + plan
     comp = composer(t, compact=mobile)
     if mobile:

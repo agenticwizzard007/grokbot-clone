@@ -67,7 +67,10 @@ def txt(s, c, size=14, w=400, lh=None, extra=''):
 def htxt(s, c, size=24, w=600, extra=''):
     lh={17:24,20:28,24:32,28:36,32:40,40:48}.get(size,size+8)
     return f'<div style="{HEAD} font-size: {size}px; font-weight: {w}; line-height: {lh}px; letter-spacing: -0.02em; color: {c}; {extra}">{s}</div>'
-def btn(label, t, kind='secondary', ic=None, h=36, full=False, extra=''):
+# v3 layout system (BUILD-SPEC 0d)
+L = dict(pad_m=16, pad_d=32, w_form=640, w_list=880, w_chat=760, space=8, radius=12, card_pad=16, ctl=44)
+def btn(label, t, kind='secondary', ic=None, h=44, full=False, extra=''):
+    h = 44
     bg={'primary':t('primary'),'secondary':t('elevated'),'ghost':'transparent','danger':t('dangerbg'),'quiet':t('subtle')}[kind]
     fg={'primary':t('onprimary'),'secondary':t('ink'),'ghost':t('ink'),'danger':t('dangertext'),'quiet':t('ink')}[kind]
     bd=f'border: 1px solid {t("border")};' if kind=='secondary' else ''
@@ -128,3 +131,10 @@ def info_tip(t, label='More info'):
     return f'<div layer-name="Info: {label}" style="display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 12px; flex-shrink: 0">{icon("info",t("text3"),16)}</div>'
 def learn_more(t, label='Learn more'):
     return f'<div style="{FONT} font-size: 13px; font-weight: 500; line-height: 18px; color: {t("primary")}; white-space: nowrap">{label}</div>'
+
+def btn_group(t, *buttons, stack=False):
+    """Buttons in a group share one width: each cell is flex 1 (or full width when stacked)."""
+    cells=''.join(f'<div style="display: flex; flex: 1; min-width: 0">{b.replace("flex-shrink: 0;","flex-shrink: 0; width: 100%;")}</div>' for b in buttons)
+    return f'<div layer-name="Button group" style="display: flex; flex-direction: {"column" if stack else "row"}; gap: 8px; width: 100%">{cells}</div>'
+def sec_head(t, label, right=''):
+    return f'<div layer-name="Section header" style="display: flex; align-items: center; gap: 8px; min-height: 24px"><div style="{FONT} font-size: 13px; font-weight: 600; line-height: 18px; color: {t("text2")}; flex: 1">{label}</div>{right}</div>'

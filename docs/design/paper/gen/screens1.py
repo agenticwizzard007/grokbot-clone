@@ -20,7 +20,7 @@ def approval(t, compact=False, state='ask'):
     rows=[('To','team@example.com'),('Subject','Launch checklist for Friday'),('From','Your connected Gmail')]
     det=''.join(f'<div style="display: flex; gap: 12px"><div style="{FONT} font-size: 13px; line-height: 18px; color: {t("text3")}; width: 64px; flex-shrink: 0">{k}</div>{txt(v,t("ink"),13)}</div>' for k,v in rows)
     if state=='ask':
-        btns = (f'<div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end">{btn("Don&#39;t allow",t,"secondary")}{btn("Always allow",t,"quiet")}{btn("Allow",t,"primary")}</div>')
+        btns = btn_group(t, btn("Don&#39;t allow",t,"secondary"), btn("Always allow",t,"secondary"), btn("Allow",t,"primary"), stack=compact)
     else:
         btns = f'<div style="display: flex; align-items: center; gap: 8px">{icon("x",t("dangertext"),16)}{txt("Not allowed. Atlas will not send this email.",t("dangertext"),13,500)}</div>'
     return (f'<div layer-name="Approval card" style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; background: {t("elevated")}; border: 1px solid {t("border")}; width: 100%">'
@@ -74,12 +74,12 @@ def mm_row(t, brand, name, note, sel=False, effort='Medium', badge=None):
             f'{(icon("check",t("primary"),16)) if sel else ""}</div>')
 def picker(t, mobile):
     effort = ''.join(f'<div style="display: flex; align-items: center; justify-content: center; height: 32px; flex: 1; border-radius: 8px; background: {t("elevated") if e=="Medium" else "transparent"}; {"border: 1px solid "+t("border")+";" if e=="Medium" else ""}">{txt(e,t("ink"),13,600 if e=="Medium" else 500)}</div>' for e in ['Low','Medium','High'])
-    body = (f'<div style="padding: 4px 10px 2px">{txt("Your plans",t("text3"),12,600)}</div>'
+    body = (f'<div style="padding: 4px 10px 2px">{sec_head(t,"Your plans")}</div>'
         + mm_row(t,'claude','Sonnet 4.5','',True,badge='Plan') + mm_row(t,'claude','Opus 4.1','',badge='Plan')
         + mm_row(t,'openai','GPT-5 Codex','',badge='Plan')
-        + f'<div style="padding: 8px 10px 2px">{txt("API billing",t("text3"),12,600)}</div>'
+        + f'<div style="padding: 8px 10px 2px">{sec_head(t,"API billing")}</div>'
         + mm_row(t,'openrouter','OpenRouter models','',badge='API')
-        + f'<div style="display: flex; flex-direction: column; gap: 8px; padding: 10px; border-top: 1px solid {t("bsoft")}">{txt("Effort",t("text3"),12,600)}<div style="display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: {t("subtle")}">{effort}</div></div>')
+        + f'<div style="display: flex; flex-direction: column; gap: 8px; padding: 10px; border-top: 1px solid {t("bsoft")}">{sec_head(t,"Effort")}<div style="display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: {t("subtle")}">{effort}</div></div>')
     if mobile:
         return (f'<div layer-name="Picker sheet scrim" style="position: absolute; left: 0; top: 0; width: 390px; height: 844px; background: {t("scrim")}; display: flex; flex-direction: column; justify-content: flex-end">'
                 f'<div layer-name="Model sheet" style="display: flex; flex-direction: column; gap: 2px; padding: 8px 8px 28px; border-radius: 20px 20px 0 0; background: {t("elevated")}">'
@@ -93,6 +93,6 @@ def voicebar(t, mobile):
             f'{iconbtn("micoff",t,40,"bordered")}<div style="display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px; border-radius: 9999px; background: {t("danger")}">{icon("stop","#FFFFFF",14)}{txt("End","#FFFFFF",13,600)}</div></div>')
     bars=''.join(f'<div style="width: 3px; height: {h}px; border-radius: 2px; background: {t("primary")}"></div>' for h in [6,12,18,10,22,14,8,16,20,9,13,6])
     return (f'<div layer-name="Voice bar" style="display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-radius: 9999px; background: {t("active")}; width: 100%">'
-            f'{dot(t("success"))}<div style="display: flex; flex-direction: column; flex: 1; min-width: 0">{txt("Voice on. Atlas is listening",t("ink"),13,600)}{txt("",t("text2"),12)}</div>'
+            f'{dot(t("success"))}<div style="display: flex; flex-direction: column; flex: 1; min-width: 0">{txt("Voice on. Atlas is listening",t("ink"),13,600)}{txt('',t("text2"),12)}</div>'
             f'<div style="display: flex; align-items: center; gap: 2px; height: 24px">{bars}</div>{iconbtn("micoff",t,36,"bordered")}'
             f'<div style="display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 9999px; background: {t("danger")}">{icon("stop","#FFFFFF",14)}{txt("End",  "#FFFFFF",13,600)}</div></div>')

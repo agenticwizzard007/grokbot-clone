@@ -28,3 +28,7 @@ test('Paper phone tab type and composer radius retain their shared token names',
   assert.equal(value(0, 'text-tab'), '11px'); assert.equal(value(0, 'line-tab'), '14px');
   assert.equal(value(0, 'radius-composer'), '24px');
 });
+
+test('Paper v3 layout spacing and control geometry', () => {
+  for (const [token, expected] of Object.entries({ 'space-1': '4px', 'space-2': '8px', 'space-3': '16px', 'space-4': '24px', 'space-5': '32px', 'radius-card': '12px', 'control-h': '44px' })) assert.equal(value(0, token), expected, token);
+});

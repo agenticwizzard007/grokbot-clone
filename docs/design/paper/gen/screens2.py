@@ -3,26 +3,30 @@ G = lambda s: s  # copy passthrough
 
 # ---------- generic frames ----------
 def page_body(t, inner, width=752, pad='32px 32px', gap=24):
+    width = L['w_form'] if width <= 700 else L['w_list']
+    pad = f"{L['pad_d']}px"; gap = 24 if gap >= 20 else 16
     return f'<div layer-name="Content" style="display: flex; flex-direction: column; align-items: center; flex: 1; min-height: 0; padding: {pad}; overflow: hidden"><div style="display: flex; flex-direction: column; gap: {gap}px; width: {width}px; max-width: 100%">{inner}</div></div>'
 def title_block(t, title, sub=None, right='', mobile=False):
     s = txt(sub,t('text2'),14 if not mobile else 13) if sub else ''
     return (f'<div style="display: flex; align-items: flex-end; gap: 16px; {"flex-wrap: wrap;" if mobile else ""}"><div style="display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0">'
             f'{htxt(title,t("ink"),24 if not mobile else 22,600)}{s}</div>{right}</div>')
 def card(t, inner, pad=16, gap=12, extra=''):
-    return f'<div style="display: flex; flex-direction: column; gap: {gap}px; padding: {pad}px; border-radius: 16px; background: {t("elevated")}; border: 1px solid {t("border")}; {extra}">{inner}</div>'
+    pad = L['card_pad']; gap = 0 if gap == 0 else 8 if gap <= 8 else (16 if gap > 12 else gap)
+    extra = extra.replace('flex: 1; min-width: 0','flex: 1 1 0; min-width: 0')
+    return f'<div layer-name="Card" style="display: flex; flex-direction: column; gap: {gap}px; padding: {pad}px; border-radius: {L["radius"]}px; align-self: stretch; background: {t("elevated")}; border: 1px solid {t("border")}; {extra}">{inner}</div>'
 def row(t, ic, title, sub='', right='', mobile=False, brand=None, border=True):
     lead = logo(brand,t,20) if brand else (icon(ic,t('text2'),20) if ic else '')
     s = txt(sub,t('text2'),13) if sub else ''
     stack = mobile and right and 'Button' in right
     bd = f'border-bottom: 1px solid {t("bsoft")};' if border else ''
     if stack:
-        return (f'<div style="display: flex; flex-direction: column; gap: 12px; padding: 14px 0; {bd}"><div style="display: flex; gap: 12px; align-items: flex-start">'
+        return (f'<div style="display: flex; flex-direction: column; gap: 12px; min-height: 44px; padding: 10px 0; {bd}"><div style="display: flex; gap: 12px; align-items: flex-start">'
                 f'<div style="display: flex; width: 20px; padding-top: 1px; flex-shrink: 0">{lead}</div><div style="display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0">{txt(title,t("ink"),15,600,22)}{s}</div></div>{right.replace("flex-shrink: 0;","flex-shrink: 0; width: 100%;")}</div>')
-    return (f'<div style="display: flex; gap: 12px; align-items: center; padding: 14px 0; {bd}">'
+    return (f'<div style="display: flex; gap: 12px; align-items: center; min-height: 44px; padding: 10px 0; {bd}">'
             f'<div style="display: flex; width: 20px; flex-shrink: 0; align-self: flex-start; padding-top: 1px">{lead}</div><div style="display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0">{txt(title,t("ink"),15,600,22)}{s}</div>{right}</div>')
 def seg(t, items, active, full=True, small=False):
     pad, gap, fs = ('0 6px', 6, 13) if small else ('0 12px', 8, 14)
-    cells=''.join(f'<div style="display: flex; align-items: center; justify-content: center; gap: {gap}px; height: 36px; padding: {pad}; flex: 1; border-radius: 9px; background: {t("elevated") if i==active else "transparent"}; {"border: 1px solid "+t("border")+";" if i==active else ""}">{lg}{txt(lb,t("ink"),fs,600 if i==active else 500,extra="white-space: nowrap;")}</div>' for i,(lb,lg) in enumerate(items))
+    cells=''.join(f'<div style="display: flex; align-items: center; justify-content: center; gap: {gap}px; height: 36px; padding: {pad}; flex: 1 1 0; min-width: 0; border-radius: 9px; background: {t("elevated") if i==active else "transparent"}; {"border: 1px solid "+t("border")+";" if i==active else ""}">{lg}{txt(lb,t("ink"),fs,600 if i==active else 500,extra="white-space: nowrap;")}</div>' for i,(lb,lg) in enumerate(items))
     return f'<div layer-name="Segmented" style="display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: {t("subtle")}">{cells}</div>'
 def field(t, label, value='', placeholder='', hint='', secret=False, err=None):
     v = txt(value,t('ink'),15) if value else txt(placeholder,t('text3'),15)
@@ -34,7 +38,7 @@ def toggle(t, on=True):
     return f'<div style="display: flex; align-items: center; justify-content: {"flex-end" if on else "flex-start"}; width: 40px; height: 24px; padding: 2px; border-radius: 12px; background: {t("primary") if on else t("border")}; flex-shrink: 0"><div style="width: 20px; height: 20px; border-radius: 10px; background: {t("onprimary") if on else t("pane")}"></div></div>'
 def radio_row(t, title, sub, on=False):
     r = f'<div style="display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 10px; border: 2px solid {t("primary") if on else t("border")}; flex-shrink: 0">{dot(t("primary"),10) if on else ""}</div>'
-    return (f'<div style="display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 12px; border: 1px solid {t("primary") if on else t("border")}; background: {t("active") if on else t("pane")}">{r}'
+    return (f'<div style="display: flex; gap: 12px; align-items: flex-start; min-height: 44px; padding: 12px 16px; border-radius: 12px; border: 1px solid {t("primary") if on else t("border")}; background: {t("active") if on else t("pane")}">{r}'
             f'<div style="display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0">{txt(title,t("ink"),14,600)}{txt(sub,t("text2"),13)}</div></div>')
 
 def desk(t, header, body, sel=None, settings=False, nav=''):
@@ -70,7 +74,7 @@ def entry_side(t):
          ('shield','You stay in control',''),
          ('term','Use the plan you have','')]
     items=''.join(f'<div style="display: flex; gap: 14px">{iconbtn(ic,t,40,"quiet")}<div style="display: flex; flex-direction: column; gap: 4px; flex: 1">{txt(a,t("ink"),15,600)}{txt(b,t("text2"),14)}</div></div>' for ic,a,b in pts)
-    logos = f'<div style="display: flex; align-items: center; gap: 16px">{txt("Works with",t("text3"),12,600)}<div style="display: flex; align-items: center; gap: 6px">{logo("claude",t,18)}{txt("Claude",t("text2"),13,500)}</div><div style="display: flex; align-items: center; gap: 6px">{logo("openai",t,18)}{txt("ChatGPT",t("text2"),13,500)}</div><div style="display: flex; align-items: center; gap: 6px">{logo("openrouter",t,18)}{txt("OpenRouter",t("text2"),13,500)}</div></div>'
+    logos = f'<div style="display: flex; align-items: center; gap: 16px">{sec_head(t,"Works with")}<div style="display: flex; align-items: center; gap: 6px">{logo("claude",t,18)}{txt("Claude",t("text2"),13,500)}</div><div style="display: flex; align-items: center; gap: 6px">{logo("openai",t,18)}{txt("ChatGPT",t("text2"),13,500)}</div><div style="display: flex; align-items: center; gap: 6px">{logo("openrouter",t,18)}{txt("OpenRouter",t("text2"),13,500)}</div></div>'
     return (f'<div layer-name="Story" style="display: flex; flex-direction: column; justify-content: space-between; width: 560px; height: 100%; padding: 48px; background: {t("sidebar")}; border-right: 1px solid {t("bsoft")}; flex-shrink: 0">'
             f'<div style="display: flex; align-items: center; gap: 8px">{flock(28,t("primary"),"#7787E1")}{htxt("swarms.so",t("ink"),22,600)}</div>'
             f'<div style="display: flex; flex-direction: column; gap: 28px">{htxt("Ready on day one.",t("ink"),40,700)}{items}</div>{logos}</div>')
@@ -87,14 +91,14 @@ def plan_options_logos(t):
     out=''
     for brand,title,sub,on in [('claude','Claude plan','Pro or Max plan',True),('openai','ChatGPT plan','Plus or Pro plan',False),('openrouter','OpenRouter key','Pay per use',False)]:
         r = f'<div style="display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 10px; border: 2px solid {t("primary") if on else t("border")}; flex-shrink: 0">{dot(t("primary"),10) if on else ""}</div>'
-        out += (f'<div style="display: flex; gap: 12px; align-items: center; padding: 14px; border-radius: 12px; border: 1px solid {t("primary") if on else t("border")}; background: {t("active") if on else t("pane")}">'
+        out += (f'<div style="display: flex; gap: 12px; align-items: center; min-height: 44px; padding: 12px 16px; border-radius: 12px; border: 1px solid {t("primary") if on else t("border")}; background: {t("active") if on else t("pane")}">'
                 f'{logo(brand,t,24)}<div style="display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0">{txt(title,t("ink"),15,600)}{txt(sub,t("text2"),13)}</div>{r}</div>')
     return out
 def s_firstrun(t, mobile):
     steps = f'<div style="display: flex; gap: 6px">' + ''.join(f'<div style="height: 4px; flex: 1; border-radius: 2px; background: {t("primary") if i<2 else t("border")}"></div>' for i in range(3)) + '</div>'
-    inner = (steps + txt('Step 2 of 3',t('text3'),12,600) + title_block(t,'Connect a model','',mobile=mobile)
+    inner = (steps + sec_head(t,'Step 2 of 3') + title_block(t,'Connect a model','',mobile=mobile)
              + plan_options_logos(t)
-             + card(t, f'<div style="display: flex; gap: 10px; align-items: flex-start">{icon("term",t("text2"),18)}<div style="display: flex; flex-direction: column; gap: 4px; flex: 1">{txt("Next: sign in with Claude",t("ink"),14,600)}{txt("",t("text2"),13)}</div></div>', pad=14)
+             + card(t, f'<div style="display: flex; gap: 10px; align-items: flex-start">{icon("term",t("text2"),18)}<div style="display: flex; flex-direction: column; gap: 4px; flex: 1">{txt("Next: sign in with Claude",t("ink"),14,600)}{txt('',t("text2"),13)}</div></div>', pad=14)
              + f'<div style="display: flex; gap: 8px; {"flex-direction: column-reverse;" if mobile else "justify-content: flex-end;"}">{btn("Back",t,"ghost",h=44,full=mobile)}{btn("Continue with Claude",t,"primary",h=44,full=mobile)}</div>')
     if mobile: return mob(t, mtop(t,'Set up Swarm',None,'back'), mbody(t,inner,gap=16))
     return [entry_side(t), main(t, page_body(t, inner, 520, '64px 48px', 20))]
@@ -124,31 +128,32 @@ BOTCARDS=[('Atlas','Chief of Staff','pink','Working','Working',True),('Research'
           ('Studio','Designer and writer','orange','Needs you','Needs approval',False),('Ledger','Finance helper','teal','Ready','Idle',False)]
 def s_bots(t, mobile):
     cards = [bot_card(t,*b) for b in BOTCARDS]
-    newcard = f'<div style="display: flex; align-items: center; justify-content: center; gap: 8px; padding: 16px; border-radius: 16px; border: 1px dashed {t("border")}; flex: 1; min-height: 104px">{icon("plus",t("text2"),18)}{txt("Create a Bot",t("text2"),14,600)}</div>'
+    newcard = btn('Create a Bot',t,'secondary','plus',full=True)
     rooms = card(t, row(t,'users','Launch room','4 members',chip('2 new',t,'primary'),border=False), pad=12)
     if mobile:
-        inner = title_block(t,'Your Bots','4 Bots, 1 room',mobile=True) + ''.join(cards) + txt('Rooms',t('text3'),12,600) + rooms + newcard
+        inner = sec_head(t,'Bots') + ''.join(cards) + sec_head(t,'Rooms') + rooms + newcard
         return mob(t, mtop(t,'Bots',None,None,iconbtn('plus',t,40)), mbody(t,inner,gap=12), 'bots')
-    grid = f'<div style="display: flex; flex-direction: column; gap: 12px"><div style="display: flex; gap: 12px">{cards[0]}{cards[1]}</div><div style="display: flex; gap: 12px">{cards[2]}{cards[3]}</div></div>'
-    inner = title_block(t,'Your Bots','',btn('Create a Bot',t,'primary','plus')+btn('New room',t,'secondary','users')) + grid + txt('Rooms',t('text3'),12,600) + rooms
+    grid = f'<div layer-name="Card grid" style="display: flex; flex-direction: column; gap: 16px"><div style="display: flex; gap: 16px">{cards[0]}{cards[1]}</div><div style="display: flex; gap: 16px">{cards[2]}{cards[3]}</div></div>'
+    inner = title_block(t,'Your Bots','',f'<div style="display: flex; width: 296px">'+btn_group(t,btn('New room',t,'secondary','users'),btn('Create a Bot',t,'primary','plus'))+'</div>') + grid + sec_head(t,'Rooms') + rooms
     return desk(t, dheader(t,'All Bots'), page_body(t,inner,880), None, nav='bots')
 def modal(t, title, body, foot, w=520, mobile=False):
     if mobile:
         return (f'<div layer-name="Sheet" style="position: absolute; left: 0; top: 0; width: 390px; height: 844px; background: {t("scrim")}; display: flex; flex-direction: column; justify-content: flex-end">'
-                f'<div style="display: flex; flex-direction: column; gap: 16px; padding: 12px 20px 32px; border-radius: 20px 20px 0 0; background: {t("elevated")}">'
+                f'<div style="display: flex; flex-direction: column; gap: 16px; padding: 12px 16px 32px; border-radius: 20px 20px 0 0; background: {t("elevated")}">'
                 f'<div style="display: flex; justify-content: center"><div style="width: 36px; height: 4px; border-radius: 2px; background: {t("border")}"></div></div>'
                 f'<div style="display: flex; align-items: center; justify-content: space-between">{txt(title,t("ink"),18,600)}{iconbtn("x",t,36)}</div>{body}{foot}</div></div>')
     return (f'<div layer-name="Modal scrim" style="position: absolute; left: 0; top: 0; width: 1280px; height: 900px; background: {t("scrim")}; display: flex; align-items: center; justify-content: center">'
-            f'<div layer-name="Modal" style="display: flex; flex-direction: column; gap: 20px; width: {w}px; padding: 24px; border-radius: 20px; background: {t("elevated")}; box-shadow: 0 20px 32px -5px #1C1C1C1A">'
+            f'<div layer-name="Modal" style="display: flex; flex-direction: column; gap: 20px; width: {w}px; padding: 24px; border-radius: 16px; background: {t("elevated")}; box-shadow: 0 20px 32px -5px #1C1C1C1A">'
             f'<div style="display: flex; align-items: center; justify-content: space-between">{htxt(title,t("ink"),20,600)}{iconbtn("x",t,32)}</div>{body}{foot}</div></div>')
 def s_create(t, mobile):
     roles=''.join(f'<div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 18px; border: 1px solid {t("primary") if r=="Researcher" else t("border")}; background: {t("active") if r=="Researcher" else t("pane")}">{txt(r,t("ink"),13,500)}</div>' for r in ['Chief of Staff','Researcher','Writer','Designer','Finance','Custom'])
     body = (field(t,'Name','Scout') + f'<div style="display: flex; flex-direction: column; gap: 8px">{txt("Role",t("ink"),13,600)}<div style="display: flex; flex-wrap: wrap; gap: 8px">{roles}</div></div>'
-            + f'<div style="display: flex; flex-direction: column; gap: 6px">{txt("Model",t("ink"),13,600)}<div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid {t("border")}">{logo("claude",t,18)}{txt("Sonnet 4.5",t("ink"),14,600)}{chip("Plan",t)}<div style="flex: 1"></div>{txt("Medium effort",t("text2"),13)}{icon("cd",t("text3"),16)}</div>{txt("",t("text3"),12)}</div>')
-    foot = f'<div style="display: flex; gap: 8px; {"flex-direction: column-reverse;" if mobile else "justify-content: space-between; align-items: center;"}">{btn("Start a room instead",t,"ghost","users",full=mobile)}<div style="display: flex; gap: 8px; {"flex-direction: column-reverse;" if mobile else ""}">{btn("Cancel",t,"secondary",h=44 if mobile else 36,full=mobile)}{btn("Create Bot",t,"primary",h=44 if mobile else 36,full=mobile)}</div></div>'
+            + f'<div style="display: flex; flex-direction: column; gap: 6px">{txt("Model",t("ink"),13,600)}<div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid {t("border")}">{logo("claude",t,18)}{txt("Sonnet 4.5",t("ink"),14,600)}{chip("Plan",t)}<div style="flex: 1"></div>{txt("Medium effort",t("text2"),13)}{icon("cd",t("text3"),16)}</div>{txt('',t("text3"),12)}</div>')
+    foot = (btn_group(t, btn("Create Bot",t,"primary"), btn("Cancel",t,"secondary"), btn("Start a room instead",t,"ghost","users"), stack=True) if mobile
+            else f'<div style="display: flex; align-items: center; gap: 8px">{btn("Start a room instead",t,"ghost","users")}<div style="flex: 1"></div><div style="display: flex; width: 264px">{btn_group(t, btn("Cancel",t,"secondary"), btn("Create Bot",t,"primary"))}</div></div>')
     m = modal(t,'Create a Bot',body,foot,560,mobile)
     if mobile:
-        base = mob(t, mtop(t,'Bots',None,None,iconbtn('plus',t,40)), mbody(t, title_block(t,'Your Bots',mobile=True)+''.join(bot_card(t,*b) for b in BOTCARDS[:3]),gap=12), 'bots')
+        base = mob(t, mtop(t,'Bots',None,None,iconbtn('plus',t,40)), mbody(t, sec_head(t,'Bots')+''.join(bot_card(t,*b) for b in BOTCARDS[:3]),gap=12), 'bots')
         return base + [m]
     d = s_bots(t, False); d[1] = d[1][:-6] + m + '</div>'
     return d
@@ -164,11 +169,11 @@ def bot_page(t, mobile, tab, inner_d, inner_m=None, sub='Chief of Staff'):
         return [statusbar(t), mtop(t,'Atlas',sub,'back',iconbtn('gear',t,36),AV_ATLAS(t)), bot_tabs(t,tab,True), mbody(t,inner_m if inner_m is not None else inner_d,gap=14), homebar(t)]
     return desk(t, dheader(t,'Atlas',sub,'All Bots',btn('Open chat',t,'secondary','msg',32),AV_ATLAS(t)) + bot_tabs(t,tab), page_body(t,inner_d,800,'24px 32px',16), 'Atlas')
 def s_activity(t, mobile):
-    stats = ''.join(card(t, txt(a,t('text3'),12,600)+htxt(b,t('ink'),24,600)+txt(c,t('text2'),12), pad=14, gap=4, extra='flex: 1; min-width: 0') for a,b,c in [('Runs this week','38','+6'),('Approvals','5','All answered'),('Time saved','3 h 10 m','Estimated')])
+    stats = ''.join(card(t, sec_head(t,a)+htxt(b,t('ink'),24,600)+txt(c,t('text2'),12), pad=14, gap=4, extra='flex: 1; min-width: 0') for a,b,c in [('Runs this week','38','+6'),('Approvals','5','All answered'),('Time saved','3 h 10 m','Estimated')])
     evs=[('check','success','Finished: Launch checklist','10:42'),('mail','warn','Email not sent','10:40'),('globe','text2','Searched the web, 3 sources','10:38'),('clock','text2','Routine ran: Morning brief','08:00'),('alert','dangertext','Gmail sign in needed','Yesterday')]
     feed = ''.join(f'<div style="display: flex; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid {t("bsoft")}">{icon(ic,t(c),18)}<div style="flex: 1; min-width: 0">{txt(s,t("ink"),14)}</div>{txt(tm,t("text3"),12)}</div>' for ic,c,s,tm in evs)
     sw = f'<div style="display: flex; gap: 12px; {"flex-direction: column;" if mobile else ""}">{stats}</div>'
-    return bot_page(t, mobile, 'Activity', sw + txt('Today',t('text3'),12,600) + f'<div style="display: flex; flex-direction: column">{feed}</div>')
+    return bot_page(t, mobile, 'Activity', sw + sec_head(t,'Today') + f'<div style="display: flex; flex-direction: column">{feed}</div>')
 def task_row(t, title, meta, state):
     c={'Doing':'primary','To do':'neutral','Done':'success','Blocked':'warn'}[state]
     box = f'<div style="display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid {t("border")}; background: {t("success") if state=="Done" else "transparent"}; flex-shrink: 0">{icon("check","#FFFFFF",12,2.5) if state=="Done" else ""}</div>'
@@ -203,10 +208,10 @@ def bs_tabs(t, active, mobile):
     return f'<div layer-name="Settings tabs" style="display: flex; flex-direction: column; gap: 2px; width: 180px; flex-shrink: 0">{cells}</div>'
 def bot_settings(t, mobile, tab, content):
     if mobile:
-        foot = f'<div style="display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid {t("bsoft")}; flex-shrink: 0">{btn("Cancel",t,"secondary",h=44,extra="flex: 1;")}{btn("Save",t,"primary",h=44,extra="flex: 1;")}</div>'
+        foot = f'<div style="display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid {t("bsoft")}; flex-shrink: 0">{btn_group(t, btn("Cancel",t,"secondary"), btn("Save",t,"primary"))}</div>'
         return [statusbar(t), mtop(t,'Atlas settings',None,'back','',AV_ATLAS(t)), mbody(t, bs_tabs(t,tab,True)+content, gap=16), foot, homebar(t)]
     body = f'<div style="display: flex; gap: 32px; flex: 1; min-height: 0; padding: 24px 32px; overflow: hidden">{bs_tabs(t,tab,False)}<div style="display: flex; flex-direction: column; gap: 16px; flex: 1; min-width: 0; max-width: 640px">{content}</div></div>'
-    foot = f'<div style="display: flex; justify-content: flex-end; gap: 8px; padding: 16px 32px; border-top: 1px solid {t("bsoft")}; flex-shrink: 0">{btn("Cancel",t,"secondary")}{btn("Save changes",t,"primary")}</div>'
+    foot = f'<div style="display: flex; justify-content: flex-end; gap: 8px; padding: 16px 32px; border-top: 1px solid {t("bsoft")}; flex-shrink: 0"><div style="display: flex; width: 296px">{btn_group(t, btn("Cancel",t,"secondary"), btn("Save changes",t,"primary"))}</div></div>'
     return desk(t, dheader(t,'Atlas settings','Chief of Staff','Atlas','',AV_ATLAS(t)) + body + foot, '', 'Atlas')
 def s_bs_general(t, mobile):
     model = (f'<div style="display: flex; flex-direction: column; gap: 6px">{txt("Model",t("ink"),13,600)}<div style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 12px; border-radius: 10px; border: 1px solid {t("border")}; flex-wrap: wrap">'
@@ -231,4 +236,4 @@ def s_memory(t, mobile):
 def s_routines(t, mobile):
     rs=[('Morning brief','Weekdays at 08:00','Ran 08:00'),('Friday recap','Fridays at 16:00','Next run Fri 16:00'),('Inbox check','Every 2 hours','Paused')]
     rr=''.join(card(t, f'<div style="display: flex; gap: 12px; align-items: center">{iconbtn("clock",t,36,"quiet")}<div style="display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0">{txt(a,t("ink"),14,600)}{txt(b,t("text2"),13)}</div>{toggle(t,c!="Paused")}</div>{txt(c,t("text3"),12)}', pad=14, gap=8) for a,b,c in rs)
-    return bot_settings(t, mobile, 'Routines', f'<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px">{txt("",t("text2"),14,extra="flex: 1;")}{"" if mobile else btn("New routine",t,"primary","plus")}</div>' + rr + (btn('New routine',t,'primary','plus',44,True) if mobile else ''))
+    return bot_settings(t, mobile, 'Routines', f'<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px">{txt('',t("text2"),14,extra="flex: 1;")}{"" if mobile else btn("New routine",t,"primary","plus")}</div>' + rr + (btn('New routine',t,'primary','plus',44,True) if mobile else ''))
