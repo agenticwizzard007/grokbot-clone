@@ -34,7 +34,7 @@ Journey 7 at both widths verifies a completed handoff and a nonempty list API be
 
 FIX-5 owns updating `tests/handoffs/demo-i.mjs:225` to use the dashboard manager's current `Create` button. It still asserts a button named `New dashboard`. The manager changed that label in UC-X2.
 
-`node tests/handoffs/demo-i.mjs` fails at this assertion at 1280 on both HO-H and main `bfe30f8`, after 67 passing checks. This is a shared baseline failure in a file owned by HO-I. Logs: `.context/handoffs/fix4-demos/i.log` and `.context/handoffs/main-polish-baseline/.context/handoffs/fix4-demos/i.log`.
+`node tests/handoffs/demo-i.mjs` fails at this assertion at 1280 on both HO-H and main `bfe30f8`, after 67 passing checks. FIX-5 will correct this shared baseline failure. Logs: `.context/handoffs/fix4-demos/i.log` and `.context/handoffs/main-polish-baseline/.context/handoffs/fix4-demos/i.log`.
 
 ## UI polish and Settings dependencies
 
@@ -44,11 +44,11 @@ HO-I stage 2 is merged. Settings Agents is mandatory in the route audit, standin
 
 ## Evidence and release status
 
-The current quality gate is blocked. Do not treat passing component fixtures or regression suites as acceptance of the real feature.
+The current quality gate is blocked on FIX-5 and HO-Q. Completion requires all 24 journeys to pass on a branch containing both merges, followed by fresh screenshot inspection. Journeys 7 and 9 are not skipped.
 
-- `.context/handoffs/demo-h/report.json` contains the actual loop records, events, screenshot quality records and explicit failures. The scripted drafts use realistic release notes, and each handoff selects the output from its newly completed job.
-- `.context/handoffs/demo-h/inspection.json` records the inspection of receipt, running and finished timeline, Graph, Flow and cap-scenario views at 320, 390, 500 and 1280 in both themes. The cap scenario fails before the limit; its images are failure evidence, not a capped success substitute.
-- `.context/handoffs/e2e-polish-final/report.json` contains the refreshed journey matrix at both required widths. The later historical-message and Settings regression is recorded under `menu-pagination-smoke/`, including its fixture variation that forces pagination. Earlier attempts remain under `e2e-h/`, `pre-polish/` and `e2e-refresh/`.
-- `.context/handoffs/quality-polish/` preserves the candidate regression results; `.context/handoffs/baseline-polish/` preserves main `56e65ba` results. Existing tests are compared separately from the new acceptance failures.
+- `.context/handoffs/demo-h/report.json` records 40 passing checks and zero failures after FIX-4. All eight converging runs end with `Done in 3 passes: all checks passed.` All eight capped runs end with `Stopped after 3 passes (limit). 2 of 3 checks still fail.` Each has three passes, six completed steps and three verdicts. All 88 screenshot audits and 544 mandatory checker views pass.
+- `.context/handoffs/demo-h/inspection.json` covers seven primary surfaces at 320, 390, 500 and 1280 in both themes. It records 48 visual passes, eight receipt views pending HO-Q and zero screens blocked by runtime failures. All capped-result views are functionally verified. The previous failing-cap evidence is archived under `demo-before-fix4/`.
+- `.context/handoffs/fix4-journeys/report.json` contains the complete 20-pass, 4-failure matrix at both required widths, with 18 clean capture audits and 544 passing checker views. The separate forced-pagination regression remains under `menu-pagination-smoke/`.
+- `.context/handoffs/fix4-checks/`, `fix4-existing-ui/` and `fix4-demos/` preserve candidate results. Matching directories inside `main-polish-baseline/.context/handoffs/` preserve main `bfe30f8` results. Existing regressions are compared separately from acceptance failures.
 
 The deployed `BASE_URL` mode is implemented and documented, but has not been exercised without an isolated deployed test account configured for the scripted provider. The bundle comparison measures HO-H additions against the integrated main baseline; a historical pre-feature bundle comparison remains separate.
