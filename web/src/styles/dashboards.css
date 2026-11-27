@@ -121,7 +121,7 @@
 .dashboard-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 192px; text-align: center; }
 .dashboard-empty .layout-button-group { max-width: 400px; }
 .dashboard-widget-body:has(.dashboard-empty-data) { display: flex; justify-content: center; }
-.dashboard-widget--list .dashboard-widget-body { margin-inline: calc(-1 * var(--card-pad)); }
+.dashboard-widget--list .dashboard-widget-body { margin-inline: calc(-1 * var(--card-pad)); scrollbar-gutter: auto; }
 .dashboard-list li { min-height: 44px; padding: 8px var(--card-pad); }
 .dashboard-list li:first-child { padding-top: 8px; }
 .dashboard-list-title { font-size: 14px; color: var(--color-text-primary); text-decoration: none; }

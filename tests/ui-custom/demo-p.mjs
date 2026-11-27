@@ -95,7 +95,7 @@ try {
 async function wordCount(page) {
   return page.locator('.shell-content').evaluate(root => {
     let text = root.innerText;
-    for (const el of root.querySelectorAll('.phone-tabs')) text = text.replace(el.innerText, '');
+    for (const el of root.querySelectorAll('.phone-tabs, .sr-only, .dashboard-sr-only')) text = text.replace(el.innerText, '');
     return text.trim().split(/\s+/).filter(Boolean).length;
   });
 }
