@@ -24,7 +24,7 @@ try {
   results.push({ name: 'home opens Tasks at 390 and 1280', pass: true });
   await phone.locator('.task-card').first().waitFor(); await desktop.locator('.task-card').first().waitFor();
   await shot(phone, 'phone-after'); await shot(desktop, 'desktop-after');
-  await server.open(desktop, `#bot/${server.fixture.bot.id}`); await desktop.locator('.composer__input').waitFor();
+  await server.open(desktop, `#bot/${server.fixture.bot.id}`); await desktop.locator('.composer__input:not([disabled])').waitFor();
   assert.match(new URL(desktop.url()).hash, /^#bot\//);
   results.push({ name: 'explicit chat hash wins over home', pass: true });
   await server.patch([{ op: 'add', path: '/keybindings/focusComposer', value: 'Alt+J' }]);

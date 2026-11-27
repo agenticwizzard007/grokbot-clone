@@ -41,6 +41,7 @@ try {
             await page.locator('.signin, .access-signin, .join').first().waitFor();
             if (route.code) { await page.locator('input[type=tel]').fill('+15555550123'); await page.getByRole('button', { name: 'Continue with phone', exact: true }).click(); await page.getByRole('textbox', { name: '6-digit code' }).waitFor(); }
           } else await server.open(page, hash);
+          if (/^#bot\/[^/]+$/.test(hash)) await page.locator('.composer__input:not([disabled])').waitFor();
           if (route.state) {
             await page.waitForFunction(async () => (await import('/src/store.ts')).useStore.getState().sseConnected);
             await preparePbeState(page, route.state, server.fixture.bot.id);

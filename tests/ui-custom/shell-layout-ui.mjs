@@ -64,7 +64,7 @@ try {
   // Restore through the real API so later checks use the regular store path.
   await server.patch([{ op: 'replace', path: '/layout', value: defaults.layout }]);
   await page.setViewportSize({ width: 1280, height: 900 });
-  await server.open(page, `#bot/${server.fixture.bot.id}`); await page.locator('.composer__input').waitFor(); await scan(page);
+  await server.open(page, `#bot/${server.fixture.bot.id}`); await page.locator('.composer__input:not([disabled])').waitFor(); await scan(page);
   await preparePbeState(page, 'approval', server.fixture.bot.id);
   await server.patch([{ op: 'add', path: '/components/chat.runLog', value: 'hide' }]);
   await page.getByRole('button', { name: /Run log/ }).waitFor({ state: 'detached' });
