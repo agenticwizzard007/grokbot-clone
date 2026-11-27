@@ -18,4 +18,4 @@ Page owns the outer gutters. Its content max-width is 640 (form), 880 (list), 76
 
 All primitives expose data-layout attributes. Add routes to tests/layout-alignment-ui.mjs, set their owner, and enable enforcement after migration. Unmigrated routes still run and report warnings in .context/layout-alignment/report.json. Run node tests/layout-primitives-ui.mjs to check all five required widths in both themes.
 
-Customization preserves default geometry. Cards use --card-pad (16 or 24 px), section content uses --stack-gap (8, 16 or 24 px), and rows and buttons use --control-h (40, 44 or 48 px). Phones and coarse pointers keep a 44 px floor. Text and line heights scale together through --font-scale.
+Customization preserves default geometry. Cards use --card-pad (16 or 24 px), section content uses --stack-gap (8, 16 or 24 px), and rows and buttons use --control-h. All viewports keep a 44 px control floor, including compact density; comfortable density uses 48 px. Body text and line heights scale together through --font-scale. Paper section headings retain their 13 px/18 px/600 style beside header actions.

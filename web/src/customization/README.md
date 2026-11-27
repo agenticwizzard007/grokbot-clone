@@ -26,8 +26,13 @@ node tests/ui-custom/unit/client-runtime-ui.mjs
 node tests/ui-custom/unit/client-production-ui.mjs
 node tests/ui-custom/unit/client-performance-ui.mjs
 node tests/ui-custom/unit/client-defaults-ui.mjs
+node tests/ui-custom/unit/client-scale-matrix-ui.mjs
+node tests/ui-custom/unit/client-composer-ui.mjs
 node tests/ui-custom/demo-d.mjs
 node tests/layout-alignment-ui.mjs
+node tests/ui-custom/run-all.mjs
 ```
 
 Default snapshot comparisons record main in a detached checkout and compare resolved CSS token values and route geometry at 390 and 1280 in both modes. Transient transcript scroll position is normalized before sampling. Evidence is written under `.context/ui-custom/`.
+
+The scale matrix runs the unchanged Paper alignment audit at default and xlarge in all three densities at 390 and 1280. The live composer check preserves drafts while changing scale and font family, verifies the six-line cap and internal scrolling, and checks shrinking after deletion. Both are discovered automatically by `run-all.mjs`.
