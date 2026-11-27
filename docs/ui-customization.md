@@ -85,6 +85,7 @@ Install with `npm ci`. Tests launch disposable SQLite databases seeded from `tes
 
 ```sh
 npm run typecheck
+node tests/ui-custom/e2e/service-ui.mjs
 node tests/ui-custom/e2e/journeys-ui.mjs
 node tests/ui-custom/e2e/accessibility-ui.mjs
 node tests/ui-custom/security/security-ui.mjs
@@ -93,8 +94,8 @@ node tests/ui-custom/demo-h.mjs
 node tests/layout-alignment-ui.mjs
 ```
 
-During parallel development, absent feature endpoints or modules print a named SKIP. `UC_REQUIRE_FULL=1` converts each absence to a failure. Authentication errors, server errors and broken assertions are never skips. Before merge, run the full commands with `UC_REQUIRE_FULL=1` and compare with the same checks on main. Skipped work does not satisfy acceptance.
+UC-B is merged, so its config API, validation, recovery and isolation checks are mandatory. A missing or disabled config endpoint fails even during development. Checks for remaining client, agent and data-source modules print a named SKIP until those workstreams land. `UC_REQUIRE_FULL=1` converts each absence to a failure. Authentication errors, server errors and broken assertions are never skips. Before merge, run the full commands with `UC_REQUIRE_FULL=1` and compare with the same checks on main. Skipped work does not satisfy acceptance.
 
-The alignment matrix uses PUT `/api/ui/config` with If-Match for each fixture and then visits every enforced route in light/dark at 390/1280. `UC_LAYOUT_FIXTURE=<name>` selects a fixture during debugging; the release gate leaves it unset. `LAYOUT_OWNER` likewise narrows a development run only. Security corpora and generated fuzz strings are deterministic and contain placeholder data.
+The alignment matrix uses PUT `/api/ui/config` with If-Match for each fixture and then visits every enforced route in light/dark at 390/1280. `UC_LAYOUT_FIXTURE=<name>` selects a fixture during debugging; the release gate leaves it unset. `LAYOUT_OWNER` likewise narrows a development run only. `LAYOUT_ROOT` explicitly selects an external default-layout baseline, without running customization; it is rejected by the full gate. Security corpora and generated fuzz strings are deterministic and contain placeholder data.
 
 The performance harness writes measured results separately from its committed baseline. An absent baseline is reported as pending and fails the full gate. Establish one explicitly with `UC_RECORD_BASELINE=1` only on a fully integrated build; review the measurements before committing. Normal runs never silently replace a baseline or treat a missing measurement as zero.

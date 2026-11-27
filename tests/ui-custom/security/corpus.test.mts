@@ -48,9 +48,9 @@ test('all fourteen matrix documents pass the shared schema and contrast checker'
   }
 });
 
-test('feature probes never skip authentication failures or server errors', async () => {
+test('merged API probes never skip missing routes, authentication failures or server errors', async () => {
   const { configAvailable } = await import('../fixtures/harness.mjs');
-  for (const status of [401, 403, 500]) {
+  for (const status of [401, 403, 404, 500]) {
     const request = { get: async () => ({ status: () => status, text: async () => 'fixture failure' }) };
     await assert.rejects(configAvailable(request, 'http://127.0.0.1:1234'), error => !(error instanceof MissingFeature));
   }

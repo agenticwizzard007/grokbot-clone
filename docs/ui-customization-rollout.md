@@ -38,7 +38,7 @@ The service owns `UI_CUSTOMIZATION` (`off` or `on`, initially off) and the per-a
 
 To disable one account, set its admin override false and confirm authenticated `/api/ui/config` returns `404 disabled`, UI tools disappear, cached config is ignored, and the existing app still renders. To disable globally, set `UI_CUSTOMIZATION=off`, clear explicit enable overrides because account overrides win, restart through the standard deployment process, and run the same smoke. Preserve configuration and history tables. No schema rollback or machine resize is needed.
 
-UC-B owns the concrete admin override interface, reset script and metric sink. If their implementation is unavailable, stage changes and repair remain blocked; a guessed command is not a runbook substitute. Review this section against UC-B before rollout.
+UC-B is merged. The quality harness treats an unavailable config API as a regression and runs its validation, recovery and isolation assertions against the seeded service. Remaining client and data-source gates still require their workstreams to land before rollout.
 
 ## Health checks
 

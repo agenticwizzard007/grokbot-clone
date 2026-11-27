@@ -9,7 +9,7 @@ import { layoutServer } from './layout-fixture.mjs';
 import { readableWords } from './paper-label-geometry.mjs';
 import { qualityServer } from './ui-custom/fixtures/server.mjs';
 import { MATRIX, WIDTHS, MODES, matrixDocument, THEME_PATCH } from './ui-custom/fixtures/matrix.mjs';
-import { api, configAvailable, fixtureContext, put, requireModules, MissingFeature, agentPreview } from './ui-custom/fixtures/harness.mjs';
+import { api, configAvailable, fixtureContext, put, requireFeature, requireModules, MissingFeature, agentPreview } from './ui-custom/fixtures/harness.mjs';
 import { presetDocument } from './ui-custom/fixtures/presets.mjs';
 
 export const ROUTES = [
@@ -173,6 +173,7 @@ async function main() {
     const probe = await fixtureContext(browser, server);
     let defaults, customization = false;
     try {
+      if (process.env.LAYOUT_ROOT) requireFeature(false, 'External baseline checkout requested; customization matrix not selected');
       defaults = (await configAvailable(probe.context.request, server.base)).doc;
       requireModules('web/src/customization/applier.ts', 'web/src/components/config/AppearanceSettings.tsx', 'web/src/dashboards/DashboardGrid.tsx', 'server/src/agent/ui-tools.ts');
       customization = true;

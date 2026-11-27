@@ -95,7 +95,24 @@ const cases = [
     const tooLarge = { ...current.doc, unexpected: 'x'.repeat(256 * 1024) };
     await api(context.request, server.base, '/import/preview', 'POST', tooLarge, 413);
   }) },
-  { name: 'corrupt stored config falls back and safe mode remains reachable', run: args => withContext(args, async ({ context, server, current }) => {
+  { name: 'corrupt stored config falls back without overwrite and API reset preserves history', run: args => withContext(args, async ({ context, server, current }) => {
+    const { DEFAULT_CONFIG } = await contracts();
+    await api(context.request, server.base, '/config', 'PUT', current.doc, 200, current.revision);
+    const hostile = JSON.stringify(corruptDocument(current.doc));
+    server.withDb(db => assert.equal(db.prepare('UPDATE ui_config SET doc=? WHERE user_id=?').run(hostile, server.fixture.userId).changes, 1));
+    try {
+      const fallback = await configAvailable(context.request, server.base);
+      assert.equal(fallback.status, 'invalid_stored'); assert.deepEqual(fallback.doc, DEFAULT_CONFIG);
+      assert.equal(server.withDb(db => db.prepare('SELECT doc FROM ui_config WHERE user_id=?').get(server.fixture.userId).doc), hostile, 'Reading cannot overwrite invalid stored data');
+      const before = await api(context.request, server.base, '/history');
+      await api(context.request, server.base, '/reset', 'POST', { scope: 'all' }, 200, fallback.revision);
+      const restored = await configAvailable(context.request, server.base);
+      assert.equal(restored.status, 'ready'); assert.equal(restored.revision, fallback.revision + 1); assert.deepEqual(restored.doc, DEFAULT_CONFIG);
+      const after = await api(context.request, server.base, '/history');
+      for (const item of before.history) assert.ok(after.history.some(row => row.revision === item.revision), 'Reset preserves prior history');
+    } finally { await api(context.request, server.base, '/reset', 'POST', { scope: 'all' }); }
+  }) },
+  { name: 'safe mode remains reachable with corrupt stored config', run: args => withContext(args, async ({ context, server, current }) => {
     requireModules('web/src/customization/SafeModeBanner.tsx');
     await api(context.request, server.base, '/config', 'PUT', current.doc, 200, current.revision);
     server.withDb(db => db.prepare('UPDATE ui_config SET doc=? WHERE user_id=?').run(JSON.stringify(corruptDocument(current.doc)), server.fixture.userId));
@@ -112,16 +129,10 @@ const cases = [
     const widgetIds = (Array.isArray(REGISTRY.widgets) ? REGISTRY.widgets : Object.values(REGISTRY.widgets)).map(item => item.id);
     for (const id of ['html', 'iframe', 'image', 'script', 'approval', 'connect', 'question']) assert.equal(widgetIds.includes(id), false, id);
   } },
-  { name: 'two-user config, preview, preset, history, export and source isolation', run: args => withContext(args, async ({ context, server, current, browser }) => {
-    requireModules('server/src/ui/sources/executor.ts');
+  { name: 'two-user config, preview, preset, history and export isolation', run: args => withContext(args, async ({ context, server, current, browser }) => {
     const other = await browser.newContext();
     try {
       assert.ok((await other.request.post(`${server.base}/api/auth/dev`, { data: { email: 'qa-temp-isolation-b@example.test', name: 'QA-Temp-Isolation-B' } })).ok());
-      const foreignUser = server.withDb(db => db.prepare('SELECT id FROM users WHERE email=?').get('qa-temp-isolation-b@example.test'));
-      const response = await other.request.post(`${server.base}/api/bots`, { data: { name: 'Fixture foreign Bot', mode: 'personal' } });
-      assert.ok(response.ok()); const { bot: foreignBot } = await response.json();
-      server.withDb(db => db.prepare('INSERT INTO tasks(id,bot_id,title,state,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
-        .run('task_foreign_sentinel', foreignBot.id, 'FOREIGN_TASK_SENTINEL', 'done', 'PRIVATE_FOREIGN_NOTE', Date.now(), Date.now()));
       const beforeB = await configAvailable(other.request, server.base);
       const preview = await api(context.request, server.base, '/patches/preview', 'POST', { intent: 'PRIVATE_PREVIEW_SENTINEL', patch: [{ op: 'replace', path: '/theme/mode', value: 'dark' }] });
       for (const [method, suffix] of [['GET', ''], ['POST', '/apply'], ['POST', '/discard']]) {
@@ -138,6 +149,18 @@ const cases = [
       const allowed = new Set([...Object.keys(current.doc), 'exportedAt']);
       for (const key of Object.keys(exported)) assert.ok(allowed.has(key), `Export key ${key}`);
       assert.doesNotMatch(JSON.stringify(exported), /PRIVATE_|FOREIGN_TASK_SENTINEL/);
+    } finally { await other.close(); }
+  }) },
+  { name: 'two-user source isolation and field allowlists', run: args => withContext(args, async ({ context, server, browser }) => {
+    requireModules('server/src/ui/sources/executor.ts');
+    const other = await browser.newContext();
+    try {
+      assert.ok((await other.request.post(`${server.base}/api/auth/dev`, { data: { email: 'qa-temp-sources-b@example.test', name: 'QA-Temp-Sources-B' } })).ok());
+      const foreignUser = server.withDb(db => db.prepare('SELECT id FROM users WHERE email=?').get('qa-temp-sources-b@example.test'));
+      const response = await other.request.post(`${server.base}/api/bots`, { data: { name: 'Fixture foreign Bot', mode: 'personal' } });
+      assert.ok(response.ok()); const { bot: foreignBot } = await response.json();
+      server.withDb(db => db.prepare('INSERT INTO tasks(id,bot_id,title,state,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
+        .run('task_foreign_sentinel', foreignBot.id, 'FOREIGN_TASK_SENTINEL', 'done', 'PRIVATE_FOREIGN_NOTE', Date.now(), Date.now()));
       const { REGISTRY } = await contracts();
       const sources = Array.isArray(REGISTRY.sources) ? REGISTRY.sources : Object.values(REGISTRY.sources);
       const requests = sources.map(source => ({ key: source.id, source: source.id, params: {

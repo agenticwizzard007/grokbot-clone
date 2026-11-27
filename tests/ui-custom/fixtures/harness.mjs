@@ -20,7 +20,7 @@ function localOnly(base) { assert.ok(['127.0.0.1', 'localhost', '[::1]'].include
 export async function configAvailable(request, base) {
   localOnly(base);
   const response = await request.get(`${base}/api/ui/config`);
-  if (response.status() === 404) requireFeature(false, 'GET /api/ui/config is absent or disabled (UC-B)');
+  // UC-B is merged. A missing or disabled fixture API is a regression, never a skip.
   assert.equal(response.status(), 200, `Config probe failed: ${response.status()} ${await response.text()}`);
   const body = await response.json();
   assert.ok(body.doc && Number.isInteger(body.revision), 'Config envelope must contain doc and revision');
