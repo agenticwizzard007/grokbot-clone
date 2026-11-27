@@ -18,7 +18,8 @@
 .layout-page__header p { margin: 0; color: var(--color-text-2); }
 .layout-section { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; width: 100%; }
 .layout-section__header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 24px; }
-.layout-section__header h2 { margin: 0; font: 600 var(--text-section)/calc(18px * var(--font-scale)) var(--font-stack); color: var(--color-text-2); }
+/* Paper section labels retain their shared style beside header actions. */
+.layout-section__header h2 { margin: 0; font: 600 13px/18px var(--font-stack); color: var(--color-text-2); }
 .layout-section__content { display: flex; flex-direction: column; gap: var(--stack-gap); min-width: 0; }
 .layout-section__footer { display: flex; align-items: center; }
 .layout-section__header > .link-btn, .layout-section__footer > .link-btn { align-items: center; padding-inline: 0; }
@@ -58,7 +59,7 @@
   .layout-page__header h1 { font-size: var(--text-page-title); }
 }
 
-.layout-section.layout-section > .layout-section__header > h2 { font: 600 var(--text-section)/calc(18px * var(--font-scale)) var(--font-stack); color: var(--color-text-2); margin: 0; }
+.layout-section.layout-section > .layout-section__header > h2 { font: 600 13px/18px var(--font-stack); color: var(--color-text-2); margin: 0; }
 .layout-page .cfg-btn--primary { color: var(--color-on-primary); }
 
 .layout-page.layout-page a.cfg-btn--primary { color: var(--color-on-primary); }

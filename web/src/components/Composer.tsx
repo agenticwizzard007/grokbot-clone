@@ -5,6 +5,7 @@ import type { Bot } from '@shared/types';
 import { api } from '../lib/api';
 import { acknowledgeSubmission, beginSubmission, pendingSubmission } from '../lib/chatSubmission';
 import { useConfigUI } from '../configStore';
+import { useCustomization } from '../customization/store.js';
 import { useStore } from '../store';
 import { Icon } from './Icon';
 import { Menu } from './Menu';
@@ -20,7 +21,7 @@ import { takeComposerHold, whenTypingIdle } from '../lib/typingGuard';
 import { observeComposerInput, resetInputLatency } from '../lib/inputLatency';
 import { useDisplayText } from '../lib/useDisplayText';
 
-const MAX_H = 144;
+const MAX_LINES = 6;
 const drafts = new Map<string, string>();
 const prefilledDrafts = new Set<string>();
 const pendingSends = new Map<string, symbol>();
@@ -54,6 +55,8 @@ export function prefillComposer(botId: string, text: string) {
 export const Composer = memo(function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const clean = useDisplayText();
   const accountId = useStore(s => s.user?.id);
+  const fontFamily = useCustomization(s => s.effective.theme.font.ui);
+  const fontScale = useCustomization(s => s.effective.theme.font.scale);
   const draftKey = `${accountId}:${bot.id}`;
   const active = useRef(true);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
@@ -70,7 +73,7 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
   const [menu, setMenu] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => ref.current ? observeComposerInput(ref.current) : undefined, [accountId]);
-  const measureRef = useRef<{ field: HTMLTextAreaElement; max?: number } | null>(null);
+  const measureRef = useRef<{ field: HTMLTextAreaElement; lineHeight?: number } | null>(null);
   const prefillPointerFocus = useRef(false);
   const moreRef = useRef<HTMLButtonElement>(null);
   const dictationCancelRef = useRef<HTMLButtonElement>(null);
@@ -131,24 +134,25 @@ export const Composer = memo(function Composer({ bot, running }: { bot: Bot; run
     if (!composer) return;
     // Geometry and fonts change on resize, pane/catalog changes or font load,
     // not on each keystroke. Keep their style writes out of the typing path.
-    if (refreshGeometry || !measure.max) {
+    if (refreshGeometry || !measure.lineHeight) {
       const fieldStyle = getComputedStyle(el);
       // Mirror the rendered field, including fractional widths and padding.
       // A single isolated measure avoids resetting the visible field's height
       // on each key, which would also lay out the conversation above it.
       Object.assign(measure.field.style, { font: fieldStyle.font, letterSpacing: fieldStyle.letterSpacing,
         padding: fieldStyle.padding, width: `${el.getBoundingClientRect().width}px` });
-      measure.max = MAX_H;
+      measure.lineHeight = parseFloat(fieldStyle.lineHeight) || 24;
     }
-    const max = measure.max;
+    const lineHeight = measure.lineHeight;
+    const max = lineHeight * MAX_LINES;
     measure.field.value = el.value;
     const desired = measure.field.scrollHeight;
-    const height = Math.max(24, Math.min(Math.ceil(desired / 24) * 24, max));
+    const height = Math.max(lineHeight, Math.min(Math.ceil(desired / lineHeight) * lineHeight, max));
     el.style.height = `${height}px`;
     composer.style.setProperty('--composer-field-height', `${height}px`);
     el.style.overflowY = desired > max ? 'auto' : 'hidden';
   }, []);
-  useLayoutEffect(() => grow(true), [onScreen, mobile, grow]);
+  useLayoutEffect(() => grow(true), [onScreen, mobile, fontFamily, fontScale, grow]);
   // Commit the controlled value immediately. Coalesce sizing into one frame
   // instead of forcing layout inside every discrete keyboard event.
   useLayoutEffect(() => {

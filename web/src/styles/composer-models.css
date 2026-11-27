@@ -169,8 +169,8 @@ button.mm-item:hover { background: var(--color-bg-hover); }
 .app .composer-shell { max-width: var(--content-width); }
 .app .composer {
   display: grid; grid-template-columns: 36px minmax(0, 1fr) auto 36px;
-  grid-template-rows: calc(var(--composer-field-height, 24px) + 12px); align-items: end;
-  min-height: 52px; max-height: 172px; max-width: var(--content-width);
+  grid-template-rows: calc(var(--composer-field-height, var(--line-message)) + 12px); align-items: end;
+  min-height: calc(var(--line-message) + 28px); max-height: calc(6 * var(--line-message) + 28px); max-width: var(--content-width);
   /* Include the border in the approved 52px single-line height. */
   padding: 7px 8px; gap: 4px; border: 1px solid var(--color-border-secondary);
   border-radius: var(--radius-composer); background-color: var(--color-bg-elevated); box-shadow: var(--shadow-composer);
@@ -178,8 +178,9 @@ button.mm-item:hover { background: var(--color-bg-hover); }
 .app .composer__bar, .app .composer__left { display: contents; }
 .app .composer__plus-anchor { grid-column: 1; grid-row: 1; padding: 0; }
 .app .composer__input {
-  grid-column: 2; grid-row: 1; align-self: center; width: 100%; height: 24px;
-  min-height: 24px; max-height: 144px; padding: 0; font-size: 15px; line-height: 24px;
+  grid-column: 2; grid-row: 1; align-self: center; width: 100%; height: var(--line-message);
+  min-height: var(--line-message); max-height: calc(6 * var(--line-message)); padding: 0;
+  font-size: calc(15px * var(--font-scale)); line-height: var(--line-message);
   letter-spacing: 0; overflow-y: hidden; scrollbar-width: thin;
 }
 .app .composer__input::placeholder { color: var(--color-text-tertiary); white-space: normal; text-overflow: clip; }
@@ -199,13 +200,13 @@ button.mm-item:hover { background: var(--color-bg-hover); }
 .app .model-pill > * { flex-shrink: 0; }
 .app .model-pill.is-compact .model-pill__chev { display: none; }
 @media (max-width: 760px) {
-  .app .composer__input { font-size: 16px; }
+  .app .composer__input { font-size: calc(16px * var(--font-scale)); }
 }
 @media (max-width: 480px) {
   .app .composer {
     grid-template-columns: 36px minmax(0, 1fr) auto 36px;
-    grid-template-rows: var(--composer-field-height, 24px) 36px;
-    min-height: 84px; max-height: 204px; padding: 10px 8px 8px;
+    grid-template-rows: var(--composer-field-height, var(--line-message)) 36px;
+    min-height: calc(var(--line-message) + 60px); max-height: calc(6 * var(--line-message) + 60px); padding: 10px 8px 8px;
   }
   .app .composer__input { grid-column: 1 / -1; grid-row: 1; padding: 0 8px; }
   .app .composer__plus-anchor { grid-row: 2; }

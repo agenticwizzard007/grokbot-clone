@@ -33,9 +33,8 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0s !important; scroll-behavior: auto !important; }
 }
-@media (max-width: 760px), (pointer: coarse) {
-  :root[data-density='compact'] { --control-h: 44px !important; }
-}
+/* Density changes spacing while Paper controls retain their 44px target floor. */
+:root[data-density='compact'] { --control-h: 44px !important; }
 @media (forced-colors: active) {
   .ui-runtime-banner, .ui-runtime-banner button { color: CanvasText; background: Canvas; border-color: ButtonText; }
 }

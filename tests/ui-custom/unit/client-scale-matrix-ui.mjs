@@ -1,4 +1,4 @@
-// Integration handoff: fixed-size composer code and alignment assertions belong to UC-E/UC-H.
+// Exercise the real API and unchanged Paper alignment audit at every scale/density combination.
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
