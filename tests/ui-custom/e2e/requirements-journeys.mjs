@@ -6,7 +6,7 @@ import { contracts } from '../fixtures/contracts.mjs';
 async function chat(page, server, name, input, confirmation) {
   await open(page, server.base, `#bot/${server.fixture.bot.id}`);
   const composer = page.getByRole('textbox', { name: `Message ${server.fixture.bot.name}`, exact: true });
-  await composer.fill(`mock: ${name} ${JSON.stringify(input)} | say ${confirmation}`);
+  await composer.fill(`mock: ${name} ${JSON.stringify(input, null, 2)} | say ${confirmation}`);
   await composer.press('Enter');
   await page.getByText(confirmation, { exact: true }).last().waitFor();
 }

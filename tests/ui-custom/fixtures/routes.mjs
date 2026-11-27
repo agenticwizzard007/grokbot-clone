@@ -27,6 +27,9 @@ export async function prepareRoute(page, context, server, route) {
   await api(context.request, server.base, '/reset', 'POST', { scope: 'all' });
   await put(context, server.base, matrixDocument(DEFAULT_CONFIG, route.fixture));
   await open(page, server.base, route.hash.replace('{bot}', server.fixture.bot.id));
+  if (route.hash.endsWith('#bots')) await page.locator('.pb-bot-card__open').first().waitFor();
+  if (route.hash === '#bot/{bot}') await page.getByRole('textbox', { name: `Message ${server.fixture.bot.name}`, exact: true }).waitFor();
+  if (route.hash === '#all') await page.getByRole('heading', { name: /All sections/ }).waitFor();
   if (route.preview) await agentPreview(page, server, LAYOUT_PATCH, 'Open Tasks first');
   if (route.safe) await page.getByRole('status').filter({ hasText: /Safe mode/ }).waitFor();
   if (route.dashboard) {

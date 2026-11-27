@@ -68,7 +68,7 @@ export async function agentPreview(page, server, ops, intent = 'Preview fixture 
   const composer = page.getByRole('textbox', { name: `Message ${server.fixture.bot.name}`, exact: true });
   const previousIds = server.withDb(db => db.prepare("SELECT generation || ':' || seq AS id FROM rows WHERE bot_id=? AND json_extract(body,'$.card')='ui_preview'").all(server.fixture.bot.id).map(row => row.id));
   const payload = { intent, patch: ops, autofix: true };
-  await composer.fill(`mock: preview_ui_patch ${JSON.stringify(payload)} | say ${intent}`);
+  await composer.fill(`mock: preview_ui_patch ${JSON.stringify(payload, null, 2)} | say ${intent}`);
   await composer.press('Enter');
   await page.getByRole('status').filter({ hasText: /Previewing/i }).waitFor();
   const row = await untilPreviewRow(server, previousIds);

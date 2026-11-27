@@ -75,9 +75,19 @@ const cases = [
       if (ingress === 'import') await api(context.request, server.base, '/import/preview', 'POST', doc, 422);
       if (ingress === 'agent') {
         const composer = page.getByRole('textbox', { name: `Message ${server.fixture.bot.name}`, exact: true });
-        const payload = { intent: 'Check fixture validation', patch: [{ op: 'replace', path: '/dashboards', value: doc.dashboards }] };
+        const payload = { intent: `Check fixture validation ${index}`,  patch: [{ op: 'replace', path: '/dashboards', value: doc.dashboards }] };
         await composer.fill(`mock: preview_ui_patch ${JSON.stringify(payload)} | say Security fixture ${index} checked`);
         await composer.press('Enter'); await page.getByText(`Security fixture ${index} checked`, { exact: true }).waitFor();
+        const execution = server.withDb(db => {
+          const call = db.prepare("SELECT body FROM rows WHERE bot_id=? AND kind='tool-call' AND json_extract(body,'$.name')='preview_ui_patch' AND json_extract(body,'$.args.intent')=? ORDER BY seq DESC LIMIT 1").get(server.fixture.bot.id, payload.intent);
+          assert.ok(call, 'Mock must dispatch the actual validation tool');
+          const body = JSON.parse(call.body); assert.equal(body.status, 'error');
+          const output = db.prepare("SELECT item FROM llm_items WHERE bot_id=? AND json_extract(item,'$.type')='function_call_output' AND json_extract(item,'$.call_id')=? ORDER BY idx DESC LIMIT 1").get(server.fixture.bot.id, body.callId);
+          assert.ok(output, 'Validation result must reach the model');
+          return JSON.parse(JSON.parse(output.item).output);
+        });
+        assert.equal(execution.ok, false); assert.ok(execution.errors.length);
+        assert.ok(execution.errors.every(error => !['unavailable_context', 'repair_limit'].includes(error.code)), 'Rejection must come from validation');
         const previews = server.withDb(db => db.prepare("SELECT count(*) n FROM ui_previews WHERE user_id=? AND status='pending'").get(server.fixture.userId).n);
         assert.equal(previews, 0, 'Invalid tool input must not create a preview');
       }

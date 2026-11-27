@@ -32,7 +32,7 @@ const cases = [
     assert.equal(server.withDb(db => db.prepare('SELECT count(*) n FROM ui_config WHERE user_id=?').get(server.fixture.userId).n), 1, 'Measure a persisted configuration row');
     const durations = [], sizes = [];
     for (let i = 0; i < 55; i++) {
-      const start = performance.now(); const response = await context.request.get(`${server.base}/api/ui/config`); const text = await response.text();
+      const start = performance.now(); const response = await context.request.get(`${server.backend}/api/ui/config`); const text = await response.text();
       assert.equal(response.status(), 200);
       if (i >= 5) durations.push(performance.now() - start);
       sizes.push(Buffer.byteLength(JSON.stringify(JSON.parse(text).doc)));
@@ -40,7 +40,7 @@ const cases = [
     }
     measure('configReadP95Ms', percentile(durations, .95));
     measure('configMedianBytes', percentile(sizes, .5)); measure('configMaxBytes', Math.max(...sizes));
-    details.configRead = { samples: durations, method: 'loopback HTTP round trip, conservative upper bound on server time', documents: 'persisted default fixture' };
+    details.configRead = { samples: durations, method: 'direct API loopback HTTP round trip, excludes the Vite development proxy', documents: 'persisted default fixture' };
     function measureOnceGzip(text) { const size = gzipSync(text).length; measurements.configGzipBytes = Math.max(measurements.configGzipBytes || 0, size); }
     measure('configGzipBytes', measurements.configGzipBytes);
   }) },
