@@ -172,7 +172,7 @@ export function createUiApi(service: SqliteUiConfigService) {
   });
   api.get('/schema', c => {
     c.header('Cache-Control', 'private, max-age=3600');
-    return c.json({ version: 1, schema: z.toJSONSchema(uiConfigSchema, { unrepresentable: 'any' }), registries: REGISTRY });
+    return c.json({ version: 1, schema: z.toJSONSchema(uiConfigSchema, { io: 'input', unrepresentable: 'any' }), registries: REGISTRY });
   });
   // UC-F owns the implementation. Shared authentication and flags cover it too.
   api.route('/', dataApi);

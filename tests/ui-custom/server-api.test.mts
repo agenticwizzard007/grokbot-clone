@@ -139,6 +139,8 @@ test('real SSE connections deliver config and preview only to the session owner'
 test('schema publishes versioned registries, and corrupt storage does not crash sibling routes', async () => {
   const schema = await request('GET', '/schema'); assert.equal(schema.status, 200); assert.equal(schema.body.version, 1);
   assert.ok(schema.body.registries.tokens); assert.ok(schema.body.schema);
+  const colors = schema.body.schema.properties.theme.properties.colors.properties.light;
+  assert.match(JSON.stringify(colors), /pattern/); assert.match(JSON.stringify(colors), /\{6\}/);
   server.db.prepare('UPDATE ui_config SET doc=? WHERE user_id=?').run('{', server.a.userId);
   const get = await request('GET', '/config'); assert.equal(get.status, 200); assert.equal(get.body.status, 'invalid_stored');
   assert.equal((await request('GET', '/history')).status, 200);
