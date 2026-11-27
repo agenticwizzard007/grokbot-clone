@@ -206,6 +206,31 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
         assert.equal((await request(page, 'GET', '/requirements')).profile.role, 'Support team');
         assert.deepEqual((await request(page, 'GET', '/config')).doc, support.doc);
         await capture(page, 'reset-undone', width); pass('Reset and Undo restore the profile and app', width);
+        // Exercise the same requirements actions in the existing dark mode.
+        // This changes only the browser preference, never the saved appearance.
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await page.goto('/#settings/appearance/use');
+        await screen.getByLabel('Role', { exact: true }).waitFor();
+        await page.waitForFunction(() => getComputedStyle(document.documentElement).colorScheme === 'dark');
+        await screen.getByLabel('Role', { exact: true }).fill('Support team');
+        await screen.getByRole('button', { name: 'Save changes', exact: true }).click();
+        await screen.getByText('Saved', { exact: true }).waitFor();
+        await screen.getByRole('button', { name: 'Re-adapt', exact: true }).click();
+        await card.getByRole('button', { name: 'Apply', exact: true }).click();
+        await card.getByText('Applied', { exact: true }).waitFor();
+        const darkConfig = await request(page, 'GET', '/config');
+        assert.deepEqual(darkConfig.doc, support.doc);
+        await screen.getByRole('button', { name: 'Reset', exact: true }).click();
+        await card.getByRole('button', { name: 'Apply', exact: true }).click();
+        await card.getByText('Applied', { exact: true }).waitFor();
+        await screen.getByRole('button', { name: 'Undo reset', exact: true }).click();
+        await screen.getByText('Reset undone', { exact: true }).waitFor();
+        assert.equal((await request(page, 'GET', '/requirements')).profile.role, 'Support team');
+        assert.deepEqual((await request(page, 'GET', '/config')).doc, darkConfig.doc);
+        assert.deepEqual(await page.evaluate(inspectAlignment, { selector: '.app-settings' }), []);
+        await readableWords(screen);
+        pass('existing dark mode: edit, preview, Reset and Undo with complete labels', width);
+        await page.emulateMedia({ colorScheme: 'light' });
         // Finish the story on Reset, with the default arrangement visible.
         await screen.getByRole('button', { name: 'Reset', exact: true }).click(); await card.getByRole('button', { name: 'Apply', exact: true }).click(); await card.getByText('Applied', { exact: true }).waitFor();
         await page.goto('/#bots'); await capture(page, 'reset-home', width);
