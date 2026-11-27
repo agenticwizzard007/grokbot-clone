@@ -58,6 +58,7 @@ export function useAdaptedNavigation() {
 // These scopes use the existing Paper tokens. Default accounts and shared
 // dashboard components keep their existing rendering and behavior.
 const adaptiveStyles = `
+.all-sections-page p { margin: 0; }
 .adaptive-home { width: 100%; height: 100%; min-width: 0; min-height: 0; overflow-y: auto; }
 .adaptive-home :is(.btn, .cfg-btn) { gap: 8px; font-size: 14px; line-height: 20px; }
 .adaptive-home :is(.dashboard-muted, .dashboard-list-meta, .dashboard-chart-labels, .dashboard-chart-legend, .dashboard-schedule time, .dashboard-schedule li > span, .dashboard-bot-grid small) { font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }

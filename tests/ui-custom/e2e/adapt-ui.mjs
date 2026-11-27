@@ -17,7 +17,7 @@ import { readableWords } from '../../paper-label-geometry.mjs';
 export function inspectAdaptQuality() {
   const issues = [];
   let minContrast = Infinity, contrastSamples = 0;
-  const forbidden = /\bmock\b|\bfixture\b|\bprivate\b|QA-|\bundefined\b|\bnull\b|\[object/i;
+  const forbidden = /mock|fixture|private|QA-|undefined|null|\[object/i;
   const visibleText = document.body.innerText;
   const match = visibleText.match(forbidden);
   if (match) issues.push(`Forbidden visible text: ${match[0]}`);
@@ -69,14 +69,23 @@ export function inspectAdaptQuality() {
       if (Math.abs(parseFloat(style.borderTopLeftRadius) - 12) > .1) issues.push(`Card radius: ${label(el)}`);
       for (const side of ['Left', 'Right', 'Top', 'Bottom']) if (Math.abs(parseFloat(style[`padding${side}`]) - 16) > .1) issues.push(`Card padding: ${label(el)}`);
     }
+    if (el.dataset.layout === 'button-group') {
+      const widths = [...el.children].filter(visible).map(child => child.getBoundingClientRect().width);
+      if (widths.some(width => Math.abs(width - widths[0]) > 1)) issues.push(`Unequal button widths: ${label(el)}`);
+    }
     for (const gap of [style.rowGap, style.columnGap]) if (/px$/.test(gap) && parseFloat(gap) > 0 && parseFloat(gap) % 8 !== 0 && !(parseFloat(gap) === 4 && el.closest('button,input,select'))) issues.push(`Off-scale gap ${gap}: ${label(el)}`);
+    const step = el.closest('button,input,select,textarea,a,[role="button"],.cfg-chip,[data-layout="row"]') ? 4 : 8;
+    for (const property of ['marginTop', 'marginBottom', 'paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight']) {
+      const value = parseFloat(style[property]);
+      if (value > 0 && value % step !== 0) issues.push(`Off-scale ${property} ${value}px: ${label(el)}`);
+    }
     if (el.matches('.layout-section__header h2') && (style.fontSize !== '13px' || style.lineHeight !== '18px' || style.fontWeight !== '600')) issues.push(`Section header style: ${label(el)}`);
   }
   return { issues: [...new Set(issues)], words: root.innerText.trim().split(/\s+/).filter(Boolean).length, contrastSamples, minContrast: Number.isFinite(minContrast) ? minContrast : null };
 }
 
 async function adaptationFixture() {
-  const root = path.resolve(new URL('../../..', import.meta.url).pathname);
+  const root = path.resolve(process.env.ADAPT_APP_ROOT || new URL('../../..', import.meta.url).pathname);
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-agent-demo-'));
   async function port() { const listener = net.createServer(); listener.listen(0, '127.0.0.1'); await once(listener, 'listening'); const value = listener.address().port; await new Promise(resolve => listener.close(resolve)); return value; }
   const apiPort = await port(), uiPort = await port(), modelPort = await port();
@@ -205,6 +214,7 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
     assert.equal(response.status(), 200, `${method} ${route}: ${await response.text()}`); return response.json();
   };
   const resetUse = async (page, screen) => {
+    if (phase === 'before') { await screen.getByRole('button', { name: 'Reset', exact: true }).click(); return; }
     await screen.getByRole('button', { name: 'Manage requirements', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Reset', exact: true }).click();
   };
@@ -218,6 +228,9 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
     }));
     await page.waitForTimeout(150);
     const audit = await page.evaluate(inspectAdaptQuality);
+    if (audit.words) audit.issues.push(...await page.evaluate(inspectAlignment, {
+      selector: '.chat-pane [data-layout="page"], .app-settings__page:has([aria-label="About your use"])',
+    }));
     quality.push({ name, width, theme: activeTheme, ...audit });
     if (phase !== 'before') assert.deepEqual(audit.issues, [], `${width} ${activeTheme} ${name}: ${JSON.stringify(audit.issues)}`);
     const filename = `${width}${activeTheme === 'dark' ? '-dark' : ''}-${name}.png`;
@@ -336,7 +349,7 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
         const support = await request(page, 'GET', '/config'); assert.equal(support.doc.dashboards[0].name, 'Support queue'); assert.equal(support.doc.layout.sidebar.width, 'wide'); assert.deepEqual(support.doc.layout.sidebar.order, handOrder);
         pass('operations to support preserves a hand edit', width);
         await page.getByRole('button', { name: width <= 760 ? 'More' : 'All sections', exact: true }).click();
-        await page.getByRole('heading', { name: 'All sections', exact: true }).waitFor(); await page.locator('.all-sections-page').waitFor();
+        await page.getByRole('heading', { name: 'All sections', exact: true }).waitFor(); if (phase !== 'before') await page.locator('.all-sections-page').waitFor();
         for (const name of ['Bots', 'Tasks', 'Files', 'Routines', 'Settings']) assert.ok(await page.getByRole('link', { name, exact: true }).count());
         await capture(page, 'all-sections', width); pass('All sections remains reachable', width);
         await page.goto('/#search'); await page.getByRole('link', { name: 'All sections', exact: true }).click();
@@ -397,7 +410,7 @@ export async function runAdaptUi(directory = '.context/ui-custom/adapt-ui') {
             await request(page, 'POST', `/previews/${proposed.previewId}/apply`, {}, config.revision);
             await page.goto('/'); await page.waitForURL(/#dash\//);
             await page.getByRole('button', { name: 'More', exact: true }).click();
-            await page.getByRole('heading', { name: 'All sections', exact: true }).waitFor(); await page.locator('.all-sections-page').waitFor();
+            await page.getByRole('heading', { name: 'All sections', exact: true }).waitFor(); if (phase !== 'before') await page.locator('.all-sections-page').waitFor();
             const reachability = await page.evaluate(async expected => {
               const { parseScreen, resolveScreen, screenHash } = await import('/src/lib/navigation.ts');
               const { useStore } = await import('/src/store.ts');

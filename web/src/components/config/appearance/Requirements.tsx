@@ -19,11 +19,12 @@ const fieldStyle = { display: 'grid', gap: 8 };
 const requirementsStyles = `
 .requirements-settings { display: grid; gap: 24px; min-width: 0; font-size: 14px; line-height: 20px; color: var(--color-text-primary); }
 .requirements-settings p { margin: 0; }
-.requirements-settings :is(button, .cfg-btn) { gap: 8px; font-size: 14px; line-height: 20px; }
+.requirements-settings :is(button, .cfg-btn) { gap: 8px; padding: 8px 16px; font-size: 14px; line-height: 20px; }
 .requirements-settings .settings-menu > button { width: 100%; }
 .requirements-settings .layout-row__subtitle { font-size: 13px; line-height: 20px; margin-top: 8px; }
-.requirements-settings .cfg-chip { font-size: 14px; line-height: 20px; }
+.requirements-settings .cfg-chip { height: auto; padding: 4px 8px; font-size: 14px; line-height: 20px; }
 .app-settings .requirements-settings :is(input, select, textarea) { width: 100%; min-width: 0; min-height: 44px; font: 400 14px/20px var(--font-stack); }
+.app-settings .requirements-settings select { padding-right: 32px; }
 .requirements-settings .text-input::placeholder { color: var(--color-text-secondary); }
 .requirements-settings .requirements-focus[aria-pressed='true'] { box-shadow: inset 0 0 0 2px var(--color-primary); background: var(--color-bg-active); color: var(--color-text-primary); }
 @media (max-width: 760px) { .app-settings .requirements-settings :is(input, select, textarea) { font-size: 16px; } }

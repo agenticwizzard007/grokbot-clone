@@ -92,6 +92,7 @@ function Shell() {
   const dashboard = screen.kind === 'dash' ? routeDashboard(screen.dashboard, dashboards) : undefined;
   const headerTitle = dashboard?.name ?? (!mobile && screen.kind === 'settings' ? 'Settings' : screenTitle(screen, bots).replace(/ · Swarm$/, '').replace(/^Settings · /, ''));
   const headerBot = 'bot' in screen ? routeBot(screen.bot, bots) : undefined;
+  const titledInHeader = mobile && (screen.kind === 'all' || (screen.kind === 'dash' && phoneTabs.some(tab => tab.id === 'more')) || (screen.kind === 'settings' && screen.use));
   const botSubtitle = headerBot ? headerTitle.replace(`${headerBot.name} · `, '') : '';
   useEffect(() => { setDrawerOpen(false); }, [headerTitle, mobile]);
   // Settings pages load lazily; navigation stays mounted.
@@ -135,7 +136,7 @@ function Shell() {
         <header className="shell-header" tabIndex={-1}>
           {hasBack && <button type="button" className="shell-back" aria-label={mobile ? 'Back' : backText} onClick={back}><ChevronLeft size={mobile ? 20 : 16} aria-hidden /><span>{backText}</span></button>}
           <div id="shell-chat-header" hidden={!chatHeader} />
-          {!chatHeader && (headerBot ? <><BotAvatarFor bot={headerBot} size={32} /><div className="shell-header__bot"><strong className="shell-header__title">{headerBot.name}</strong><span className="shell-header__subtitle">{botSubtitle}</span></div></> : <strong className="shell-header__title" role={mobile && (screen.kind === 'all' || screen.kind === 'dash') ? 'heading' : undefined} aria-level={mobile && (screen.kind === 'all' || screen.kind === 'dash') ? 1 : undefined}>{headerTitle}</strong>)}
+          {!chatHeader && (headerBot ? <><BotAvatarFor bot={headerBot} size={32} /><div className="shell-header__bot"><strong className="shell-header__title">{headerBot.name}</strong><span className="shell-header__subtitle">{botSubtitle}</span></div></> : <strong className="shell-header__title" role={titledInHeader ? 'heading' : undefined} aria-level={titledInHeader ? 1 : undefined}>{headerTitle}</strong>)}
           {mobile && <button type="button" className="shell-menu" aria-label="Open navigation" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}><Menu size={22} aria-hidden /></button>}
         </header>
       <div className={`main-pane${detailsOpen && hasBot && view === 'chat' && !botSettings && modal !== 'create' && modal !== 'group' ? ' has-bot-details' : ''}`} hidden={settingsOpen || routeModal}>
