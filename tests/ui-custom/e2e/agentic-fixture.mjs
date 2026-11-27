@@ -29,8 +29,8 @@ export async function agenticFixture() {
           let answer = outputs.length ? JSON.parse(outputs.at(-1).output) : null;
           // Filter the live read-tool answer before formatting; never invent task rows.
           if (answer?.kind === 'list' && spec.olderThanDays) answer.rows = answer.rows.filter(row => {
-            const updatedAt = Number(row.subtitle?.match(/updatedAt: (\d+)/)?.[1]);
-            return row.status !== 'done' && updatedAt > 0 && updatedAt < Date.now() - spec.olderThanDays * 86400000;
+            const createdAt = Number(row.subtitle?.match(/createdAt: (\d+)/)?.[1]);
+            return row.status !== 'done' && createdAt > 0 && createdAt < Date.now() - spec.olderThanDays * 86400000;
           });
           // Model formatting uses live source values and omits internal record metadata.
           if (answer?.kind === 'list') answer.rows = answer.rows.map(row => ({ title: row.title, ...(row.status ? { status: ({ working: 'Working', needs_input: 'Needs input', done: 'Done' })[row.status] ?? row.status } : {}) }));

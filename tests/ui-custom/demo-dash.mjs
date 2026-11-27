@@ -18,7 +18,7 @@ async function runPolishView({ before, output, view }) {
     const titles = ['Draft the launch email', 'Prepare the customer proposal', 'Review the launch plan', 'Plan the customer call', 'Publish the weekly update', 'Prepare the meeting agenda', 'Review the project brief', 'Send the daily summary', 'Plan the next milestone', 'Approve the release notes', 'Update the project timeline', 'Write the team update'];
     const tasks = server.db.prepare('SELECT id FROM tasks WHERE bot_id=? ORDER BY id').all(account.bot.id);
     tasks.slice(9).forEach(task => server.db.prepare('DELETE FROM tasks WHERE id=?').run(task.id));
-    tasks.slice(0, 9).forEach((task, i) => server.db.prepare('UPDATE tasks SET title=?,state=?,created_at=?,updated_at=? WHERE id=?').run(titles[i], i === 4 ? 'done' : 'working', Date.now() - (i < 3 ? 4 : 1) * 86400000, Date.now() - (i < 3 ? 3 : 1) * 86400000, task.id));
+    tasks.slice(0, 9).forEach((task, i) => server.db.prepare('UPDATE tasks SET title=?,state=?,created_at=?,updated_at=? WHERE id=?').run(titles[i], i === 4 ? 'done' : 'working', Date.now() - (i < 3 ? 4 : 1) * 86400000, Date.now() - (i < 3 && i !== 1 ? 3 : 1) * 86400000, task.id));
     const approvalId = server.seedApproval(account);
     const dashboards = [
       { id: '$new1', name: 'Sales pipeline', icon: 'briefcase', widgets: [

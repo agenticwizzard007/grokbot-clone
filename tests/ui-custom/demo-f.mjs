@@ -28,7 +28,7 @@ try {
   await capture(watchers,'new-account');
   server.seed(account);
   for(const {page} of watchers) {
-    await page.getByRole('button',{name:'Refresh',exact:true}).click();
+    await page.getByRole('button',{name:'Refresh dashboard',exact:true}).click();
     await page.getByRole('region',{name:'Working now',exact:true}).locator('output').waitFor();
     await page.locator('[data-widget-type="list"]').scrollIntoViewIfNeeded(); await page.locator('.dashboard-list li').first().waitFor();
     await page.locator('[data-widget-type="chart"]').scrollIntoViewIfNeeded(); await page.locator('.dashboard-chart svg').waitFor();

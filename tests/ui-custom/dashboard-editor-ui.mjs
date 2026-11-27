@@ -28,7 +28,7 @@ try {
   await page.getByLabel('Title', { exact: true }).fill('Weekly spending'); await page.getByRole('button', { name: 'Save', exact: true }).focus(); await page.keyboard.press('Enter');
   await page.locator('dialog').waitFor({ state: 'detached' }); await page.getByRole('heading', { name: 'Weekly spending', exact: true }).waitFor(); passed++;
   await activate('Remove', 'Weekly spending'); await page.locator('[data-widget-type="chart"]').waitFor({ state: 'detached' }); passed++;
-  const catalogTypes = [...widgetTypes, 'agent'];
+  const catalogTypes = ['agent', ...widgetTypes];
   for (const type of catalogTypes) {
     await page.getByRole('button', { name: 'Add widget', exact: true }).click();
     const index = catalogTypes.indexOf(type); await page.locator('.dashboard-library-item').nth(index).click();
