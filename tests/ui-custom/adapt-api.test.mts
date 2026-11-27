@@ -56,16 +56,29 @@ test('input limits, metadata, cross-account fields, XSS and personal identifiers
   assert.equal(store.get('a').revision, 1);
 });
 
-test('adapt is a normal owner-only preview with before, after, rationale and suggestions', async () => {
-  const result = await call('POST', {}, 1, 'a', '/adapt'); assert.equal(result.status, 200, JSON.stringify(result.body));
-  assert.equal(result.body.applied, false); assert.deepEqual(result.body.viewports, [390, 1280]); assert.equal(result.body.lens, 'operations');
-  assert.equal(result.body.suggestions.bots.length, 3); assert.equal(result.body.suggestions.templates.length, 2);
-  assert.deepEqual(result.body.before, ui.get('a').doc); assert.deepEqual(result.body.after, ui.getPreview('a', result.body.previewId)!.result);
-  assert.equal(ui.getPreview('b', result.body.previewId), null); assert.equal(ui.get('a').revision, 0);
-  assert.equal((await call('POST', { lens: 'unknown' }, 1, 'a', '/adapt')).status, 422);
+test('profile endpoints cannot write layout, theme, components or pins', async () => {
+  const before = ui.get('a'), saved = store.get('a');
+  for (const path of ['/layout', '/layout/sidebar/order', '/layout/phoneTabs', '/layout/home', '/layout/pinned', '/theme', '/components', '/dashboards', '/managedPaths', '/lens']) {
+    assert.equal((await call('PUT', { patch: [{ op: 'add', path, value: [] }] }, saved.revision)).status, 422, path);
+    assert.deepEqual(ui.get('a'), before); assert.deepEqual(store.get('a'), saved);
+  }
 });
 
-test('DELETE previews default arrangement and provides a per-user reset Undo', async () => {
+test('suggestion and legacy endpoint only preview one dashboard, with identical layout for two profiles', async () => {
+  const before = ui.get('a');
+  assert.deepEqual(before.doc.layout, ui.get('b').doc.layout);
+  for (const suffix of ['/suggest', '/adapt']) {
+    const result = await call('POST', {}, 1, 'a', suffix); assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.equal(result.body.applied, false); assert.equal(result.body.title, 'Add dashboard: Operations');
+    assert.deepEqual(result.body.patch.map(op => [op.op, op.path]), [['add', '/dashboards/-']]);
+    const proposed = ui.getPreview('a', result.body.previewId)!.result;
+    assert.deepEqual({ ...proposed, dashboards: before.doc.dashboards }, before.doc);
+    assert.equal(ui.getPreview('b', result.body.previewId), null); assert.equal(ui.get('a').revision, 0);
+    assert.equal((await call('POST', { lens: 'operations' }, 1, 'a', suffix)).status, 422);
+  }
+});
+
+test('DELETE clears the profile without a layout preview and provides per-user Undo', async () => {
   const reset = await call('DELETE', {}, 1); assert.equal(reset.status, 200); assert.equal(reset.body.profile, null);
   assert.equal(ui.get('a').revision, 0);
   assert.equal((await call('PUT', { undoReset: reset.body.undoToken }, 1, 'b')).status, 404);
@@ -83,12 +96,12 @@ test('agent requirements tools match REST and update alone never changes the app
   const changed = await invoke('update_requirements', { patch: [{ op: 'replace', path: '/role', value: 'Support' }] });
   assert.equal(changed.profile.role, 'Support'); assert.equal(changed.profile.updatedBy, 'agent'); assert.deepEqual(changed.diff, ['Role updated']);
   assert.match(changed.remember, /^I will remember: Support/); assert.deepEqual(ui.get('a'), before);
-  const agent = await invoke('preview_adaptation', { lens: 'support' }); assert.equal(agent.ok, true, JSON.stringify(agent));
-  const rest = await call('POST', { lens: 'support' }, store.get('a').revision, 'a', '/adapt');
-  assert.equal(rest.status, 200); assert.deepEqual(agent.patch, rest.body.patch); assert.deepEqual(agent.after, rest.body.after);
-  assert.equal(cards[0].card, 'ui_preview'); assert.equal(cards[0].previewId, agent.previewId); assert.deepEqual(ui.get('a'), before);
+  const agent = await invoke('preview_adaptation'); assert.equal(agent.ok, true, JSON.stringify(agent));
+  const rest = await call('POST', {}, store.get('a').revision, 'a', '/adapt');
+  assert.equal(rest.status, 200); assert.deepEqual(agent.patch, rest.body.patch); 
+  assert.equal(cards[0].title, 'Add dashboard: Support'); assert.equal(cards[0].card, 'ui_preview'); assert.equal(cards[0].previewId, agent.previewId); assert.deepEqual(ui.get('a'), before);
   const reset = await invoke('reset_requirements'); assert.equal(reset.profile, null);
-  assert.equal(store.get('a').undoToken, reset.undoToken); assert.equal(cards[1].previewId, reset.previewId);
+  assert.equal(store.get('a').undoToken, reset.undoToken); assert.equal(cards.length, 1); assert.ok(!('previewId' in reset));
   assert.deepEqual(ui.get('a'), before);
 });
 

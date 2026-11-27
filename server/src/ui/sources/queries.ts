@@ -1,3 +1,4 @@
+import { AGENTIC_SOURCES, agenticSource } from './agentic.js';
 import { Cron } from 'croner';
 import { db } from '../../db.js';
 import { needsYou } from '../../routes-attention.js';
@@ -42,6 +43,7 @@ const runsSql = `WITH runs AS (
 export function resolveSource(id: string, userId: string, params: Params): SourceData {
   if (!userId) throw new SourceError('not_found', 'Account not found.');
   const scope = botScope(userId, params), limit = Number(params.limit ?? 25), now = Date.now();
+  if (AGENTIC_SOURCES.includes(id)) return agenticSource(id, userId, params);
   const range = (params.range ?? '7d') as UsageRange;
   // Scan tasks against one account-owned id set instead of looking up the Bot
   // separately for every task. The existing schema has no task Bot index.

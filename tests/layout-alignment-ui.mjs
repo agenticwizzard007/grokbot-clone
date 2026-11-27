@@ -1,5 +1,6 @@
 // Local seeded route audit. LAYOUT_ROOT can point at an untouched baseline checkout.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -28,6 +29,13 @@ export const ROUTES = [
   { name: 'sign-in', hash: '', signedOut: true, owner: 'PB-E', enforce: true },
   { name: 'sign-in-code', hash: '', signedOut: true, code: true, owner: 'PB-E', enforce: true },
   { name: 'join', hash: '/join/layout-fixture', signedOut: true, owner: 'PB-E', enforce: true },
+];
+
+// Kept separate from ROUTES because client-defaults-ui pins the original 208 views.
+export const SUGGESTION_ROUTES = [
+  { name: 'about-you', hash: '#settings/appearance/use' },
+  { name: 'suggestion-preview', hash: '#settings/appearance/use' },
+  { name: 'resulting-dashboard', hash: '#dash/{dashboard}' },
 ];
 
 /** Browser-side geometry checks, also reused by the Settings matrix. */
@@ -204,6 +212,10 @@ async function main() {
   fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   assert.equal(report.filter(r => r.enforce && r.issues.length).length, 0, 'Enforced routes follow the shared layout system');
   console.log(`${report.length} route views audited. Report: ${evidence}/report.json`);
+  if (!process.env.LAYOUT_OWNER && !process.env.LAYOUT_ROUTES || process.env.LAYOUT_OWNER === 'UC-Y') {
+    const result = spawnSync(process.execPath, ['tests/ui-custom/e2e/suggest-dashboard-ui.mjs'], { stdio: 'inherit', env: { ...process.env, SUGGEST_EVIDENCE: path.join(evidence, 'suggestions') } });
+    assert.equal(result.status, 0, 'Dashboard suggestion routes follow Paper layout and visible-copy rules');
+  }
   await (await import('./handoffs/ho-routes.mjs')).auditHandoffRoutes(inspectAlignment);
 }
 if (import.meta.url === pathToFileURL(process.argv[1]).href) await main();

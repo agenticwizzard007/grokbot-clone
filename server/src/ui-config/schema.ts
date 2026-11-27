@@ -8,7 +8,7 @@ import { SOURCE_IDS, SOURCE_PARAMS, SOURCES, botIdSchema } from './registry-sour
 import { WIDGET_TYPES, WIDGET_OPTIONS, WIDGETS, DASHBOARD_ICONS, plainText } from './registry-widgets.js';
 import { jsonSize } from './errors.js';
 
-export const LIMITS = { documentBytes: 256 * 1024, warningBytes: 128 * 1024, dashboards: 12, widgets: 24, dashboardName: 40, widgetTitle: 60, note: 2000, pinned: 8, keybindings: 24, patchOps: 100, patchBytes: 64 * 1024, depth: 12, presets: 20, history: 50, historyDays: 90, previewTtlMs: 15 * 60 * 1000 } as const;
+export const LIMITS = { documentBytes: 256 * 1024, warningBytes: 128 * 1024, dashboards: 12, widgets: 24, agentWidgets: 12, dashboardName: 40, widgetTitle: 60, note: 2000, pinned: 8, keybindings: 24, patchOps: 100, patchBytes: 64 * 1024, depth: 12, presets: 20, history: 50, historyDays: 90, previewTtlMs: 15 * 60 * 1000 } as const;
 export const hexColorSchema = z.string().regex(/^#[\da-f]{6}$/i).transform(s => s.toUpperCase());
 export const dashboardIdSchema = z.string().regex(/^d_[a-z0-9]{8}$/);
 export const widgetIdSchema = z.string().regex(/^w_[a-z0-9]{8}$/);
@@ -23,9 +23,10 @@ export const themeSchema = z.object({
   density: densitySchema, radius: z.enum(['sharp', 'default', 'round']), motion: z.enum(['system', 'reduced']), contrast: z.enum(['normal', 'high']),
 }).strict();
 const homeSchema = z.union([z.object({ kind: z.enum(['default', 'bots', 'tasks']) }).strict(), z.object({ kind: z.literal('dashboard'), dashboardId: dashboardIdSchema }).strict()]);
+// Legacy tab ids stay readable in saved documents; the client ignores retired targets.
 const phoneTab = z.union([z.enum(['bots', 'tasks', 'search', 'settings', 'routines', 'usage', 'files', 'more']), z.string().regex(/^dashboard:d_[a-z0-9]{8}$/)]);
 export const layoutSchema = z.object({
-  sidebar: z.object({ collapsed: z.boolean().nullable(), width: z.enum(['narrow', 'default', 'wide']), order: z.array(z.enum(NAV_IDS)).max(NAV_IDS.length), hidden: z.array(z.enum([...NAV_IDS, 'all'])).max(NAV_IDS.length) }).strict(),
+  sidebar: z.object({ collapsed: z.boolean().nullable(), width: z.enum(['narrow', 'default', 'wide']), order: z.array(z.enum(NAV_IDS)).max(NAV_IDS.length), hidden: z.array(z.enum(NAV_IDS)).max(NAV_IDS.length) }).strict(),
   home: homeSchema, phoneTabs: z.array(phoneTab).min(3).max(5), chat: z.object({ width: z.enum(['default', 'wide']) }).strict(),
   pinned: z.array(z.discriminatedUnion('type', [z.object({ type: z.literal('dashboard'), id: dashboardIdSchema }).strict(), z.object({ type: z.literal('bot'), id: botIdSchema }).strict()])).max(LIMITS.pinned),
 }).strict();
@@ -49,7 +50,7 @@ export const widgetSchema = z.object({
     if (widget.type === 'stat' && ['needsYou.list', 'bots.status'].includes(widget.source.id) && value !== 'count' && key === 'field') ctx.addIssue({ code: 'custom', path: ['options', key], message: 'Use count for this list source.' });
   }
 });
-export const dashboardSchema = z.object({ id: dashboardIdSchema, name: plainText(40, 1), icon: z.enum(DASHBOARD_ICONS), description: plainText(200).optional(), widgets: z.array(widgetSchema).max(LIMITS.widgets) }).strict();
+export const dashboardSchema = z.object({ id: dashboardIdSchema, name: plainText(40, 1), icon: z.enum(DASHBOARD_ICONS), description: plainText(200).optional(), widgets: z.array(widgetSchema).max(LIMITS.widgets) }).strict().refine(d => d.widgets.filter(w => w.type === 'agent').length <= LIMITS.agentWidgets, { path: ['widgets'], message: 'Use at most 12 agent widgets per dashboard.', params: { code: 'limit_exceeded' } });
 export const uiConfigShape = z.object({
   $schema: z.literal('/api/ui/schema').optional(), version: z.literal(1), preset: z.string().regex(/^(?:swarm|midnight|paper|forest|contrast|focus|calm|colorblind|p_[a-z0-9]{8})$/),
   theme: themeSchema, layout: layoutSchema, components: z.partialRecord(z.enum(COMPONENT_IDS), z.enum(['show', 'hide', 'collapsed'])),
@@ -63,7 +64,6 @@ export const uiConfigSchema = uiConfigShape.superRefine((doc, ctx) => {
   if (bytes === null) issue([], 'Use JSON values within the depth limit.');
   else if (bytes > LIMITS.documentBytes) issue([], 'The document exceeds 256 KB.', 'limit_exceeded');
   if (!doc.layout.sidebar.order.includes('settings')) issue(['layout', 'sidebar', 'order'], 'Settings must stay in the sidebar.', 'required_item');
-  if (doc.layout.sidebar.hidden.includes('all')) issue(['layout', 'sidebar', 'hidden'], 'All sections cannot be hidden.', 'required_item');
   if (doc.layout.sidebar.hidden.includes('settings')) issue(['layout', 'sidebar', 'hidden'], 'Settings cannot be hidden.', 'required_item');
   if (!doc.layout.phoneTabs.includes('settings')) issue(['layout', 'phoneTabs'], 'Settings must stay in phone tabs.', 'required_item');
   if (doc.layout.phoneTabs.filter(x => x.startsWith('dashboard:')).length > 1) issue(['layout', 'phoneTabs'], 'Only one dashboard can be a phone tab.');

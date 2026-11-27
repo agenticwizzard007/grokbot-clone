@@ -28,25 +28,31 @@ test('requirements are lazy, isolated, versioned and do not change appearance on
   assert.equal((db.prepare("SELECT count(*) n FROM ui_config_history WHERE user_id='a' AND kind='requirements'").get() as any).n, 1);
 });
 
-test('only applying a preview claims its managed paths, including after process restart', t => {
-  const { ui, store } = fixture(t); ok(store.update('a', patch(), 0));
+test('different profiles keep identical navigation and home; Apply only appends a dashboard', t => {
+  const { ui, store } = fixture(t);
+  ok(store.update('a', patch('Sales'), 0)); ok(store.update('b', patch('Operations'), 0));
+  assert.deepEqual(ui.get('a'), ui.get('b'));
+  const before = ui.get('a');
   const pending = ok(store.preview('a', 1));
-  assert.deepEqual(store.get('a').profile?.managedPaths, []); assert.equal(ui.get('a').revision, 0);
+  assert.equal(pending.title, 'Add dashboard: Sales'); assert.deepEqual(ui.get('a'), before);
   assert.equal(ui.getPreview('b', pending.previewId), null); assert.equal(ui.applyPreview('b', pending.previewId, 'user').ok, false);
-  ok(ui.applyPreview('a', pending.previewId, 'user'));
+  const applied = ok(ui.applyPreview('a', pending.previewId, 'user'));
+  assert.equal(applied.doc.dashboards.length, 1); assert.deepEqual({ ...applied.doc, dashboards: before.doc.dashboards }, before.doc);
   const restart = new RequirementsStore(ui, { flag: () => '100' });
-  assert.ok(restart.get('a').profile!.managedPaths.includes('/layout/home'));
-  const manual = ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: { kind: 'tasks' } }], 1, 'user'));
-  ok(restart.update('a', patch('Operations'), restart.get('a').revision));
-  const next = ok(restart.preview('a', restart.get('a').revision, 'user', 'operations'));
-  assert.deepEqual(next.after.layout.home, manual.doc.layout.home); assert.ok(next.kept.some(k => k.path === '/layout/home'));
+  assert.deepEqual(restart.get('a').profile!.managedPaths, []);
+  ok(restart.update('a', patch('Support'), restart.get('a').revision));
+  assert.deepEqual(ui.get('a').doc, applied.doc);
+  const next = ok(restart.preview('a', restart.get('a').revision));
+  const second = ok(ui.applyPreview('a', next.previewId, 'user'));
+  assert.equal(second.doc.dashboards.length, 2); assert.deepEqual(second.doc.dashboards[0], applied.doc.dashboards[0]);
+  assert.deepEqual(second.doc.layout, ui.get('b').doc.layout);
 });
 
 test('discard, supersede and expiry never take ownership or change appearance', t => {
   const { ui, store, advance } = fixture(t); ok(store.update('a', patch(), 0));
   const discarded = ok(store.preview('a', 1)); ui.discardPreview('a', discarded.previewId);
   assert.deepEqual(store.get('a').profile?.managedPaths, []);
-  const old = ok(store.preview('a', 1)); const next = ok(store.preview('a', 1, 'user', 'operations'));
+  const old = ok(store.preview('a', 1)); const next = ok(store.preview('a', 1));
   assert.equal(ui.getPreview('a', old.previewId)?.status, 'superseded');
   advance(15 * 60000); assert.equal(ui.applyPreview('a', next.previewId, 'user').ok, false);
   assert.deepEqual(store.get('a').profile?.managedPaths, []); assert.equal(ui.get('a').revision, 0);
@@ -60,23 +66,25 @@ test('requirements history cannot enter appearance history or undo', t => {
   ok(ui.undo('a', 1, 'user')); assert.deepEqual(ui.get('a').doc.layout.home, { kind: 'default' }); assert.equal(store.get('a').profile?.role, 'Sales 2');
 });
 
-test('reset clears only requirements, previews defaults, and Undo restores both', t => {
+test('reset and Undo only change the profile, preserving manual layout and dashboards', t => {
   const { ui, store } = fixture(t); ok(store.update('a', patch(), 0));
   const adaptation = ok(store.preview('a', 1)); ok(ui.applyPreview('a', adaptation.previewId, 'user')); store.get('a');
   const before = ui.get('a').doc;
   const reset = ok(store.reset('a', store.get('a').revision)); assert.equal(store.get('a').profile, null); assert.deepEqual(ui.get('a').doc, before);
-  ok(ui.applyPreview('a', reset.previewId, 'user')); assert.deepEqual(ui.get('a').doc.layout, DEFAULT_CONFIG.layout);
+  assert.ok(!('previewId' in reset)); assert.deepEqual(ui.get('a').doc, before);
   assert.equal(store.undoReset('b', 0, reset.undoToken).ok, false);
   ok(store.undoReset('a', store.get('a').revision, reset.undoToken)); assert.equal(store.get('a').profile?.role, 'Sales'); assert.deepEqual(ui.get('a').doc, before);
   assert.equal(store.undoReset('a', 3, reset.undoToken).ok, false);
 });
 
-test('new requirements and subsequent layout edits invalidate a reset Undo', t => {
+test('Undo reset preserves subsequent hand edits; later profile saves invalidate Undo', t => {
   const { ui, store } = fixture(t); ok(store.update('a', patch(), 0));
-  const reset = ok(store.reset('a', 1)); ok(ui.applyPreview('a', reset.previewId, 'user'));
-  ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: { kind: 'tasks' } }], 1, 'user'));
-  assert.equal(store.undoReset('a', 2, reset.undoToken).ok, false);
-  ok(store.update('a', patch('Support'), 2)); assert.equal(store.undoReset('a', 3, reset.undoToken).ok, false);
+  const reset = ok(store.reset('a', 1));
+  ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: { kind: 'tasks' } }], 0, 'user'));
+  ok(store.undoReset('a', 2, reset.undoToken));
+  assert.deepEqual(ui.get('a').doc.layout.home, { kind: 'tasks' });
+  const resetAgain = ok(store.reset('a', 3));
+  ok(store.update('a', patch('Support'), 4)); assert.equal(store.undoReset('a', 5, resetAgain.undoToken).ok, false);
 });
 
 test('history cap, account deletion and corrupt profile fallback are isolated', t => {
@@ -112,21 +120,10 @@ test('existing history migration preserves rows and independent revision namespa
   assert.equal((db.prepare('SELECT count(*) n FROM ui_config_history WHERE user_id=?').get('a') as any).n, 2);
 });
 
-test('adaptation preview warm p95 stays under 150 ms', t => {
+test('dashboard suggestion preview warm p95 stays under 150 ms', t => {
   const { store } = fixture(t); ok(store.update('a', patch(), 0));
   const times: number[] = []; for (let i = 0; i < 100; i++) { const start = performance.now(); ok(store.preview('a', 1)); times.push(performance.now() - start); }
-  times.sort((a, b) => a - b); console.log(`preview_adaptation p95: ${times[95].toFixed(2)} ms`); assert.ok(times[95] < 150);
-});
-
-test('a hand edit followed by a revert is never reclaimed by adaptation', t => {
-  const { ui, store } = fixture(t); ok(store.update('a', patch(), 0));
-  const first = ok(store.preview('a', 1)); ok(ui.applyPreview('a', first.previewId, 'user')); store.get('a');
-  const order = ui.get('a').doc.layout.sidebar.order;
-  ok(ui.patch('a', [{ op: 'replace', path: '/layout/sidebar/order', value: [...order].reverse() }], 1, 'user'));
-  ok(ui.patch('a', [{ op: 'replace', path: '/layout/sidebar/order', value: order }], 2, 'user'));
-  const next = ok(store.preview('a', store.get('a').revision, 'user', 'operations'));
-  assert.deepEqual(next.after.layout.sidebar.order, order);
-  assert.ok(next.kept.some(k => k.path === '/layout/sidebar/order'));
+  times.sort((a, b) => a - b); console.log(`Dashboard suggestion p95: ${times[95].toFixed(2)} ms`); assert.ok(times[95] < 150);
 });
 
 test('backup and tenant export include only the owning account requirements and audit', async t => {
@@ -150,15 +147,54 @@ test('failed requirements history persistence rolls back the entire profile writ
 });
 
 
-test('Undo reset retains history tracking for a hand edit followed by a revert', t => {
-  const { ui, store } = fixture(t); ok(store.update('a', patch(), 0));
-  const first = ok(store.preview('a', store.get('a').revision)); ok(ui.applyPreview('a', first.previewId, 'user')); store.get('a');
-  const reset = ok(store.reset('a', store.get('a').revision)); ok(ui.applyPreview('a', reset.previewId, 'user'));
-  ok(store.undoReset('a', store.get('a').revision, reset.undoToken));
-  const home = ui.get('a').doc.layout.home;
-  ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: { kind: 'tasks' } }], ui.get('a').revision, 'user'));
-  ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: home }], ui.get('a').revision, 'user'));
-  const next = ok(store.preview('a', store.get('a').revision, 'user', 'support'));
-  assert.ok(next.kept.some(item => item.path === '/layout/home'));
-  assert.deepEqual(next.after.layout.home, home);
+
+test('migration restores only owned matching layout pointers and is idempotent across startup', t => {
+  const { db, ui, store } = fixture(t); ok(store.update('a', patch(), 0));
+  const suggested = ok(store.preview('a', 1)); const applied = ok(ui.applyPreview('a', suggested.previewId, 'user'));
+  const doc = structuredClone(applied.doc);
+  doc.layout.home = { kind: 'dashboard', dashboardId: doc.dashboards[0].id };
+  doc.layout.sidebar.order = [...doc.layout.sidebar.order].reverse();
+  doc.layout.sidebar.hidden = ['files']; doc.layout.phoneTabs = ['tasks', 'routines', 'more', 'settings'];
+  doc.layout.sidebar.width = 'wide'; doc.layout.pinned = [{ type: 'dashboard', id: doc.dashboards[0].id }];
+  const written = ok(ui.patch('a', [{ op: 'replace', path: '/layout', value: doc.layout }], applied.revision, 'user'));
+  const profile = { ...store.get('a').profile, managedPaths: ['/layout/sidebar/order', '/layout/sidebar/hidden', '/layout/phoneTabs', '/layout/home', '/layout/sidebar/width', '/layout/pinned'] };
+  db.prepare('UPDATE ui_requirements SET doc=?,adaptation=? WHERE user_id=?').run(JSON.stringify(profile), JSON.stringify({ state: { doc, managedPaths: profile.managedPaths }, seenRevision: written.revision }), 'a');
+  // The user changed home by hand after adaptation; it must survive.
+  const manual = ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: { kind: 'tasks' } }], written.revision, 'user'));
+  const other = ui.get('b');
+  initUiDatabase(db);
+  const migrated = ui.get('a');
+  assert.deepEqual(migrated.doc, { ...manual.doc, layout: { ...manual.doc.layout, sidebar: { ...manual.doc.layout.sidebar, order: DEFAULT_CONFIG.layout.sidebar.order, hidden: [] }, phoneTabs: DEFAULT_CONFIG.layout.phoneTabs } });
+  assert.equal(migrated.revision, manual.revision + 1); assert.equal(migrated.updatedBy, 'migration');
+  assert.deepEqual(ui.get('b'), other); assert.deepEqual(store.get('a').profile!.managedPaths, []);
+  initUiDatabase(db); assert.deepEqual(ui.get('a'), migrated);
+  assert.deepEqual(JSON.parse(ui.store.revision('a', manual.revision)!.doc), manual.doc);
+});
+
+test('migration preserves profiles without managedPaths, corrupt ledgers and unrelated settings', t => {
+  const { db, ui, store } = fixture(t); ok(store.update('a', patch(), 0));
+  const manual = ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: { kind: 'tasks' } }, { op: 'replace', path: '/layout/phoneTabs', value: ['files', 'more', 'settings'] }], 0, 'user'));
+  const profile = store.get('a');
+  db.prepare('UPDATE ui_requirements SET adaptation=? WHERE user_id=?').run(JSON.stringify({ state: { doc: manual.doc } }), 'a');
+  initUiDatabase(db); assert.deepEqual(ui.get('a').doc, manual.doc); assert.deepEqual(store.get('a'), profile);
+  db.prepare('UPDATE ui_requirements SET adaptation=? WHERE user_id=?').run('{', 'a');
+  initUiDatabase(db); assert.deepEqual(ui.get('a').doc, manual.doc);
+});
+
+test('migration preserves an owned value edited away and back by hand', t => {
+  const { db, ui, store } = fixture(t); ok(store.update('a', patch(), 0));
+  const written = ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: { kind: 'tasks' } }], 0, 'user'));
+  const profile = { ...store.get('a').profile, managedPaths: ['/layout/home'] };
+  db.prepare('UPDATE ui_requirements SET doc=?,adaptation=? WHERE user_id=?').run(JSON.stringify(profile), JSON.stringify({ state: { doc: written.doc }, seenRevision: written.revision }), 'a');
+  ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: { kind: 'bots' } }], 1, 'user'));
+  ok(ui.patch('a', [{ op: 'replace', path: '/layout/home', value: { kind: 'tasks' } }], 2, 'user'));
+  const manual = ui.get('a'); initUiDatabase(db); assert.deepEqual(ui.get('a'), manual);
+});
+
+test('migration retires pending UC-I layout previews before they can be applied', t => {
+  const { db, ui, store } = fixture(t); ok(store.update('a', patch(), 0));
+  const pending = ok(ui.preview('a', [{ op: 'replace', path: '/layout/home', value: { kind: 'tasks' } }], { actor: 'user', intent: 'Old layout proposal' }));
+  db.prepare('UPDATE ui_requirements SET adaptation=? WHERE user_id=?').run(JSON.stringify({ pending: [{ id: pending.previewId, state: { doc: DEFAULT_CONFIG } }] }), 'a');
+  initUiDatabase(db); assert.equal(ui.getPreview('a', pending.previewId)!.status, 'superseded');
+  assert.equal(ui.applyPreview('a', pending.previewId, 'user').ok, false); assert.deepEqual(ui.get('a').doc, DEFAULT_CONFIG);
 });

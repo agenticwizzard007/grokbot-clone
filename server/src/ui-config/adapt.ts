@@ -1,13 +1,12 @@
 import { z } from 'zod';
-import { DEFAULT_CONFIG, type UiConfig } from './schema.js';
-import { NAV_IDS } from './registry-nav.js';
+import type { UiConfig } from './schema.js';
 import { plainText } from './registry-widgets.js';
-import { patchSchema, previewPatch } from './patch.js';
+import { patchSchema } from './patch.js';
 import { equal } from './summarize.js';
 import { jsonSize, schemaErrors } from './errors.js';
 import type { PatchOp, Violation } from './service.js';
-import { ADAPT_KEYWORDS, FOCUS_IDS, LENS_IDS, type LensId } from './adapt-keywords.js';
-import { ADAPT_LENSES } from './adapt-lenses.js';
+import { FOCUS_IDS, LENS_IDS } from './adapt-keywords.js';
+import { dashboardWidgets } from './adapt-lenses.js';
 
 /** Reject identifiers and credentials rather than silently storing a redacted guess. */
 export function containsPrivateData(text: string): boolean {
@@ -29,7 +28,6 @@ export const requirementsProfileSchema = requirementsFieldsSchema.extend({
 });
 export type RequirementsProfile = z.infer<typeof requirementsProfileSchema>;
 export type RequirementsFields = z.infer<typeof requirementsFieldsSchema>;
-export interface AdaptationState { doc: UiConfig; managedPaths: string[]; dashboardId: string; }
 export const EMPTY_REQUIREMENTS: RequirementsFields = { role: 'General', goals: [], workflows: [], focus: [] };
 const fail = (message: string, path = '', code: Violation['code'] = 'invalid_value') => ({ ok: false as const, errors: [{ code, path, message }] });
 
@@ -40,7 +38,7 @@ export function patchRequirements(current: RequirementsFields | null, raw: unkno
   if (!parsed.success) return { ok: false, errors: schemaErrors(parsed.error) };
   const before = structuredClone(current ?? EMPTY_REQUIREMENTS), doc = structuredClone(before) as unknown as Record<string, unknown>;
   const keys = (path: string) => {
-    if (!/^\/(?:role|goals|workflows|focus|lens)(?:\/(?:0|[1-9]\d*|-)(?:\/(?:name|cadence))?)?$/.test(path)) throw new Error('Only role, goals, workflows, focus and lens can be edited.');
+    if (!/^\/(?:role|goals|workflows|focus)(?:\/(?:0|[1-9]\d*|-)(?:\/(?:name|cadence))?)?$/.test(path)) throw new Error('Only role, goals, workflows and focus can be edited.');
     return path.slice(1).split('/');
   };
   function node(path: string) {
@@ -74,56 +72,18 @@ export function patchRequirements(current: RequirementsFields | null, raw: unkno
   return { ok: true, fields: fields.data, diff };
 }
 
-export function selectLens(profile: RequirementsFields): { lens: LensId; rationale: string[]; question?: string; scores: Record<LensId, number> } {
-  const words = ` ${[profile.role, ...profile.goals, ...profile.workflows.map(w => w.name)].join(' ').toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `;
-  const scores = Object.fromEntries(LENS_IDS.map(id => [id, ADAPT_KEYWORDS[id].focus.filter(f => profile.focus.includes(f)).length * 3 + ADAPT_KEYWORDS[id].words.filter(w => words.includes(` ${w} `)).length])) as Record<LensId, number>;
-  const ranked = [...LENS_IDS].filter(id => id !== 'general').sort((a, b) => scores[b] - scores[a]);
-  const uncertain = scores[ranked[0]] < 3 || scores[ranked[0]] === scores[ranked[1]];
-  const lens = profile.lens ?? (uncertain ? 'general' : ranked[0]);
-  const matches = ADAPT_KEYWORDS[lens].words.filter(w => words.includes(` ${w} `));
-  return { lens, scores, rationale: [matches.length ? `${ADAPT_LENSES[lens].label} because you said ${matches.slice(0, 3).join(', ')}.` : ADAPT_LENSES[lens].rationale],
-    ...(!profile.lens && uncertain ? { question: 'Which kind of work should your home focus on?' } : {}) };
+/** A profile can only propose one new dashboard. All ids are assigned by previewPatch. */
+export function suggestDashboardFromRequirements(profile: RequirementsProfile) {
+  const parsed = requirementsProfileSchema.safeParse(profile);
+  if (!parsed.success) return { ok: false as const, errors: schemaErrors(parsed.error) };
+  const fields = parsed.data;
+  const name = (fields.role === 'General' ? fields.goals[0] || fields.role : fields.role).trim().slice(0, 40);
+  const dashboard = { id: '$new1', name, icon: 'layout-dashboard' as const, description: '', widgets: dashboardWidgets(fields) };
+  const patch: PatchOp[] = [{ op: 'add', path: '/dashboards/-', value: dashboard }];
+  return { ok: true as const, patch, title: `Add dashboard: ${name}`, widgets: dashboard.widgets.map(widget => widget.title!) };
 }
-const read = (doc: UiConfig, path: string): unknown => path.slice(1).split('/').reduce<unknown>((v, key) => v && typeof v === 'object' ? (v as Record<string, unknown>)[key] : undefined, doc);
 
-/** No clocks, randomness, I/O, mutation or model text in the generated configuration. */
-export function adaptFromRequirements(profile: RequirementsProfile | null, config: UiConfig, previous?: AdaptationState) {
-  if (profile) { const parsed = requirementsProfileSchema.safeParse(profile); if (!parsed.success) return { ok: false as const, errors: schemaErrors(parsed.error) }; }
-  const selection = selectLens(profile ?? EMPTY_REQUIREMENTS), lens = ADAPT_LENSES[selection.lens];
-  const patch: PatchOp[] = [], managedPaths: string[] = [], kept: { path: string; label: string; message: string }[] = [];
-  let dashboardId = previous?.dashboardId ?? 'd_adapthom';
-  if (!previous) { let n = 0; while (config.dashboards.some(d => d.id === dashboardId)) dashboardId = `d_ad${(++n).toString(36).padStart(6, '0')}`; }
-  const index = config.dashboards.findIndex(d => d.id === dashboardId);
-  const keep = (path: string, label: string) => kept.push({ path, label, message: `${label}: kept as you set it` });
-  const propose = (path: string, value: unknown, label: string, baselinePath = path) => {
-    const current = read(config, path);
-    const allowed = previous ? previous.managedPaths.includes(baselinePath) && equal(current, read(previous.doc, baselinePath)) : equal(current, read(DEFAULT_CONFIG, path));
-    if (!allowed) { keep(path, label); return; }
-    managedPaths.push(path);
-    if (!equal(current, value)) patch.push({ op: current === undefined ? 'add' : 'replace', path, value });
-  };
-  if (profile) {
-    const dashboard = { ...structuredClone(lens.home), id: dashboardId };
-    const used = new Set(config.dashboards.filter(d => d.id !== dashboardId).flatMap(d => d.widgets.map(w => w.id)));
-    dashboard.widgets.forEach((w, i) => { let n = i; while (used.has(w.id)) w.id = `w_ad${(++n).toString(36).padStart(6, '0')}`; used.add(w.id); });
-    const oldIndex = previous?.doc.dashboards.findIndex(d => d.id === dashboardId) ?? -1;
-    if (index >= 0) propose(`/dashboards/${index}`, dashboard, 'Home dashboard', `/dashboards/${oldIndex}`);
-    else if (previous) keep('/dashboards', 'Home dashboard');
-    else if (config.dashboards.length >= 12) keep('/dashboards', 'Dashboard limit');
-    else { patch.push({ op: 'add', path: '/dashboards/-', value: dashboard }); managedPaths.push(`/dashboards/${config.dashboards.length}`); }
-    if (index >= 0 || managedPaths.some(p => p.startsWith('/dashboards/'))) propose('/layout/home', { kind: 'dashboard', dashboardId }, 'Home');
-    const promoted = lens.promoted.filter((id): id is typeof NAV_IDS[number] => (NAV_IDS as readonly string[]).includes(id));
-    const order = [...new Set([...promoted, ...DEFAULT_CONFIG.layout.sidebar.order])];
-    propose('/layout/sidebar/order', order, 'Sidebar order');
-    // Only promote registered phone targets. Settings remains required in every recipe.
-    const tabIds = new Set(['bots', 'tasks', 'search', 'settings', 'routines', 'usage', 'files']);
-    const tabs: string[] = [...new Set(promoted.map(id => id === 'allBots' ? 'bots' : id).filter(id => tabIds.has(id)))];
-    if (index >= 0 || managedPaths.some(p => p.startsWith('/dashboards/'))) tabs.splice(1, 0, `dashboard:${dashboardId}`);
-    for (const tab of ['bots', 'tasks', 'search']) if (tabs.length < 3 && !tabs.includes(tab)) tabs.push(tab);
-    propose('/layout/phoneTabs', [...tabs.slice(0, 3), 'more', 'settings'], 'Phone tabs');
-  }
-  const validated = previewPatch(config, patch, { ctx: {} });
-  if (!validated.ok) return validated;
-  return { ok: true as const, patch, result: validated.result, ...selection, suggestions: { bots: lens.bots, templates: lens.templates, shortcuts: lens.shortcuts },
-    managedPaths, kept, state: { doc: validated.result, managedPaths, dashboardId } satisfies AdaptationState };
+/** Compatibility for callers from UC-I: this function can no longer write layout. */
+export function adaptFromRequirements(profile: RequirementsProfile | null, _config?: UiConfig) {
+  return profile ? suggestDashboardFromRequirements(profile) : fail('Save your profile first.');
 }

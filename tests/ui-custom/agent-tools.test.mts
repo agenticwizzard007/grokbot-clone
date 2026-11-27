@@ -31,7 +31,7 @@ for (const [name, schema] of Object.entries(UI_SCHEMAS)) test(`${name}: strict o
   assert.equal(tool.parameters.additionalProperties, false);
   assert.equal(schema.safeParse({ unexpected: true }).success, false);
 });
-test('all 17 specified tools are registered', () => assert.equal(UI_TOOL_NAMES.size, 17));
+test('all 21 specified tools are registered', () => assert.equal(UI_TOOL_NAMES.size, 21));
 test('unchanged defaults are omitted recursively', () => {
   assert.equal(withoutDefaults(DEFAULT_CONFIG, DEFAULT_CONFIG), undefined);
   const doc = structuredClone(DEFAULT_CONFIG); doc.theme.mode = 'dark';

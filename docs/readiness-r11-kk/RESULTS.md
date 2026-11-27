@@ -8,6 +8,8 @@ The production CLI MCP callback and API Standard both dispatch through `processC
 
 The named matrix in `tests/readiness-kk.test.mts` checks every registered native tool against an explicit inventory. It also checks Codex ChatGPT plan and API Standard app operations, Always allow, and mutation names carrying false read-only tags. No API maximum-approval setting or approval UI was changed.
 
+FIX-3 adds all four UC-X1 tools to that inventory and the approval-level matrix. If a registered tool is missing, the audit failure lists its name and says "add them to the audit list in this file"; the exact inventory comparison still catches stale or duplicate entries.
+
 External paths which could previously run without a card:
 
 - Any write slug carrying only `readOnlyHint`, including `GMAIL_CREATE_EMAIL_DRAFT`, `GMAIL_SEND_EMAIL`, `SLACK_SEND_MESSAGE`, `NOTION_UPDATE_PAGE`, calendar creates, drive deletes, and social publish/post tools. The metadata attestation previously overrode the action name without checking for contradictions.
@@ -25,6 +27,8 @@ External paths which could previously run without a card:
 | Goals and workflows | create_goal, control_goal, verify_goal, get_workflows, create_workflow, start_workflow, control_workflow, add_workflow_dependency, delegate_workflow_task, complete_workflow_task | No approval |
 | Team and subagents | get_team_state, get_team_records, read_team_source, read_team_job, inspect_teammate_setup, prepare_teammate_setup, send_to_bot, create_bot, replicate_bot, retry_bot_setup, spawn_subagent, list_subagents, message_subagent, stop_subagent, create_group, post_to_group | No approval |
 | Platform and chat | get_platform_state, save_agent_setup, update_profile, stay_silent, ask_user, present_draft | No execution approval; in-chat previews never write to an app |
+| Dashboard reads and previews | list_dashboards, duplicate_dashboard, reorder_dashboards, add_agent_widget | Internal, no execution approval on CLI plans or API Standard, like get_ui_config and preview_ui_patch; API Every action asks. Previews do not change saved dashboards |
+| Saved UI-config changes | apply_ui_patch, save_preset, undo_ui_change | Internal, no execution approval on CLI plans or API Standard; API Every action asks. Direct-chat and preview Apply checks remain enforced by the handlers |
 | Requirements reads and adaptation previews | get_requirements, preview_adaptation | Internal, no execution approval on CLI plans or API Standard, like get_ui_config and preview_ui_patch; API Every action asks. Previews do not apply profile or UI-config changes |
 | Requirements profile changes | update_requirements, reset_requirements | Internal, same execution approval as existing UI-config mutations: no approval on CLI plans or API Standard; API Every action asks. Direct-chat and outside-content confirmation checks remain; UI changes retain preview Apply rules |
 | Discovery and orchestration | list_app_connections, search_apps, request_app_connection, SWARM_APPS_SEARCH, tool_search, tool_describe, tool_call, execute_code | Discovery is free; underlying executions retain their gate |
@@ -73,3 +77,5 @@ Run `npm run test:readiness-kk` for the focused regression suite, real hosted Co
 - Typecheck and production build passed after rebase. The branch was mergeable.
 
 The full suite command was `node --import tsx --test --test-concurrency=1 tests/*.test.mts tests/*.test.mjs` in both checkouts. No tests or CI workflows were disabled or newly skipped. Existing CI workflow configuration and Fly deployment are unchanged.
+
+FIX-3 validation on `633417cd` with the audit update: `npm run typecheck` passed. Running `node --import tsx --test --test-concurrency=1` for `tests/readiness-kk.test.mts` (334), `tests/agent-*.test.mts` (25), `tests/ui-custom/unit/*.test.mts` (193), `tests/composio.test.mts` (22), and `tests/handoffs/integration-i.test.mts` (45) passed all 619 tests, with zero failures or skips. A temporary diagnostic probe omitted the four UC-X1 audit entries and confirmed the failure listed every missing name with the instruction to add them to the audit list in this file.
