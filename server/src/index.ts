@@ -7,3 +7,4 @@ switch (deploymentRole) {
   case 'composio-gateway': await (await import('./platform/composio-gateway.js')).startComposioGateway(); break;
   case 'provisioner': await (await import('./platform/provisioner.js')).startProvisioner(); break;
 }
+if (deploymentRole === 'standalone' || deploymentRole === 'tenant') (await import('./handoffs/reconcile.js')).recoverHandoffs();

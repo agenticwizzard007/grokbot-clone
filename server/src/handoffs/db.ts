@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS handoff_tool_receipts (
 export class ServiceError extends Error {
  constructor(readonly code:string, message:string, readonly status:400|404|409|410|422|429|503=400) { super(message); }
 }
-export const missing = ():never => { throw new ServiceError('not_found','Not found.',404); };
+export function missing():never { throw new ServiceError('not_found','Not found.',404); }
 export function settings(userId:string):HandoffSettings {
  assertTenant(userId);
  const r=db.prepare('SELECT * FROM handoff_user_settings WHERE user_id=?').get(userId) as any;

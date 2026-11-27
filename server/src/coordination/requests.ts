@@ -7,6 +7,7 @@ import { legacyWorkHeld, assertLegacyWorkOpen } from '../security/legacy-work.js
 import { legacyWritableRows } from '../platform/legacy-database-fence.js';
 import { publishNativeEvent } from '../native/events.js';
 import { selectedCli } from '../cli/store.js';
+import { onJobFinished } from '../handoffs/hooks.js';
 
 // Bind a temporary helper to its first assignment. The binding distinguishes
 // fresh downward delegation and upward results from arbitrary peer chatter.
@@ -253,6 +254,7 @@ function settle(r:any,status:string,text:string) {
 export function onInternalJobFinished(input:CoordinationFinish) {
  assertTenant(input.userId);if(legacyWorkHeld(input.userId))return;
  ownAgent(input.userId,input.botId);recordCoordinationJobOutcome(input);
+ onJobFinished(input);
  if(['waiting','queued','running'].includes(input.status))return;
  db.transaction(()=>{const r=requestForJob(input);if(r)settle(r,input.status,input.finalText??'No final text recorded.');})();
  drainInternalRequests();
