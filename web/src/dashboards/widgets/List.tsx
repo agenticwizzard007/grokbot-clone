@@ -5,6 +5,11 @@ export default function List({ widget, data }: WidgetProps) {
   if (!rows.length) return <Empty widget={widget} text={widget.source?.id === 'handoffs.list' ? 'No handoffs in progress.' : widget.source?.id === 'loops.list' ? 'No loops in progress.' : widget.source?.id === 'outputs.recent' ? 'No outputs yet.' : 'No items yet.'} />;
   if (widget.source?.id === 'connectors.status' && rows.every(row => !row.connected)) return <div className="dashboard-empty-data"><p>Connect an app to see your data.</p><a className="btn btn--secondary" href="#settings/apps">Connect</a></div>;
   const fields = Array.isArray(widget.options.fields) ? widget.options.fields as string[] : ['botName', 'state'];
+  if (widget.source?.id === 'outputs.recent') return <ul className="dashboard-list dashboard-output-list">{rows.map((row, index) => {
+    const href = rowHref(widget, row);
+    const content = <><strong className="dashboard-list-title">{rowTitle(row)}</strong><span className="dashboard-list-meta">{fields.filter(field => !['id', 'title', 'name'].includes(field) && row[field] != null).map(field => <span key={field} aria-label={fieldLabel(field)}><Value row={row} field={field} /></span>)}</span></>;
+    return <li key={String(row.id ?? index)}>{href ? <a className="dashboard-output-row" href={href}>{content}</a> : <div className="dashboard-output-row">{content}</div>}</li>;
+  })}</ul>;
   return <ul className="dashboard-list">{rows.map((row, index) => { const href = rowHref(widget, row); return <li key={String(row.id ?? row.routineId ?? index)}>
     {href ? <a className="dashboard-list-title" href={href}>{rowTitle(row)}</a> : <strong className="dashboard-list-title">{rowTitle(row)}</strong>}
     <div className="dashboard-list-meta">{fields.filter(field => !['id', 'title', 'name'].includes(field) && row[field] != null).map(field => <span key={field} aria-label={fieldLabel(field)}><Value row={row} field={field} /></span>)}</div>

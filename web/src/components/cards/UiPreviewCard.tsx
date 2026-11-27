@@ -1,9 +1,10 @@
 import { createdDashboard } from '../../dashboards/manager/preview';
 import { openDashboard } from '../../dashboards/manager/useDashboardManager';
 import { widgetLabel } from '../../dashboards/model';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { UiPreviewCardBody, StoredPreview } from '@shared/ui-config/index';
 import { usePreview, useUiConfig } from '../../customization';
+import { setPreviewCardVisible } from '../../customization/store';
 import { ButtonGroup, Card } from '../layout';
 import { appearanceRequest, readPreview } from '../config/appearance/api';
 import { compareAppliedAppearance, refreshAppearance } from '../config/appearance/runtime';
@@ -20,10 +21,18 @@ export function UiPreviewCard({ body }: { body: UiPreviewCardBody }) {
   const [error, setError] = useState('');
   const [undone, setUndone] = useState(false);
   const statusRef = useRef<HTMLParagraphElement>(null);
+  const cardKey = useId();
   const current = active.preview?.id === body.previewId ? active.preview : stored;
   const dashboard = createdDashboard(current);
   const title = dashboard ? `Create dashboard: ${dashboard.name}` : body.title;
   const status = stored?.status === 'expired' ? 'expired' : current?.status ?? body.status;
+  useEffect(() => {
+    const card = statusRef.current?.closest('.ui-preview-card');
+    if (!card || status !== 'pending') return;
+    const observer = new IntersectionObserver(entries => setPreviewCardVisible(cardKey, entries[0]?.isIntersecting ? body.previewId : null));
+    observer.observe(card);
+    return () => { observer.disconnect(); setPreviewCardVisible(cardKey, null); };
+  }, [body.previewId, cardKey, status]);
   useEffect(() => () => { if (comparing.current) compareAppliedAppearance(null); }, []);
   useEffect(() => { if (current?.status === 'pending' && revision === current.baseRevision) before.current = { doc: saved, revision }; }, [current, saved, revision]);
   useEffect(() => {

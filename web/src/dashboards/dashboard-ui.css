@@ -7,7 +7,10 @@
 .dashboard-open { display: flex; align-items: center; gap: 16px; width: 100%; min-height: 44px; text-align: left; border: 0; padding: 0; background: transparent; color: var(--color-text-primary); font: inherit; }
 .dashboard-open > svg { flex: 0 0 20px; }
 .dashboard-open > span:first-of-type { flex: 1; font-weight: 600; }
-.dashboard-open .dashboard-caption { text-align: right; }
+.dashboard-open .dashboard-caption { text-align: right; font-size: 14px; }
+.dashboard-page .dashboard-output-list li:first-child { padding-top: 8px; }
+.dashboard-page .dashboard-list .dashboard-output-row { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-height: 44px; text-decoration: none; color: var(--color-text-primary); }
+.dashboard-output-row .dashboard-list-title { font-size: 14px; font-weight: 600; line-height: 20px; }
 .dashboard-switcher { min-width: 0; position: relative; flex: 1; }
 .dashboard-switcher h1 { margin: 0; font: inherit; }
 .dashboard-title-control { display: flex; align-items: center; gap: 8px; min-height: 44px; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--color-text-primary); font: 600 17px/24px var(--font-heading); text-align: left; white-space: normal; overflow-wrap: anywhere; }
@@ -38,6 +41,9 @@
   .dashboard-dialog.dashboard-dialog { width: 100%; max-width: 100%; max-height: calc(100dvh - 16px); margin: auto 0 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .dashboard-manager-row { flex-wrap: nowrap !important; }
   .dashboard-manager-row .layout-row__trailing { width: auto !important; }
+  .dashboard-open { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 16px; row-gap: 0; }
+  .dashboard-open > svg { grid-row: span 2; }
+  .dashboard-open .dashboard-caption { text-align: left; }
   .dashboard-drag { display: none; }
   .dashboard-heading { flex-direction: column; }
   .dashboard-actions { max-width: none; flex-basis: auto; width: 100%; }
@@ -53,6 +59,6 @@
 .dashboard-switcher .menu__label { overflow: visible; }
 .dashboard-switcher .menu__main { gap: 8px; }
 .dashboard-switcher .menu__item { padding: 8px; }
-.dashboard-manager-row { padding-block: 0; }
+.dashboard-manager-row { min-height: 60px; padding-block: 8px; }
 .dashboard-agent-fieldset .btn { padding-inline: 8px; letter-spacing: 0; }
 .ui-preview-card--dashboard .cfg-chip { height: auto; min-height: 20px; font-size: 13px; line-height: 20px; }
