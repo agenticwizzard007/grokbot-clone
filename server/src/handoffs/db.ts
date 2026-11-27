@@ -10,12 +10,15 @@ import { hub } from '../lib/hub.js';
 import type { ServerEvent } from '../types.js';
 import { HandoffError, type HandoffErrorCode } from './errors.js';
 import type { HandoffSettings } from './contracts.js';
+import { projectCommittedHandoffEvent } from './projections.js';
 export { db, now, afterCommit };
 export { newId, sha256 } from '../lib/ids.js';
 db.exec(DDL);
 // Receipts and dispatch attempts preserve identity across retries and restarts.
 // Original parts are owner-only; forwarding always uses the redacted display copy.
 db.exec(`
+CREATE TABLE IF NOT EXISTS handoff_event_projections (
+ event_seq INTEGER PRIMARY KEY REFERENCES handoff_events(seq) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS handoff_output_sources (
  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, source_key TEXT NOT NULL,
  output_id TEXT NOT NULL REFERENCES run_outputs(id) ON DELETE CASCADE, PRIMARY KEY(user_id,source_key));
@@ -117,12 +120,13 @@ export function emitEvent(userId: string, type: string, data: Record<string, unk
 } = {}, sse?: ServerEvent) {
     const seq = Number(db.prepare('INSERT INTO handoff_events(user_id,loop_id,handoff_id,type,data,created_at) VALUES(?,?,?,?,?,?)')
         .run(userId, ids.loopId ?? null, ids.handoffId ?? null, type, JSON.stringify(data), now()).lastInsertRowid);
-    // Recheck the durable row after an unmanaged outer transaction as well.
-    if (sse)
-        afterCommit(() => queueMicrotask(() => {
-            if (db.open && db.prepare('SELECT 1 FROM handoff_events WHERE seq=? AND user_id=?').get(seq, userId))
-                hub.emit(userId, sse);
-        }));
+    // The microtask also waits for synchronous unmanaged outer transactions.
+    // Projection rechecks the durable event, so a rollback has no effects.
+    afterCommit(() => queueMicrotask(() => {
+        projectCommittedHandoffEvent(userId, seq);
+        if (sse && db.open && !db.inTransaction && db.prepare('SELECT 1 FROM handoff_events WHERE seq=? AND user_id=?').get(seq, userId))
+            hub.emit(userId, sse);
+    }));
     return seq;
 }
 export function events(userId: string, ids: {
