@@ -53,7 +53,7 @@ Every new screen must follow [Paper BUILD-SPEC sections 0b, 0c and 0d](design/pa
 - Inspect receipt, running and finished Timeline, Graph, Flow and capped result at 320, 390, 500 and 1280 in both light and dark modes. Record main-region word counts and review copy against section 0b.
 - Run `node tests/handoffs/ui-quality.mjs`. The HO-H demo and e2e import and run the merged checker as a mandatory gate. There is no missing-checker skip path. The same inspector checks every real journey capture.
 
-The demo saves a quality record beside each screenshot. Automated checks do not replace inspecting screenshots for hierarchy, spacing, duplicate copy and action placement.
+The demo saves a quality record beside each screenshot. Before expanding a loop receipt, wait for its exact resolved name. Before capturing receipts, wait for every visible loop group to resolve its title and leave Loading, including older groups in the same chat. Keep the title quality guard strict. Automated checks do not replace inspecting screenshots for hierarchy, spacing, duplicate copy and action placement.
 
 ## Developer map
 
