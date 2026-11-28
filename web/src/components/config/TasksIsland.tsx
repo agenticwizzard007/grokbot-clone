@@ -2,7 +2,7 @@ import { useStore } from '../../store';
 import { navigation, useConfigUI } from '../../configStore';
 import { Glyph } from './glyphs';
 import { useNeedsYou, useTasks } from './taskData';
-import { taskCountState } from '../../lib/taskCount';
+import { taskCountState, taskCountText } from '../../lib/taskCount';
 import { TaskCount } from './TaskCount';
 
 /** Sidebar entry with the number of tasks waiting on the user. */
@@ -19,8 +19,8 @@ export function TasksIsland() {
   return (
     <button type="button" className={`sidebar-island${active ? ' is-active' : ''}`} onClick={() => useConfigUI.getState().requestLeaveBotSettings(() => {
       navigation.navigate({ kind: 'work', route: { tab: 'Tasks' } });
-    })} title={countState !== 'ready' ? `Pending input count ${countState}` : waiting ? `${waiting} ${waiting === 1 ? 'item needs' : 'items need'} your input` : 'Tasks'} aria-label="Tasks" aria-pressed={active}>
-      <span className="sidebar-island__icon"><Glyph name="tasks" size={18} /></span><span className="sidebar-island__label">Tasks</span>
+    })} title={countState !== 'ready' ? `Pending input count ${countState}` : waiting ? `${waiting} ${waiting === 1 ? 'item needs' : 'items need'} your input` : 'Tasks'} aria-label={`Tasks${countState === 'ready' && waiting > 0 ? ` ${taskCountText(waiting)}` : ''}`} aria-pressed={active}>
+      <span className="sidebar-island__icon"><Glyph name="tasks" size={18} /></span><span className="sidebar-island__label">Tasks</span>{' '}
       <TaskCount className="sidebar-island__count" state={countState} count={waiting} label={`${waiting} waiting on you`} quietZero />
     </button>
   );

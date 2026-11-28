@@ -69,7 +69,7 @@ try {
  await page.getByText('Prefers detailed monthly reports with source links.',{exact:true}).waitFor();
  await page.screenshot({path:'.context/native-shots/sourced-memory.png',animations:'disabled'});
  await page.keyboard.press('Escape');
- await page.locator('.sidebar').getByRole('button',{name:'Tasks',exact:true}).click();
+ await page.locator('.sidebar').getByRole('button',{name: /^Tasks(?: \d|$)/}).click();
  await page.getByRole('navigation',{name:'Work sections'}).getByRole('button',{name:'Goals',exact:true}).click();
  const workflows=page.getByRole('region',{name:'Goals and workflows',exact:true});
  await workflows.getByRole('button',{name:'New workflow',exact:true}).click();

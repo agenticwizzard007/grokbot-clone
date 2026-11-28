@@ -32,7 +32,7 @@ try {
     const menu = async name => { await manage.click(); await page.getByRole('menuitem', { name, exact: true }).click(); };
     const boardMenu = async (name, action) => { await screen.getByRole('button', { name: `Manage ${name}`, exact: true }).click(); await page.getByRole('menuitem', { name: action, exact: true }).click(); };
     const create = async name => {
-      await screen.getByRole('button', { name: 'New dashboard', exact: true }).click();
+      await screen.getByRole('button', { name: 'Create new dashboard', exact: true }).click();
       const dialog = page.getByRole('dialog', { name: 'New dashboard', exact: true });
       await dialog.getByRole('textbox', { name: 'Name' }).fill(name); await dialog.getByRole('button', { name: 'Save', exact: true }).click();
       const result = await waitForSaved(page, c => c.doc.dashboards.some(d => d.name === name), 'dashboard create');

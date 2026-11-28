@@ -53,7 +53,7 @@ try {
   tasks=[{id:'orphan',botId:'missing',title:'Unavailable teammate',state:'working',note:'',updatedAt:now},{id:'long',botId:'coordinator',title:'Reference '+ 'identifier'.repeat(12),state:'working',note:'',updatedAt:now}];
   await changed();await work.getByRole('button',{name:/Unavailable teammate/}).waitFor();
   assert.ok(await work.getByRole('button',{name:/Unavailable teammate/}).isDisabled());
-  const long=work.getByRole('button',{name:/Reference identifier/});
+  const long=work.getByRole('button',{name:/Task details/});
   assert.equal(await long.locator('.task-card__title').innerText(),'Task details','Oversized identifiers use a complete label');
   assert.ok((await long.getAttribute('title')).includes(tasks[1].title),'Full title is available');await fits();
   const tabs=work.getByRole('navigation',{name:'Work sections'});

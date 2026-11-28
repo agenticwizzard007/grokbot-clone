@@ -15,7 +15,11 @@ export function sourceDefaults(id: string) {
   return { ...(['tasks.series', 'usage.summary', 'usage.series', 'runs.counts', 'runs.series'].includes(id) ? { range: '7d' } : {}),
     ...(id === 'usage.series' ? { metric: 'cost' } : {}), ...(id === 'runs.series' ? { group: 'day' } : {}), ...(id === 'routines.upcoming' ? { days: 7 } : {}) };
 }
-export function WidgetSettings({ widget, save, close, error: serverError, title = 'Widget settings', submitLabel = 'Save' }: { title?: string; submitLabel?: string; widget: Widget; save(widget: Widget): Promise<boolean>; close(): void; error?: string }) {
+type WidgetSettingsProps = { title?: string; submitLabel?: string; widget: Widget; save(widget: Widget): Promise<boolean>; close(): void; error?: string };
+export function WidgetSettings(props: WidgetSettingsProps) {
+  return <DashboardDialog title={props.title ?? 'Widget settings'} close={props.close}><WidgetSettingsForm {...props} /></DashboardDialog>;
+}
+export function WidgetSettingsForm({ widget, save, close, error: serverError, title = 'Widget settings', submitLabel = 'Save' }: WidgetSettingsProps) {
   const [draft, setDraft] = useState(() => structuredClone(widget)), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const bots = useStore(state => state.bots), dashboards = useEffectiveConfig().dashboards;
   const metadata = WIDGETS.find(item => item.id === draft.type)!, source = SOURCES.find(item => item.id === draft.source?.id);
@@ -30,11 +34,11 @@ export function WidgetSettings({ widget, save, close, error: serverError, title 
   const scoped = source && ['tasks.counts', 'tasks.list', 'tasks.series', 'routines.list', 'runs.recent', 'runs.counts'].includes(source.id);
   const items = (draft.options.items ?? []) as { label: string; target: string }[];
   const setItem = (index: number, patch: Partial<{ label: string; target: string }>) => option('items', items.map((item, n) => n === index ? { ...item, ...patch } : item));
-  return <DashboardDialog title={title} close={close}><form className="dashboard-settings" onSubmit={async event => {
+  return <form className="dashboard-settings" onSubmit={async event => {
     event.preventDefault(); const parsed = widgetSchema.safeParse({ ...draft, id: draft.id.startsWith('$new') ? 'w_00000000' : draft.id });
     if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? 'Check the widget settings.'); return; }
     setError(''); setBusy(true); try { if (await save({ ...parsed.data, title: widgetLabel(parsed.data), id: draft.id })) close(); } finally { setBusy(false); }
-  }}><div className="dashboard-settings-fields"><Section><Card><label className="dashboard-field">Title<input value={draft.title ?? ''} maxLength={60} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
+  }}><div className="dashboard-settings-fields" tabIndex={0} role="region" aria-label={`${title} fields`}><Section><Card><label className="dashboard-field">Title<input value={draft.title ?? ''} maxLength={60} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
     <div className="dashboard-field">Size<Segmented label="Size" value={draft.span <= 4 ? 'small' : draft.span <= 6 ? 'medium' : draft.span <= 8 ? 'large' : 'full'} options={['Small', 'Medium', 'Large', 'Full'].map(label => ({ label, value: label.toLowerCase() }))} onChange={size => {
       const dimensions = { small: [4, 2], medium: [6, 3], large: [8, 4], full: [12, 4] }[size]!;
       setDraft(current => ({ ...current, span: dimensions[0], rows: dimensions[1] }));
@@ -75,5 +79,5 @@ export function WidgetSettings({ widget, save, close, error: serverError, title 
     </div>
     {(error || serverError) && <p role="alert">{error || serverError}</p>}
     <ButtonGroup><button type="button" className="btn btn--secondary" onClick={close} disabled={busy}>Cancel</button><button type="submit" className="btn btn--primary" disabled={busy}>{submitLabel}</button></ButtonGroup>
-  </form></DashboardDialog>;
+  </form>;
 }

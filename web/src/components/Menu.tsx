@@ -59,7 +59,7 @@ export function Menu({ items, onClose, triggerRef, align = 'left', placement = '
         return (
           <Fragment key={it.label}>
             {it.separatorBefore && i > 0 && <div className="menu__sep" role="separator" />}
-            <button type="button" role="menuitem" className={`menu__item${it.danger ? ' is-danger' : ''}`} onClick={() => { onClose(); it.onSelect(); }}>
+            <button type="button" role="menuitem" className={`menu__item${it.danger ? ' is-danger' : ''}`} onClick={() => { triggerRef.current?.focus({ preventScroll: true }); onClose(); it.onSelect(); }}>
               <span className="menu__main">
                 {Icon && <Icon size={16} strokeWidth={1.75} className="menu__icon" aria-hidden />}
                 <span className="menu__label">{it.label}</span>

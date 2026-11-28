@@ -76,14 +76,16 @@ export function ModelPicker({ value, onChange, defaultLabel, disabled, label = '
     if (disabled || useStore.getState().user?.id !== userId) return;
     onChange(id); setOpen(false); setQuery(''); trigger.current?.focus();
   };
+  const currentLabel = value ? modelDisplayName(value, selected?.name) : defaultLabel ? `Default · ${modelDisplayName('', defaultLabel)}` : 'Choose a model';
+  const billingLabel = data?.billing ? data.billing === 'plan' ? 'Plan' : 'API' : '';
 
   return (
     <div className="model-picker" ref={box}>
-      <button ref={trigger} type="button" className="model-picker__button text-input" disabled={disabled} onClick={() => { setQuery(''); setOpen((o) => !o); }} aria-controls={open ? panelId : undefined} aria-expanded={open} aria-label={label}>
+      <button ref={trigger} type="button" className="model-picker__button text-input" disabled={disabled} onClick={() => { setQuery(''); setOpen((o) => !o); }} aria-controls={open ? panelId : undefined} aria-expanded={open} aria-haspopup="listbox" aria-label={`${label}: ${currentLabel}${billingLabel ? ` ${billingLabel}` : ''}${selected && !selected.vision ? ' No images' : ''}`}>
         <ProviderMark provider={value ?? defaultLabel} fallbackProvider={provider ?? data?.provider} /><span className="model-picker__current">
-          <LabelWords>{value ? modelDisplayName(value, selected?.name) : defaultLabel ? `Default · ${modelDisplayName('', defaultLabel)}` : 'Choose a model'}</LabelWords>
-        </span>
-        {data?.billing && <span className="model-billing">{data.billing === 'plan' ? 'Plan' : 'API'}</span>}
+          <LabelWords>{currentLabel}</LabelWords>
+        </span>{' '}
+        {data?.billing && <span className="model-billing">{data.billing === 'plan' ? 'Plan' : 'API'}</span>}{' '}
         {selected && !selected.vision && <span className="cfg-chip cfg-chip--warn">No images</span>}
       </button>
       {open && (

@@ -156,7 +156,7 @@ try {
 
     // Search and the directory have no working prop. They must follow the Bot in each row,
     // including live updates while the row is already mounted and another Bot is selected.
-    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await page.getByRole('button', { name: /^Search(?: |$)/ }).click();
     const search = page.getByRole('dialog', { name: 'Search', exact: true });
     const searchPrimary = avatar(search, 'Primary Bot');
     const searchResearch = avatar(search, 'Research Bot');

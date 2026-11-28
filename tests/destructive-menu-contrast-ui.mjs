@@ -87,7 +87,7 @@ try {
     });
     await page.addInitScript(theme => localStorage.setItem('swarm.theme', theme), theme);
     await page.goto(base);
-    await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+    await page.getByRole('button', { name: /Account & settings$/ }).click();
     const item = page.locator('.account .menu__item.is-danger');
     await item.waitFor();
     assert.equal(await item.count(), 1);

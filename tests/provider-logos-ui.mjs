@@ -188,7 +188,7 @@ try {
       else await markVisible(page.locator('.sidebar-usage strong'), sample.billing === 'plan' ? sample.mark : 'openrouter');
       await readable(page.locator('.sidebar-usage'));
       await page.screenshot({ path: `${evidence}/${sample.name}-${width}-${theme}-sidebar.png` });
-      await page.getByRole('button', { name: 'Search', exact: true }).click();
+      await page.getByRole('button', { name: /^Search(?: |$)/ }).click();
       const searchDialog = page.getByRole('dialog', { name: 'Search', exact: true });
       await searchDialog.waitFor();
       assert.equal(await searchDialog.locator('.provider-icon').count(), 0, 'Search contains Bot names and messages, not provider labels');
@@ -220,7 +220,7 @@ try {
       await page.screenshot({ path: `${evidence}/${sample.name}-${width}-${theme}-access.png` });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'no page overflow');
       await page.goto(`${origin}/#bot/${bot.id}/settings/general`);
-      const botModel = page.getByRole('button', { name: 'Bot model', exact: true });
+      const botModel = page.getByRole('button', { name: /^Bot model:/ });
       await markVisible(botModel, sample.mark);
       if (sample.name === 'claude-fable') assert.match(await botModel.innerText(), /Claude Fable 5\.2/);
       if (sample.models.length) {

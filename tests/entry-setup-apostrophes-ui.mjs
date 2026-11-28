@@ -78,7 +78,7 @@ try {
   const login = await context.request.post(`${base}/api/auth/dev`, { data: { email: 'copy-fixture@example.test' } });
   assert.equal(login.status(), 200);
   await page.reload();
-  await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+  await page.getByRole('button', { name: 'Create a Bot', exact: true }).click();
   await page.locator('.setup-create .pb-disclosure > summary').click();
   await page.getByRole('button', { name: 'Import saved setup', exact: true }).click();
   const upload = page.getByRole('main', { name: 'Import a saved setup', exact: true });

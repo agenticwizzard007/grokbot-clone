@@ -32,7 +32,7 @@ try {
       for (const entry of ['work', 'settings']) {
         if (entry === 'work') {
           await page.goto(origin);
-          await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
+          await page.locator('.sidebar').getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
           const work = page.locator('.tasks-view');
           await work.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: 'Files', exact: true }).click();
           await work.getByRole('combobox', { name: 'Bot' }).selectOption('research-bot');
@@ -40,7 +40,7 @@ try {
         } else {
           await page.goto(`${origin}/#bot/research-bot/settings/routines`);
         }
-        await page.getByRole('button', { name: `Run ${routineName} now`, exact: true }).click();
+        await page.getByRole('button', { name: `Run now: ${routineName}`, exact: true }).click();
         const dialog = page.getByRole('dialog', { name: `Run ${routineName} now?`, exact: true });
         const title = dialog.getByRole('heading', { name: `Run ${routineName} now?`, exact: true });
         await title.waitFor({ state: 'visible' });

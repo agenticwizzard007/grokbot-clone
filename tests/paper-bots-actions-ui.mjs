@@ -12,7 +12,7 @@ try {
   await page.goto(`${server.base}/#new-bot`);
   await page.getByRole('textbox', { name: 'Bot name' }).fill('Writing Bot');
   await page.getByRole('button', { name: 'Writer', exact: true }).click();
-  await page.getByRole('button', { name: 'Bot model', exact: true }).click();
+  await page.getByRole('button', { name: /^Bot model:/ }).click();
   await page.getByRole('option').filter({ hasText: 'GPT 4.1', hasNotText: 'Default' }).click();
   const created = page.waitForResponse(response => new URL(response.url()).pathname === '/api/bots' && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Create Bot', exact: true }).click();

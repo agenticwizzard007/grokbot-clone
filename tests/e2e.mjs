@@ -45,7 +45,7 @@ await step('app loads with sidebar', async () => {
 });
 
 await step('create bot via modal', async () => {
-  await page.getByLabel('New Bot').first().click();
+  await page.getByRole('button', { name: 'Create a Bot', exact: true }).first().click();
   await page.getByPlaceholder('Give your Bot a name').fill(botName);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByLabel(`Message ${botName}`).or(page.getByPlaceholder(new RegExp(`Message ${botName}`))).first().waitFor({ timeout: 15000 });

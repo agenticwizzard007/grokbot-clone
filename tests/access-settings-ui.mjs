@@ -429,7 +429,7 @@ try {
   await page.getByRole('textbox', { name: 'Search models' }).fill('Other');
   await page.getByRole('textbox', { name: 'Search models' }).press('ArrowDown');
   await page.getByRole('option').filter({ hasText: 'Other model' }).press('Enter');
-  await page.waitForFunction(() => document.querySelector('[aria-label="Default API model"]')?.textContent.includes('Other model'));
+  await page.waitForFunction(() => document.querySelector('[aria-label^="Default API model:"]')?.textContent.includes('Other model'));
   assert.deepEqual(state.providerWrites.at(-1), { account: alice.id, body: { model: 'fixture/other' } });
   await shot('access-openrouter-desktop-night.png');
 

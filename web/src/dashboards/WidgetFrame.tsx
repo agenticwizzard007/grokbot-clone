@@ -17,11 +17,11 @@ export function WidgetFrame({ dashboardId, widget, state, observe, retry, toolba
   const attach = useCallback((node: HTMLDivElement | null) => observe?.(widget.id, node), [widget.id, observe]);
   const current = state ?? (widget.source ? { status: 'loading' as const } : { status: 'ready' as const });
   if (widget.type === 'agent') return <div ref={attach} className="dashboard-widget-cell" data-widget-id={widget.id} data-widget-type="agent"><AgentWidget dashboardId={dashboardId ?? ''} widget={widget} toolbar={toolbar} /></div>;
-  const title = widgetLabel(widget), Renderer = renderers[widget.type];
+  const title = widgetLabel(widget), Renderer = renderers[widget.type], scrollable = widget.type === 'table';
   return <div ref={attach} className="dashboard-widget-cell" data-widget-id={widget.id} data-widget-type={widget.type} data-widget-state={current.status}>
     <Card className={`dashboard-widget dashboard-widget--${widget.type}`} role="region" aria-labelledby={`title-${widget.id}`} aria-busy={current.status === 'loading' || current.refreshing || undefined}>
       <div className="dashboard-widget-header"><h2 id={`title-${widget.id}`} tabIndex={-1}>{title}</h2>{toolbar}</div>
-      <div className={`dashboard-widget-body${widget.type === 'table' ? ' dashboard-widget-body--scroll' : ''}`}>
+      <div className={`dashboard-widget-body${scrollable ? ' dashboard-widget-body--scroll' : ''}`} tabIndex={scrollable ? 0 : undefined} role={scrollable ? 'region' : undefined} aria-label={scrollable ? `${title} rows` : undefined}>
         {current.data?.available === false && ['connectors.status', 'email.recent', 'calendar.upcoming', 'crm.deals'].includes(widget.source?.id ?? '') ? <div className="dashboard-empty-data"><p>Connect an app to see your data.</p><a className="btn btn--secondary" href="#settings/apps">Connect</a></div> : current.status === 'loading' ? <div className="dashboard-skeleton" role="status" aria-label={`Loading ${title}`}><i /><i /><i /></div>
           : <>{current.status === 'error' && <div className="dashboard-widget-error"><p role="status">{current.error ?? 'Data is unavailable.'}</p><button type="button" className="btn btn--secondary" onClick={retry} aria-label={`Retry ${title}`}>Retry</button></div>}
             {(current.status !== 'error' || current.data) && <Renderer widget={widget} data={current.data} />}</>}

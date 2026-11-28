@@ -111,7 +111,7 @@ async function harness(viewport, colorScheme) {
     if (path === '/api/routines/routine-1' && method === 'DELETE') { fixture.routine = null; return done({ ok: true }); }
     return done({});
   });
-  const sidebar = page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true });
+  const sidebar = page.locator('.sidebar').getByRole('button', { name: /^Tasks(?: \d|$)/ });
   const tab = name => page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name, exact: true });
   const button = name => page.getByRole('button', { name, exact: true });
   const submit = name => button(name).click();
@@ -183,7 +183,7 @@ try {
   await submit('Open Nia chat'); await page.locator('.chat__pill-name').getByText('Nia', { exact: true }).waitFor();
   await sidebar.click(); await tab('Tasks').click(); assert.equal(await scope.inputValue(), 'nia');
   assert.equal(await work.locator('.task-filter.is-needs_input').getAttribute('aria-pressed'), 'true');
-  await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+  await page.getByRole('button', { name: /Account & settings$/ }).click();
   await page.getByRole('menuitem', { name: /^Settings/ }).click();
   await work.waitFor({ state: 'hidden' });
   await sidebar.click(); await work.waitFor();
@@ -288,7 +288,7 @@ try {
   assert.equal(await page.getByText('SMS: Not sent', { exact: true }).count(), 2);
   assert.deepEqual(requests.at(-1).body, { outcome: 'not_sent', evidence: 'Fixture provider audit showed no send.', expectedAttemptId: 'attempt-1' });
   assert.ok(requests.at(-1).key); assert.equal(requests.filter(request => request.path.endsWith('/deliveries')).length, 2);
-  await submit('Routines'); await page.getByRole('switch', { name: 'Morning check-in schedule' }).click();
+  await submit('Routines'); await page.getByRole('switch', { name: 'Schedule on: Morning check-in' }).click();
   await page.getByText('Paused · No next run until you resume.', { exact: true }).waitFor();
   assert.deepEqual(requests.at(-1).body, { enabled: false });
   await submit('Delete Morning check-in…'); await submit('Delete routine');
@@ -318,7 +318,7 @@ try {
   // R2F-010: See all tasks keeps this Bot's filter, with a chip that clears it.
   assert.equal(await scope.inputValue(), 'nia', 'See all tasks opens Tasks filtered to this Bot');
   await work.getByText('Showing tasks for Nia', { exact: true }).waitFor();
-  await work.getByRole('button', { name: 'Clear the Nia filter and show tasks for all Bots', exact: true }).click();
+  await work.getByRole('button', { name: 'Show all Bots: clear the Nia filter', exact: true }).click();
   assert.equal(await scope.inputValue(), 'all', 'clearing the chip shows the entire workspace');
   assert.equal(await work.locator('.task-filter.is-all').getAttribute('aria-pressed'), 'true');
   await scope.selectOption('quinn'); await page.getByText('Review launch note', { exact: true }).waitFor();
@@ -356,7 +356,7 @@ try {
     await phoneDetails.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Tasks', exact: true }).click();
     await phoneDetails.getByRole('button', { name: 'See all tasks', exact: true }).click();
     assert.equal(await phone.page.getByRole('combobox', { name: 'Filter tasks by bot' }).inputValue(), 'nia', 'R2F-010: filtered to this Bot');
-    await phone.submit('Clear the Nia filter and show tasks for all Bots');
+    await phone.submit('Show all Bots: clear the Nia filter');
     assert.equal(await phone.page.getByRole('combobox', { name: 'Filter tasks by bot' }).inputValue(), 'all');
     await phone.page.getByText('2 tasks need your input', { exact: true }).waitFor();
 

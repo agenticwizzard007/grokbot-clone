@@ -73,7 +73,7 @@ async function fixturePage(viewport, email) {
   });
   await page.goto(origin);
   if (viewport.width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
-  await page.getByRole('button', { name: 'Account & settings', exact: true }).waitFor();
+  await page.getByRole('button', { name: /Account & settings$/ }).waitFor();
   await page.evaluate(() => document.fonts.ready);
   return { page, errors };
 }
@@ -102,7 +102,7 @@ try {
       const { page, errors } = await fixturePage({ width, height: 900 }, email);
       for (const collapsed of width > 760 ? [false, true] : [false]) {
         if (collapsed) await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
-        await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+        await page.getByRole('button', { name: /Account & settings$/ }).click();
         await assertHeader(page, email);
         const last = page.getByRole('menuitem', { name: 'Log out', exact: true });
         assert.equal(await last.evaluate(inViewport), true, 'all actions fit in a tall window');
@@ -118,7 +118,7 @@ try {
 
     const { page, errors } = await fixturePage({ width: 1024, height: 280 }, email);
     await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
-    await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+    await page.getByRole('button', { name: /Account & settings$/ }).click();
     await assertHeader(page, email);
     const menu = page.getByRole('menu');
     assert.equal(await menu.evaluate(element => element.scrollHeight <= element.clientHeight || getComputedStyle(element).overflowY === 'auto'), true, 'short window fits the compact menu or scrolls internally');
@@ -145,10 +145,10 @@ try {
     await assertHeader(page, email);
     await page.setViewportSize({ width: 390, height: 900 });
     await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
-    await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+    await page.getByRole('button', { name: /Account & settings$/ }).click();
     await assertHeader(page, email);
     await page.setViewportSize({ width: 1024, height: 280 });
-    await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+    await page.getByRole('button', { name: /Account & settings$/ }).click();
     await assertHeader(page, email);
     assert.deepEqual(errors, []);
     await page.close();

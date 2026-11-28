@@ -675,6 +675,11 @@ Enforced in `server/src/ui-config/contrast.ts` and the validator, on the resulti
 
 Automated: axe-core run in e2e on the Appearance page, a dashboard, and chat under 4 presets (`swarm`, `midnight`, `paper`, `contrast`) in light and dark at 390 and 1280. Zero serious or critical violations. `colorblind` preset verified with a simulated deuteranopia check on status chips (icon plus text present).
 
+
+### 15.1 Product accessibility check
+
+`npm run test:a11y` runs `tests/ui-custom/e2e/accessibility-ui.mjs`, also discovered by `npm run test:ui-custom`. It uses isolated layout seed data and blocks external requests. The navigation inventory and dashboard, Settings, dialog, widget and preview states are checked in light and dark at 390 and 1280 with WCAG A/AA axe rules, label-in-name and keyboard scroll checks. Usage meter coverage includes the sidebar, phone drawer, collapsed rail and account menu with normal, warning, limit reached, unlimited and known or unknown CLI quotas. Reflow uses 320 CSS px and the 200 and 400 percent desktop equivalents; modal checks cover Tab containment, Escape and focus return, including nested menus. Reports include per-screen, per-rule counts and screenshots under `.context/ui-custom/accessibility/`. Missing axe fails with installation instructions. Violations fail the suite without exemptions.
+
 ## 16. Performance
 
 Budgets (checked in tests, reported in PR):

@@ -148,13 +148,13 @@ try {
       };
       await page.locator('.bot-row').filter({hasText:'Nia'}).click();
       await keep('sidebar Bot');
-      await page.getByRole('button',{name:'New Bot',exact:true}).click();
+      await page.getByRole('button',{name: 'Create a Bot',exact:true}).click();
       await keep('Create a Bot');
       await page.keyboard.press('Control+k');
       await page.getByRole('textbox',{name:'Search',exact:true}).fill('Nia');
       await page.keyboard.press('Enter');
       await keep('search result');
-      await page.locator('.sidebar').getByRole('button',{name:'Tasks',exact:true}).click();
+      await page.locator('.sidebar').getByRole('button',{name: /^Tasks(?: \d|$)/}).click();
       await keep('Tasks island');
       await page.getByRole('button',{name:'Your Bots',exact:true}).first().click();
       await keep('brand button');

@@ -76,7 +76,7 @@ try {
     await context.route('**/*',route=>new URL(route.request().url()).origin===origin ? route.fallback() : route.abort());
     const snap=async name=>{await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:`${evidence}/${name}-${width}.png`,animations:'disabled'});};
     const goto=async hash=>{await page.goto(`${origin}/?scene=${encodeURIComponent(hash)}${hash}`);await page.locator('.app').waitFor();};
-    const openChat=async()=>{await goto('');if(width<=760)await page.locator('.pinned__tile').click();await page.locator('.composer__input').waitFor();await page.locator('.bubble').last().waitFor();await page.getByRole('button',{name:/^Model: /}).waitFor();await page.evaluate(()=>document.fonts.ready);};
+    const openChat=async()=>{await goto('');if(width<=760)await page.locator('.pinned__tile').click();await page.locator('.composer__input').waitFor();await page.locator('.bubble').last().waitFor();await page.getByRole('button',{name:/Model: /}).waitFor();await page.evaluate(()=>document.fonts.ready);};
     await openChat();
     if(width<=760){await page.getByRole('button',{name:'All Bots',exact:true}).click();await snap('sidebar');await page.locator('.sidebar__brand').click();await snap('bot-list');await page.locator('.pinned__tile').click();}
     else {await snap('sidebar');await page.locator('.sidebar__brand').click();await page.locator('.bots-view').waitFor();await snap('bot-list');await page.locator('.pinned__tile').click();}
@@ -201,7 +201,7 @@ try {
     await page.locator('.bot-settings-page').waitFor();await page.getByLabel('Name',{exact:true}).waitFor();await snap('bot-settings');
     await openChat();
     if(width<=760)await page.getByRole('button',{name:'All Bots',exact:true}).click();
-    await page.getByRole('button',{name:'New Bot',exact:true}).click();await page.getByRole('main',{name:'Create a Bot',exact:true}).waitFor();await snap('create-bot');
+    await page.getByRole('button',{name: 'Create a Bot',exact:true}).click();await page.getByRole('main',{name:'Create a Bot',exact:true}).waitFor();await snap('create-bot');
     await goto('');if(width<=760)await page.locator('.sidebar').waitFor();
     await page.locator('.bot-row').filter({hasText:'Launch team'}).click();await page.locator('.composer__input').waitFor();await snap('group-chat');
     if(chatChecks){

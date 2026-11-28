@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 import { layoutServer } from './layout-fixture.mjs';
 import { readableWords } from './paper-label-geometry.mjs';
 
-const evidence = 'docs/design/usage-meter/shots';
+const evidence = '.context/usg-b/shots';
 fs.mkdirSync(evidence, { recursive: true });
 fs.mkdirSync('.context/usg-b', { recursive: true });
 const server = await layoutServer({ customization: true });

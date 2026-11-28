@@ -69,7 +69,7 @@ a { color: inherit; }
 
 .text-input {
   width: 100%; height: 35px; padding: 8px 10px; border-radius: var(--radius-sm);
-  border: 0.5px solid var(--color-border-secondary); background: var(--color-bg-pane);
+  border: 0.5px solid var(--color-text-tertiary); background: var(--color-bg-pane);
   font-size: 13px; line-height: 18px; letter-spacing: 0.195px; outline: none;
 }
 .text-input::placeholder { color: var(--color-text-quaternary); }
@@ -144,7 +144,7 @@ a { color: inherit; }
 .menu__item:hover .menu__icon, .menu__item:focus-visible .menu__icon { color: var(--color-text-primary); }
 .menu__item:active { background: var(--color-bg-secondary-active); }
 .menu__item:active .menu__icon { transform: scale(0.92); }
-.menu__item:focus-visible { outline: none; background: var(--color-bg-hover); box-shadow: inset 0 0 0 1.5px var(--color-border-secondary); }
+.menu__item:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: -2px; background: var(--color-bg-hover); }
 .menu__item.is-danger .menu__icon { color: var(--color-danger-text); }
 .menu__item.is-danger:hover, .menu__item.is-danger:focus-visible { background: var(--color-danger-bg); }
 .menu__sep { height: 1px; margin: 4px 6px; background: var(--color-border-tertiary); }

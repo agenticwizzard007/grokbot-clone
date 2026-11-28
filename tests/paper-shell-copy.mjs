@@ -34,7 +34,7 @@ try {
    counts.push({ screen: name, width, words });
    if (name === 'Chat' && width === 1280) {
     counts.push({ screen: 'Sidebar', width, words: await page.locator('.sidebar').evaluate(el => el.innerText.trim().split(/\s+/).filter(Boolean).length) });
-    await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+    await page.getByRole('button', { name: /Account & settings$/ }).click();
     counts.push({ screen: 'Account menu', width, words: await page.getByRole('menu').evaluate(el => el.innerText.trim().split(/\s+/).filter(Boolean).length) });
    }
   }

@@ -143,7 +143,7 @@ try {
   page.setDefaultTimeout(15000);
   await page.goto(base);
   const openGoals = async () => {
-    await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
+    await page.locator('.sidebar').getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
     await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: 'Goals', exact: true }).click();
   };
   await openGoals();

@@ -190,7 +190,7 @@ try {
 
       // The desktop account menu is another default Settings entry point.
       if (width === 1280) {
-        await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+        await page.getByRole('button', { name: /Account & settings$/ }).click();
         await page.getByRole('menuitem', { name: /^Settings/ }).click();
         await appDestination();
       }

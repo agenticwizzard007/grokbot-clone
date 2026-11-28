@@ -21,7 +21,7 @@ export function Dashboards({ doc, patch, readSaved, error }: { error: string; do
           { label: 'Delete', danger: true, onSelect: () => setDialog({ kind: 'delete', id: d.id }) },
         ]} />
       </ButtonGroup>} />)}
-      <Row title="New dashboard" trailing={<button type="button" className="cfg-btn cfg-btn--secondary" aria-label="New dashboard" disabled={doc.dashboards.length >= 12} onClick={() => { setName(''); setDialog({ kind: 'new' }); }}>Create</button>} />
+      <Row title="New dashboard" trailing={<button type="button" className="cfg-btn cfg-btn--secondary" aria-label="Create new dashboard" disabled={doc.dashboards.length >= 12} onClick={() => { setName(''); setDialog({ kind: 'new' }); }}>Create</button>} />
     </Card>
     {dialog && <Modal label={dialog.kind === 'delete' ? 'Delete dashboard' : dialog.kind === 'new' ? 'New dashboard' : 'Rename dashboard'} className="appearance-dialog" onClose={() => { if (!busy) setDialog(null); }}>
       <Page title={dialog.kind === 'delete' ? 'Delete dashboard' : dialog.kind === 'new' ? 'New dashboard' : 'Rename dashboard'}><form onSubmit={async e => {

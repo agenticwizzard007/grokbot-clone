@@ -133,7 +133,7 @@ try {
       await viewer.getByRole('button', { name: 'Close computer', exact: true }).click();
       await viewer.waitFor({ state: 'detached' });
       if (width < 760) await page.getByRole('button', { name: 'All Bots', exact: true }).click();
-      await page.getByRole('button', { name: 'Search', exact: true }).click();
+      await page.getByRole('button', { name: /^Search(?: |$)/ }).click();
       await searchReady();
       await page.keyboard.press('Escape');
       await search.waitFor({ state: 'detached' });

@@ -25,7 +25,7 @@ try{
  const context=await browser.newContext({viewport:{width:1440,height:1000}});await context.addCookies([{name:'swarm_session',value:'synopsis-browser-token',url:base}]);
  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));page.setDefaultTimeout(15000);
  const openSynopses=async()=>{
-  await page.locator('.sidebar').getByRole('button',{name:'Tasks',exact:true}).click();
+  await page.locator('.sidebar').getByRole('button',{name: /^Tasks(?: \d|$)/}).click();
   await page.getByRole('navigation',{name:'Work sections'}).getByRole('button',{name:'Files',exact:true}).click();
   await page.getByRole('button',{name:'Daily synopses',exact:true}).click();
  };
@@ -49,7 +49,7 @@ try{
  // R2F-017: changing the account time zone in Settings refreshes the open synopsis line without Refresh.
  await page.unroute('**/api/auth/me');
  await page.evaluate(()=>{location.hash='#settings/account';});
- await page.getByRole('button',{name:'Time zone',exact:true}).click();
+ await page.getByRole('button',{name: /^Time zone:/}).click();
  await page.getByRole('combobox',{name:'Search time zones',exact:true}).fill('London');
  await page.getByRole('option',{name:/London/}).click();
  await until(async()=>(await api('/checkins')).timezone==='Europe/London','account zone saved');

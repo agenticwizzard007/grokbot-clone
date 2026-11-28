@@ -48,11 +48,11 @@ function previewFor(bot: Bot, running: boolean, awaiting: string | null) {
 
 const BotRow = memo(function BotRow({ bot, selected, running, awaiting, onSelect }: { bot: Bot; selected: boolean; running: boolean; awaiting: string | null; onSelect: (id: string) => void }) {
   return (
-    <button type="button" className={`bot-row${selected ? ' is-selected' : ''}`} onClick={() => onSelect(bot.id)} aria-label={`${displayName(bot)}. ${previewFor(bot, running, awaiting)}`} aria-current={selected || undefined}>
+    <button type="button" className={`bot-row${selected ? ' is-selected' : ''}`} onClick={() => onSelect(bot.id)} aria-current={selected || undefined}>
       <span className="bot-row__avatar">
         <BotAvatarFor bot={bot} size={36} working={running} />
         {(running || awaiting || bot.unread > 0) && (
-          <span className={`status-dot ${awaiting ? 'is-attention' : running ? 'is-working' : 'is-unread'}`} aria-label={awaiting ? 'Needs attention' : running ? 'Working' : 'Unread activity'} />
+          <span className={`status-dot ${awaiting ? 'is-attention' : running ? 'is-working' : 'is-unread'}`} role="img" aria-label={awaiting ? 'Needs attention' : running ? 'Working' : 'Unread activity'} />
         )}
       </span>
       <span className="bot-row__text">
@@ -152,7 +152,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     yourBots: <>        {!collapsed && bots.length > 0 && <button type="button" className="sidebar__section-label" onClick={showBots}>Your Bots</button>}
         {primary && (
           <div className="pinned">
-            <button type="button" className={`pinned__tile${selectedBotId === primary.id ? ' is-selected' : ''}`} onClick={() => selectBot(primary.id)} aria-label={displayName(primary)} title={displayName(primary)}>
+            <button type="button" className={`pinned__tile${selectedBotId === primary.id ? ' is-selected' : ''}`} onClick={() => selectBot(primary.id)} aria-label={collapsed ? displayName(primary) : undefined} title={displayName(primary)}>
               <span className="pinned__avatar">
                 <BotAvatarFor bot={primary} size={36} star working={primaryWorking} />
                 {primaryWorking && <span className="status-dot is-working pinned__dot" />}
@@ -175,14 +175,14 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
           })}
         </div>
 </>,
-    createBot: <>        <button type="button" className="sidebar__create" onClick={createBot} aria-label="New Bot" title={`Create a Bot (${shortcutLabel('new-bot')})`}>
+    createBot: <>        <button type="button" className="sidebar__create" onClick={createBot} aria-label="Create a Bot" title={`Create a Bot (${shortcutLabel('new-bot')})`}>
           <Icon name="plus" size={20} opacity={0.66} />{!collapsed && <span>Create a Bot</span>}
         </button></>,
     usage: usageVisibility !== 'hide' ? <div data-ui-id="sidebar.usage" className="ui-layout-contents"><SidebarUsage collapsed={collapsed} /></div> : null,
     settings: <>      <div className={`sidebar__footer${settingsOpen ? ' is-active' : ''}`}>
         <div className="account" ref={accountRef}>
-            <button ref={accountTrigger} type="button" className="account__btn" aria-label="Account & settings" onClick={() => setAccountMenu(open => !open)} aria-haspopup="menu" aria-expanded={accountMenu} title={accountVisibility === 'hide' ? 'Settings' : user?.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user?.email}>
-              <span className="account__initials" data-ui-id="sidebar.account" hidden={accountVisibility === 'hide'}>{initials(user?.name ?? user?.email ?? '')}</span>
+            <button ref={accountTrigger} type="button" className="account__btn" aria-label={`${accountVisibility === 'hide' ? '' : `${initials(user?.name ?? user?.email ?? '')} `}Settings. Account & settings`} onClick={() => setAccountMenu(open => !open)} aria-haspopup="menu" aria-expanded={accountMenu} title={accountVisibility === 'hide' ? 'Settings' : user?.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user?.email}>
+              <span className="account__initials" data-ui-id="sidebar.account" aria-hidden="true" hidden={accountVisibility === 'hide'}>{initials(user?.name ?? user?.email ?? '')}</span>{' '}
               <span className="account__name">Settings</span>
               {(!collapsed || accountVisibility === 'hide') && <Settings size={18} aria-hidden />}
             </button>
@@ -232,9 +232,9 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
           </button>}
         </div>
       </div>
-      {layout.search && searchVisibility !== 'hide' && <button type="button" data-ui-id="sidebar.search" className="sidebar__search" onClick={() => setModal('search')} aria-label="Search" title={`Search (${shortcutLabel('search')})`}>
+      {layout.search && searchVisibility !== 'hide' && <button type="button" data-ui-id="sidebar.search" className="sidebar__search" onClick={() => setModal('search')} aria-label={collapsed ? 'Search' : `Search ${shortcutLabel('search')}`} title={`Search (${shortcutLabel('search')})`}>
         <Icon name="search" size={18} opacity={0.66} />
-        {!collapsed && <><span>Search</span><kbd>{shortcutLabel('search')}</kbd></>}
+        {!collapsed && <><span>Search</span>{' '}<kbd aria-hidden="true">{shortcutLabel('search')}</kbd></>}
       </button>}
 
       {layout.standardOrder ? <>

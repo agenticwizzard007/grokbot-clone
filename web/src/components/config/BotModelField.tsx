@@ -42,7 +42,7 @@ function AccountBotModelField({ value, onChange }: { value: string | null; onCha
   return (
     <>
       {cli ? <ModelPicker key={selected ?? 'api'} label="Bot model" value={selected && !value?.startsWith(`${selected}/`) ? null : value} onChange={onChange} defaultLabel={defaultLabel} />
-        : <button type="button" className="model-picker__button text-input" aria-label="Bot model" disabled>{error ? 'Provider status unavailable' : 'Checking provider...'}</button>}
+        : <button type="button" className="model-picker__button text-input" aria-label={`Bot model: ${error ? 'Provider status unavailable' : 'Checking provider...'}`} disabled>{error ? 'Provider status unavailable' : 'Checking provider...'}</button>}
       {error && <div className="cfg-error" role="alert">{error} <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt((current) => current + 1)}>Retry provider status</button></div>}
     </>
   );

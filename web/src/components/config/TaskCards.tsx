@@ -141,7 +141,7 @@ export function TaskCard({ task, bot, compact = false }: { task: HandoffTask; bo
   const status = STATUS[task.state];
   return (
     <LayoutCard className="task-card-frame"><button type="button" className={`task-card is-${task.state}${compact ? ' is-compact' : ''}`} onClick={() => bot && openWorkChat(bot.id)} disabled={!bot} title={`${task.title}. ${task.state === 'done' ? 'Completed' : 'Updated'} ${when(task)} (${new Date(task.updatedAt).toLocaleString()})`}
-      aria-label={`${task.title}: ${status.label}. ${bot ? `${status.action} with ${bot.name}` : 'Bot unavailable'}`}>
+      aria-description={`${task.title}. ${status.label}. ${bot ? `${status.action} with ${bot.name}` : 'Bot unavailable'}`}>
 
       <span className="task-card__body">
         <TaskTitle title={task.title} />
@@ -169,7 +169,7 @@ export function NeedsYouCard({ item, bot, compact = false }: { item: NeedsYouIte
   const name = bot?.name ?? item.botName ?? 'Bot unavailable';
   return (
     <LayoutCard className="task-card-frame"><button type="button" className={`task-card is-needs_input is-attention${compact ? ' is-compact' : ''}`} onClick={() => openNeedsYou(item)} disabled={!bot}
-      title={`Waiting since ${new Date(item.createdAt).toLocaleString()}`} aria-label={`${item.title}. ${kind}. ${bot ? `${action} with ${name}` : 'Bot unavailable'}`}>
+      title={`Waiting since ${new Date(item.createdAt).toLocaleString()}`} aria-description={`${item.title}. ${kind}. ${bot ? `${action} with ${name}` : 'Bot unavailable'}`}>
 
       <span className="task-card__body">
         <TaskTitle title={item.title} />

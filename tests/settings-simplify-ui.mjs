@@ -77,7 +77,7 @@ try {
     };
     await page.goto(origin);
     if (width === 390) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
-    await page.getByRole('button', { name: 'Account & settings', exact: true }).click();
+    await page.getByRole('button', { name: /Account & settings$/ }).click();
     await page.getByRole('menuitem', { name: /Settings/ }).click();
     await page.locator('.app-settings').waitFor();
     await page.locator(width === 390 ? '.shell-header__title' : '.app-settings__page h1').waitFor();
@@ -145,7 +145,7 @@ try {
       if (width === 1280) {
         await page.locator('.shell-back').click();
         // The trigger must toggle the menu closed without the outside handler reopening it.
-        const trigger = page.getByRole('button', { name: 'Account & settings', exact: true });
+        const trigger = page.getByRole('button', { name: /Account & settings$/ });
         await trigger.click();
         await trigger.click();
         await page.getByRole('menu').waitFor({ state: 'detached', timeout: 2000 });

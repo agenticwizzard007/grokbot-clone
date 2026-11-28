@@ -96,7 +96,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     };
     await save(first); await panel.getByText('Key saved.',{exact:true}).waitFor();
     assert.equal(await input.count(),0); assert.equal(saved,first);
-    if(section==='keys') await page.waitForFunction(() => document.querySelector('button[aria-label="Default API model"]')?.disabled === false);
+    if(section==='keys') await page.waitForFunction(() => document.querySelector('button[aria-label^="Default API model:"]')?.disabled === false);
     assert.equal(status.selected,'codex');assert.equal(status.providers.codex.authenticated,true);
     assert.ok(!(await page.content()).includes(first));
     await save('invalid-placeholder');await panel.getByRole('alert').waitFor();
@@ -136,7 +136,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     await panel.getByRole('button',{name:'Remove key',exact:true}).last().click();
     await panel.getByText('Key removed.',{exact:true}).waitFor();
     assert.equal(saved,null);assert.equal(status.providers.codex.authenticated,true);
-    if(section==='keys') await page.waitForFunction(() => document.querySelector('button[aria-label="Default API model"]')?.disabled === true);
+    if(section==='keys') await page.waitForFunction(() => document.querySelector('button[aria-label^="Default API model:"]')?.disabled === true);
     if(section==='subscriptions')assert.equal(status.selected,'codex');
     assert.deepEqual(errors, []);
     console.log(`PASS ${section} ${width}px ${theme}: add, verify, mask, reject, replace, preserve plan, personal billing, explicit server billing, reauth and remove`);

@@ -117,7 +117,7 @@ try {
     await fits('Details');
     await page.screenshot({ path: `.context/readiness-m/details-${width}-${theme}.png` });
     await page.goto(`${origin}/#settings/account`);
-    const zone = page.getByRole('button', { name: 'Time zone', exact: true });
+    const zone = page.getByRole('button', { name: /^Time zone:/ });
     await zone.waitFor();
     assert.equal(await zone.innerText(), 'Not set (using UTC)');
     assert.equal(writes.length, 0, 'opening the app and Account must not silently save the browser zone');

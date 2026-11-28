@@ -152,7 +152,7 @@ export function AgentsSection() {
           </Row>;
         })}
       </Card>
-      {sender && <ButtonGroup><button className="cfg-btn cfg-btn--secondary" aria-label="Add a standing link" onClick={() => navigation.navigate({ kind: 'details', bot: sender.id, tab: 'activity', flow: true, link: 'new' })}>Add link</button></ButtonGroup>}
+      {sender && <ButtonGroup><button className="cfg-btn cfg-btn--secondary" aria-label="Add link between agents" onClick={() => navigation.navigate({ kind: 'details', bot: sender.id, tab: 'activity', flow: true, link: 'new' })}>Add link</button></ButtonGroup>}
     </Section>}
     <Section title="Loops" action={<AgentsInfoTip label="About loops">Work and review repeat until checks pass or a limit is reached. Choose limits when starting a loop. Agents need approval first unless their exact pair is approved above.</AgentsInfoTip>}>
       <Card><details className="settings-disclosure">
