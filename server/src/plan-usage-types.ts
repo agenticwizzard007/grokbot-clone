@@ -8,6 +8,10 @@ export interface UsageAmounts {
 }
 export interface PlanUsageSummary {
   plan: {
+    softLimit?: boolean;
+    softLimitExceeded?: boolean;
+    source?: 'tenant';
+    reportedAt?: string | null;
     name: string;
     billing: 'api' | 'plan';
     provider: string | null;

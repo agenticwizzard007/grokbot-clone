@@ -1,3 +1,4 @@
+import { tenantRequestLog, bindTenantLog } from './tenant-logs.js';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { getCookie } from 'hono/cookie';
@@ -15,6 +16,7 @@ export function composioGatewayApp(directory: Directory, runtime: RuntimeIdentit
   const { provider, registry, gateway } = createComposioService(directory);
   const toolkitMetadata = createMetadataCache<Awaited<ReturnType<typeof provider.sdk.tools.getRawComposioTools>>>(5 * 60_000);
   const app = new Hono();
+  app.use('*',tenantRequestLog('composio-gateway'));
   app.use('*', bodyLimit({ maxSize: 512 * 1024 }));
   app.use('*', async (c, next) => { c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer'); await next(); });
   app.onError((e, c) => c.json({ error: e instanceof ConnectionNotFound ? 'Connection not found.' : 'Connected app operation refused.' }, e instanceof ConnectionNotFound ? 404 : 400));
@@ -28,6 +30,7 @@ export function composioGatewayApp(directory: Directory, runtime: RuntimeIdentit
       WHERE p.id=$1 AND p.connection_id=$2 AND p.state='active' AND t.state IN ('active','suspended')`,[data.id,account.id])).rows[0];
     if(!row||row.composio_user_id!==data.userId||row.composio_user_id!==account.userId)return c.json({error:'Event owner not found.'},404);
     await gateway.own(row.tenant_id,account.id,Number(row.revision));
+    bindTenantLog(row.tenant_id);
     const id=`composio-${hashToken(c.req.header('webhook-id')??'')}`;
     await new TenantEnvelopes(directory).event(row.tenant_id,id,{type:'provider-trigger',triggerId:row.id,connectionId:account.id,revision:Number(row.revision),data});
     await directory.pool.query("INSERT INTO lifecycle_jobs(id,tenant_id,operation) VALUES($1,$2,'wake') ON CONFLICT(tenant_id,operation) DO UPDATE SET state='queued',retry_at=now() WHERE lifecycle_jobs.state='completed'",[opaqueToken(),row.tenant_id]);
@@ -137,6 +140,7 @@ export function composioGatewayApp(directory: Directory, runtime: RuntimeIdentit
         ON CONFLICT(id) DO UPDATE SET state='active',revision=connected_accounts.revision+1 WHERE connected_accounts.tenant_id=excluded.tenant_id RETURNING id`, [a.connection_id, a.tenant_id, a.toolkit]);
       if(!registered.rowCount)throw new ConnectionNotFound();
     });
+    bindTenantLog(a.tenant_id);
     return c.html('<!doctype html><meta charset="utf-8"><title>App connected</title><p>Your app is connected. Return to Swarm.</p>' + (a.native ? '<a href="so.swarms.app://connected">Return to Swarm</a>' : ''));
   });
   return app;

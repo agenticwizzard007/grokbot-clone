@@ -13,8 +13,13 @@ import { AuthLink } from './AuthButton';
 import { OpenRouterSignIn } from './OpenRouterSignIn';
 import { useAuthCallback } from '../lib/authCallback';
 import { planResume, useConfigUI } from '../configStore';
+import { PlatformOnboarding } from './PlatformOnboarding';
 
 export function SignIn() {
+  const platform = useStore(s => s.platform);
+  const [invitation] = useState(() => new URLSearchParams(location.search).get('invite') ?? undefined);
+  const [onboarding, setOnboarding] = useState(() => new URLSearchParams(location.search).get('onboarding') ?? undefined);
+  const invite = platform ? invitation : undefined;
   const devLogin = useStore((s) => s.devLogin);
   const googleLogin = useStore((s) => s.googleLogin);
   const appleLogin = useStore((s) => s.appleLogin);
@@ -61,18 +66,19 @@ export function SignIn() {
 
           </div>
         </header>
+        {platform && <PlatformOnboarding invite={invite} result={onboarding} />}
         {expired && <div className="signin__notice" role="status">That sign-in link has expired or was already used.</div>}
         {error && (googleRecovery ? <div className="signin__recovery">
           <div className="card__error signin__error" role="alert">{error}</div>
-          {googleLogin && <AuthLink href="/api/auth/google/start">Try again</AuthLink>}
+          {googleLogin && <AuthLink href={`/api/auth/google/start${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`}>Try again</AuthLink>}
         </div> : <div className="card__error signin__error" role="alert">{error}</div>)}
-        <PhoneAuth key={phoneAttempt} mode="signin" onCodeStep={setCodeStep} />
+        <PhoneAuth key={phoneAttempt} mode="signin" onCodeStep={setCodeStep} inviteCode={invite} onOnboarding={platform ? setOnboarding : undefined} />
         <section className="access-signin__alternatives" aria-labelledby="signin-other-methods">
           <h2 className="signin__divider" id="signin-other-methods">or</h2>
           <div className="signin__providers">
-            {googleLogin && <AuthLink className="signin__google" href="/api/auth/google/start" icon={<GoogleG />}>Continue with Google</AuthLink>}
-            {appleLogin && <AppleSignIn />}
-            <OpenRouterSignIn label="Continue with OpenRouter" />
+            {googleLogin && <AuthLink className="signin__google" href={`/api/auth/google/start${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`} icon={<GoogleG />}>Continue with Google</AuthLink>}
+            {appleLogin && <AppleSignIn invite={invite} />}
+            <OpenRouterSignIn invite={invite} label="Continue with OpenRouter" />
           </div>
           <details className="signin__info"><summary>Learn more</summary><p>OpenRouter uses your model credits. Google may request Gmail access through Composio to verify your email.</p></details>
         </section>

@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto';
+import {TenantNames} from './tenant-names.js';
+import { tenantMeteringEnabled } from '../runtime/meter-contract.js';
 import {setTimeout as delay} from 'node:timers/promises';
 import { pinnedImage } from '../runtime/container-policy.js';
 import {usageCollectionEnabled} from '../runtime/host-usage.js';
@@ -6,8 +7,8 @@ import {validateGuest,sameGuest,type TenantGuest,type TenantCapacity} from './te
 const segment=(s:string)=>encodeURIComponent(s);
 export type BeforeCreate=()=>Promise<void>;
 export interface TenantMachine {id:string;state:string;region?:string;config:any}
-export class FlyTenants {
-  constructor(private token=process.env.FLY_API_TOKEN,private org=process.env.FLY_ORG_SLUG) {if(!token||!org)throw new Error('Fly provisioner credentials are required.');}
+export class FlyTenants extends TenantNames {
+  constructor(private token=process.env.FLY_API_TOKEN,private org=process.env.FLY_ORG_SLUG) {super();if(!token||!org)throw new Error('Fly provisioner credentials are required.');}
   async request(method:string,route:string,body?:unknown):Promise<any>{
     const result=await fetch(`https://api.machines.dev/v1${route}`,{method,redirect:'error',headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(45_000)});
     if(!result.ok){await result.body?.cancel();throw Object.assign(new Error(`Fly request failed (${result.status}).`),{status:result.status});}
@@ -17,10 +18,6 @@ export class FlyTenants {
     try{while(true){const next=await reader.read();if(next.done)break;bytes+=next.value.length;if(bytes>8*1024*1024)throw new Error('Fly response limit exceeded.');chunks.push(next.value);}}finally{await reader.cancel();}
     const text=Buffer.concat(chunks).toString();return text?JSON.parse(text):{};
   }
-  name(tenant:string){if(!/^usr_[A-Za-z0-9_-]{8,100}$/.test(tenant))throw new Error('Invalid tenant.');return `swarm-u-${createHash('sha256').update(tenant).digest('hex').slice(0,32)}`;}
-  network(tenant:string){this.name(tenant);return `tenant-${createHash('sha256').update(tenant).digest('hex').slice(0,32)}`;}
-  volumeName(tenant:string){this.name(tenant);return `tenant_${createHash('sha256').update(tenant).digest('hex').slice(0,16)}`;}
-  deploymentVolumeName(tenant:string,operation:string){this.name(tenant);if(!/^[a-f0-9]{32}$/.test(operation))throw new Error('Invalid deployment operation.');return `v_${createHash('sha256').update(JSON.stringify([tenant,operation])).digest('hex').slice(0,26)}`;}
   private appName(app:string,tenant:string){if(app!==this.name(tenant))throw new Error('Foreign tenant application.');}
   async ensureApp(tenant:string,beforeCreate?:BeforeCreate){
     const app=this.name(tenant),network=this.network(tenant);
@@ -57,7 +54,7 @@ export class FlyTenants {
     if(machine.id!==id)throw new Error('Machine identity changed.');this.checkMachine(machine,tenant,volume,generation);return machine;
   }
   async ensureMachine(app:string,tenant:string,volume:string,image:string,region:string,generation:string,beforeCreate?:BeforeCreate,guest:TenantGuest={cpu_kind:'shared',cpus:2,memory_mb:4096}){
-    const collectUsage=usageCollectionEnabled(process.env.TENANT_USAGE_COLLECTION);
+    const collectUsage=usageCollectionEnabled(process.env.TENANT_USAGE_COLLECTION),collectMeter=tenantMeteringEnabled();
     this.appName(app,tenant);pinnedImage(image);validateGuest(guest);
     const machines=await this.request('GET',`/apps/${segment(app)}/machines`);
     if(!Array.isArray(machines)||machines.some((m:any)=>m.state!=='destroyed'&&m.config?.metadata?.swarm_tenant!==tenant))throw new Error('Foreign machine in tenant application.');
@@ -69,7 +66,7 @@ export class FlyTenants {
       image,guest:{...guest},mounts:[{volume,path:'/data'}],
       services:[],metadata:{swarm_tenant:tenant,swarm_generation:generation},
       env:{SWARM_TENANT_ID:tenant,SWARM_VOLUME_ID:volume,SWARM_RUNTIME_GENERATION:generation,PLATFORM_URL:process.env.PLATFORM_URL,COMPOSIO_GATEWAY_URL:process.env.COMPOSIO_GATEWAY_URL,
-        ...(collectUsage?{TENANT_USAGE_COLLECTION:'1'}:{})},
+        ...(collectUsage?{TENANT_USAGE_COLLECTION:'1'}:{}),...(collectMeter?{TENANT_METERING:'1'}:{})},
       restart:{policy:'on-failure',max_retries:5},
     }});
     this.checkMachine(machine,tenant,volume,generation);if(!sameGuest(machine.config.guest,guest))throw new Error('Created machine size is unverified.');return machine as TenantMachine;

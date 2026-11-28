@@ -13,6 +13,7 @@ import { parseEvent, type Parsed } from '../messaging/inkbox/events.js';
 import * as ib from '../messaging/inkbox/client.js';
 import { env } from '../env.js';
 import { MessagingOwnership, MessagingNotFound, MessagingAdmissionError, MessagingDestinationChanged, type MessagingDeliveryTarget } from './messaging-store.js';
+import { inviteInput } from './onboarding.js';
 import { noteVerifiedWaiter, signupPolicy } from './signup.js';
 import { PHONE_START_UNAVAILABLE, phoneStartResponse, type PhoneStart } from '../messaging/phone-start.js';
 
@@ -73,7 +74,7 @@ export const inkboxMessenger:PlatformMessenger={
 };
 export function platformMessaging(directory:Directory,envelopes:TenantEnvelopes,runtime:RuntimeIdentity,revoke:(tenant:string,hash?:string)=>void,messenger=inkboxMessenger){
   const app=new Hono(),secrets=platformSecrets(),ownership=new MessagingOwnership(directory,envelopes);
-  app.onError((error,c)=>error instanceof MessagingNotFound?c.json({error:'Messaging connection not found.'},404):error instanceof MessagingAdmissionError?c.json({error:error.message,needInvite:error.needInvite},403):['identity_already_linked','account_revoked','reauth_required'].includes(error.message)?c.json({error:'Identity authorization changed.'},409):c.json({error:'Messaging operation unavailable.'},503));
+  app.onError((error,c)=>error instanceof MessagingNotFound?c.json({error:'Messaging connection not found.'},404):error instanceof MessagingAdmissionError?c.json({error:error.message,needInvite:error.needInvite,onboarding:error.code,platform:true},403):['identity_already_linked','account_revoked','reauth_required'].includes(error.message)?c.json({error:'Identity authorization changed.'},409):c.json({error:'Messaging operation unavailable.'},503));
   const digits=(v:unknown)=>String(v??'').replace(/\D/g,'');
   const recent=(s:any)=>s&&new Date(s.authenticated_at).getTime()>Date.now()-600000;
   const session=(c:Context)=>directory.session(getCookie(c,'swarm_session'));
@@ -153,9 +154,10 @@ export function platformMessaging(directory:Directory,envelopes:TenantEnvelopes,
       const b=await c.req.json(),phone=digits(b.phone);
       if(phone.length<8||phone.length>15)return c.json({error:'Enter your full number with country code.'},400);
       if(!await rate(`phone:${phone}`,5)||!await rate(`phone-ip:${ip(c)}`,30))return c.json({error:'Too many tries. Wait a few minutes.'},429);
+      const invitation=inviteInput(b.inviteCode);
       const id=opaqueToken(),code=String(randomInt(1000000)).padStart(6,'0');
       await directory.pool.query('DELETE FROM phone_attempts WHERE phone=$1 OR expires_at<=now()',[phone]);
-      await directory.pool.query('INSERT INTO phone_attempts(hash,phone,ciphertext,code_hash,link_session) VALUES($1,$2,$3,$4,$5)',[hashToken(id),phone,secrets.seal(`phone:${hashToken(id)}`,{code,id}),codeHash(id,code),linking?s.hash:null]);
+      await directory.pool.query('INSERT INTO phone_attempts(hash,phone,ciphertext,code_hash,link_session,invite_code) VALUES($1,$2,$3,$4,$5,$6)',[hashToken(id),phone,secrets.seal(`phone:${hashToken(id)}`,{code,id}),codeHash(id,code),linking?s.hash:null,invitation??null]);
       // Sending never proves ownership. Only the session-bound code verification does.
       const known=(await directory.pool.query("SELECT * FROM messaging_routes WHERE phone=$1 AND state='active' AND channel IN ('imessage','whatsapp') ORDER BY channel LIMIT 1",[phone])).rows[0];
       let response:PhoneStart|null=null;
@@ -190,8 +192,7 @@ export function platformMessaging(directory:Directory,envelopes:TenantEnvelopes,
         if(expected.length!==actual.length||!timingSafeEqual(expected,actual))return null;
         if(!linking)waiting=row.phone;
         const before=(await client.query("SELECT tenant_id FROM identities WHERE provider='phone' AND subject=$1",[row.phone])).rows[0];
-        if(!linking)await ownership.admitPhone(client,row.phone,typeof b.inviteCode==='string'?b.inviteCode:undefined);
-        const tenant=await directory.identityInTransaction(client,'phone',row.phone,{name:'Swarm member'},linking?s.hash:undefined);
+        const tenant=await directory.identityInTransaction(client,'phone',row.phone,{name:'Swarm member'},linking?s.hash:undefined,typeof b.inviteCode==='string'?b.inviteCode:row.invite_code??undefined);
         await client.query('DELETE FROM phone_attempts WHERE hash=$1',[row.hash]);return {...row,tenant,created:!before&&!linking};
       });}catch(error){if(error instanceof MessagingAdmissionError&&waiting)await noteVerifiedWaiter(directory,waiting,'imessage');throw error;}
       if(!verified)return c.json({error:'The code is invalid or expired.'},401);
@@ -241,8 +242,7 @@ export function platformMessaging(directory:Directory,envelopes:TenantEnvelopes,
       const invite=e.text.trim().match(/^(?:JOIN\s+)?([A-Z0-9]{8,16})$/i)?.[1];
       try{
         const tenant=await directory.transaction(async client=>{
-          await ownership.admitPhone(client,e!.phone,invite);
-          return directory.identityInTransaction(client,'phone',e!.phone,{name:e!.name??'Swarm member'});
+          return directory.identityInTransaction(client,'phone',e!.phone,{name:e!.name??'Swarm member'},undefined,invite);
         });
         await envelopes.create(tenant);await linkRoute(tenant,e);identity={tenant_id:tenant};
         if(invite)return c.body(null,204);

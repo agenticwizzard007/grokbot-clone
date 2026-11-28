@@ -1,0 +1,269 @@
+# Local emulators only. Application services have no Internet egress.
+name: swarm-platform
+x-app: &app
+  image: ${SWARM_IMAGE:-swarm-platform:local}
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+    args:
+      SWARM_BUILD_REVISION: ${SWARM_BUILD_REVISION:?Set to the output of git rev-parse HEAD}
+  restart: unless-stopped
+  user: '${LOCAL_UID:-1000}:${LOCAL_GID:-1000}'
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: [/tmp]
+  networks: [platform]
+  pids_limit: 256
+x-cloud: &cloud
+  NODE_ENV: production
+  SWARM_ALLOW_LOCAL_CLOUD: ${SWARM_ALLOW_LOCAL_CLOUD:-1}
+  AWS_EC2_METADATA_DISABLED: 'true'
+  AWS_REGION: ${AWS_REGION:-us-east-1}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?Run scripts/platform-local-up.sh}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?Run scripts/platform-local-up.sh}
+  TENANT_KMS_ENDPOINT: http://local-kms:8080
+  TENANT_KMS_KEY_ID: ${TENANT_KMS_KEY_ID:-11111111-2222-4333-8444-555555555555}
+  DATABASE_URL: postgres://app_runtime:${POSTGRES_RUNTIME_PASSWORD:?Run scripts/platform-local-up.sh}@postgres:5432/swarm_directory
+x-backups: &backups
+  BACKUP_BUCKET: swarm-backups
+  BACKUP_PREFIX: swarm-backups
+  BACKUP_S3_ENDPOINT: http://minio:9000
+  BACKUP_S3_FORCE_PATH_STYLE: 'true'
+  BACKUP_S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:?Run scripts/platform-local-up.sh}
+  BACKUP_S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:?Run scripts/platform-local-up.sh}
+x-health: &health
+  interval: 5s
+  timeout: 5s
+  retries: 30
+  start_period: 10s
+services:
+  kms-volume-init:
+    <<: *app
+    restart: 'no'
+    user: '0:0'
+    # Only initialize volume ownership. This job receives no secret material.
+    cap_add: [CHOWN]
+    environment:
+      LOCAL_UID: ${LOCAL_UID:-1000}
+      LOCAL_GID: ${LOCAL_GID:-1000}
+    command: [node, -e, "require('fs').chownSync('/kms-data',Number(process.env.LOCAL_UID),Number(process.env.LOCAL_GID))"]
+    volumes: [kms-data:/kms-data, kms-init-data:/data]
+    healthcheck:
+      <<: *health
+      test: [CMD, node, -e, "if(require('fs').statSync('/kms-data').uid!==Number(process.env.LOCAL_UID))process.exit(1)"]
+  postgres:
+    image: postgres:16.11-alpine
+    restart: unless-stopped
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp, /var/run/postgresql]
+    environment:
+      POSTGRES_DB: swarm_directory
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Run scripts/platform-local-up.sh}
+      POSTGRES_OWNER_PASSWORD: ${POSTGRES_OWNER_PASSWORD:?Run scripts/platform-local-up.sh}
+      POSTGRES_RUNTIME_PASSWORD: ${POSTGRES_RUNTIME_PASSWORD:?Run scripts/platform-local-up.sh}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    networks: [platform]
+    healthcheck:
+      <<: *health
+      test: [CMD-SHELL, 'pg_isready -U postgres -d swarm_directory']
+  local-kms:
+    image: nsmithuk/local-kms:3.11.0
+    restart: unless-stopped
+    user: '${LOCAL_UID:-1000}:${LOCAL_GID:-1000}'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      KMS_REGION: ${AWS_REGION:-us-east-1}
+      KMS_SEED_PATH: /run/secrets/kms_seed
+    volumes: [kms-data:/data]
+    secrets: [kms_seed]
+    depends_on:
+      kms-volume-init: {condition: service_completed_successfully}
+    networks: [platform]
+    healthcheck:
+      <<: *health
+      test: [CMD, wget, -q, -O, /dev/null, '--header=Content-Type: application/x-amz-json-1.1', '--header=X-Amz-Target: TrentService.DescribeKey', '--post-data={"KeyId":"11111111-2222-4333-8444-555555555555"}', 'http://127.0.0.1:8080/']
+  minio:
+    image: swarm-local-minio:2025-09-07
+    build:
+      context: .
+      dockerfile: Dockerfile.minio
+      target: minio
+    command: [server, /data, --console-address, ':9001']
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Run scripts/platform-local-up.sh}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Run scripts/platform-local-up.sh}
+      MINIO_KMS_SECRET_KEY: ${MINIO_KMS_SECRET_KEY:?Run scripts/platform-local-up.sh}
+      MINIO_BROWSER: 'off'
+    volumes: [minio-data:/data]
+    networks: [platform]
+    healthcheck:
+      <<: *health
+      test: [CMD, curl, -fsS, 'http://127.0.0.1:9000/minio/health/live']
+  minio-init:
+    image: swarm-local-mc:2025-08-13
+    build:
+      context: .
+      dockerfile: Dockerfile.minio
+      target: mc
+    restart: 'no'
+    entrypoint: [/bin/sh, /init/minio-init.sh]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    environment:
+      MC_CONFIG_DIR: /tmp/mc
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Run scripts/platform-local-up.sh}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Run scripts/platform-local-up.sh}
+      BACKUP_S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:?Run scripts/platform-local-up.sh}
+      BACKUP_S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:?Run scripts/platform-local-up.sh}
+    volumes:
+      - ./minio-init.sh:/init/minio-init.sh:ro
+      - ./minio-policy.json:/init/policy.json:ro
+      - ./minio-lifecycle.json:/init/lifecycle.json:ro
+    depends_on:
+      minio: {condition: service_healthy}
+    networks: [platform]
+    healthcheck:
+      <<: *health
+      test: [CMD, test, -f, /tmp/initialized]
+  migrate:
+    <<: *app
+    restart: 'no'
+    command: [node, server/dist/platform/migrate.js]
+    environment:
+      NODE_ENV: production
+      SWARM_ROLE: platform
+      MIGRATION_DATABASE_URL: postgres://directory_owner:${POSTGRES_OWNER_PASSWORD:?Run scripts/platform-local-up.sh}@postgres:5432/swarm_directory
+    volumes: [migration-data:/data]
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      <<: *health
+      test: [CMD, node, -e, "const{Client}=require('pg');const c=new Client({connectionString:process.env.MIGRATION_DATABASE_URL});c.connect().then(()=>c.query('SELECT 1 FROM tenants LIMIT 0')).then(()=>c.end()).catch(()=>process.exit(1))"]
+  platform:
+    <<: *app
+    environment:
+      <<: [*cloud, *backups]
+      SWARM_ROLE: platform
+      PLATFORM_TENANT_LIMIT: ${PLATFORM_TENANT_LIMIT:-100}
+      TENANT_METERING: ${TENANT_METERING:-0}
+      PORT: '8787'
+      PLATFORM_URL: https://localhost:${PLATFORM_HTTPS_PORT:-8443}
+      APP_URL: https://localhost:${PLATFORM_HTTPS_PORT:-8443}
+      SERVER_URL: https://localhost:${PLATFORM_HTTPS_PORT:-8443}
+      COMPOSIO_GATEWAY_URL: http://composio-gateway:8787
+      SESSION_SECRET: ${SESSION_SECRET:?Run scripts/platform-local-up.sh}
+      PLATFORM_PRIVATE_KEY_FILE: /run/secrets/platform_private_key
+      PLATFORM_PUBLIC_KEY_FILE: /run/secrets/platform_public_key
+    secrets: [platform_private_key, platform_public_key]
+    volumes: [platform-data:/data]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      minio-init: {condition: service_completed_successfully}
+      local-kms: {condition: service_healthy}
+    healthcheck:
+      <<: *health
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8787/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+  provisioner:
+    <<: *app
+    # This wrapper can only hold provisioning. Disabling hold runs the real entrypoint and all release gates.
+    command: [node, deploy/docker/provisioner-entrypoint.mjs]
+    environment:
+      <<: [*cloud, *backups]
+      SWARM_ROLE: provisioner
+      PLATFORM_TENANT_LIMIT: ${PLATFORM_TENANT_LIMIT:-100}
+      TENANT_METERING: ${TENANT_METERING:-0}
+      SWARM_LOCAL_PROVISIONER_HOLD: ${SWARM_LOCAL_PROVISIONER_HOLD:-1}
+      TENANT_DRIVER: ${TENANT_DRIVER:-fly}
+      TENANT_HOST_IMAGE: ${TENANT_HOST_IMAGE:-}
+      TENANT_REGION: ${TENANT_REGION:-local}
+      FLY_API_TOKEN: ${FLY_API_TOKEN:-}
+      FLY_ORG_SLUG: ${FLY_ORG_SLUG:-}
+    volumes:
+      - provisioner-data:/data
+      - ./provisioner-entrypoint.mjs:/app/deploy/docker/provisioner-entrypoint.mjs:ro
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      minio-init: {condition: service_completed_successfully}
+      local-kms: {condition: service_healthy}
+    healthcheck:
+      <<: *health
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8788/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+  composio-gateway:
+    <<: *app
+    environment:
+      <<: *cloud
+      SWARM_ROLE: composio-gateway
+      PORT: '8787'
+      PLATFORM_URL: https://localhost:${PLATFORM_HTTPS_PORT:-8443}
+      PLATFORM_PUBLIC_KEY_FILE: /run/secrets/platform_public_key
+      COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:?Run scripts/platform-local-up.sh}
+      COMPOSIO_WEBHOOK_SECRET: ${COMPOSIO_WEBHOOK_SECRET:?Run scripts/platform-local-up.sh}
+    secrets: [platform_public_key]
+    volumes: [gateway-data:/data]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      local-kms: {condition: service_healthy}
+    healthcheck:
+      <<: *health
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+  https:
+    image: swarm-local-https:2.10.2
+    build:
+      context: .
+      dockerfile: Dockerfile.https
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    ports:
+      - '127.0.0.1:${PLATFORM_HTTPS_PORT:-8443}:8443'
+      - '127.0.0.1:${GATEWAY_HTTPS_PORT:-8444}:8444'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      platform: {condition: service_healthy}
+      composio-gateway: {condition: service_healthy}
+    # Only the TLS proxy joins the ingress bridge for loopback port publishing.
+    networks: [platform, ingress]
+    healthcheck:
+      <<: *health
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8080/health']
+networks:
+  ingress:
+  platform:
+    internal: true
+volumes:
+  postgres-data:
+  kms-data:
+  kms-init-data:
+  minio-data:
+  migration-data:
+  platform-data:
+  provisioner-data:
+  gateway-data:
+  caddy-data:
+  caddy-config:
+secrets:
+  platform_private_key:
+    file: ${PLATFORM_KEYS_DIR:?Run scripts/platform-local-up.sh}/platform-private.pem
+  platform_public_key:
+    file: ${PLATFORM_KEYS_DIR:?Run scripts/platform-local-up.sh}/platform-public.pem
+  kms_seed:
+    file: ${PLATFORM_KEYS_DIR:?Run scripts/platform-local-up.sh}/kms-seed.yaml

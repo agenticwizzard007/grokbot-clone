@@ -1,0 +1,28 @@
+# Existing shared-server mode for self-hosting and local QA.
+name: swarm-standalone
+services:
+  standalone:
+    image: ${SWARM_IMAGE:-swarm-platform:local}
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SWARM_BUILD_REVISION: ${SWARM_BUILD_REVISION:?Set to the output of git rev-parse HEAD}
+    restart: unless-stopped
+    env_file: ${STANDALONE_ENV_FILE:?Set a separate standalone env file}
+    environment:
+      NODE_ENV: production
+      SWARM_ROLE: standalone
+      PORT: '8787'
+      DB_PATH: /data/swarm.db
+      FILES_DIR: /data/files
+    ports: ['127.0.0.1:${STANDALONE_PORT:-8787}:8787']
+    volumes: [standalone-data:/data]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8787/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+volumes:
+  standalone-data:

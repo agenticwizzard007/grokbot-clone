@@ -1,3 +1,5 @@
+import { observeMeterResource, machineMeterResource, volumeMeterResource } from './meter-infrastructure.js';
+import { bindTenantLog } from './tenant-logs.js';
 import type {PoolClient} from 'pg';
 import {Directory,hashToken,opaqueToken} from './directory.js';
 import type {FlyTenants} from './fly-tenants.js';
@@ -10,7 +12,7 @@ export interface LifecycleDependencies {
   fly:Pick<FlyTenants,'name'|'deploymentVolumeName'|'inventory'|'ensureApp'|'ensureVolume'|'ensureMachine'|'configureBootstrap'|'action'|'machine'|'waitStopped'|'destroy'>;
   envelopes:{create(tenant:string):Promise<void>};
   backups:{prune(tenant:string):Promise<void>};
-  image:string;region:string;
+  image:string;region:string;metering?:boolean;
 }
 /** All persisted ownership transitions recheck the same lease and generation.
  * Unknown create responses can be resolved by inspection, never by reissuing a
@@ -33,6 +35,7 @@ export class LifecycleWorker {
       return {...row,generation:String(candidate.tenant_generation)};
     });
     if(!job)return 'idle';
+    bindTenantLog(job.tenant_id);
     const fenced=async<T>(fn:(client:PoolClient,tenant:any)=>Promise<T>):Promise<T>=>this.directory.transaction(async client=>{
       await client.query('SELECT j.id FROM lifecycle_jobs j JOIN tenants t ON t.id=j.tenant_id WHERE j.id=$1 FOR UPDATE OF j,t',[job.id]);
       const tenant=(await client.query(`SELECT t.* FROM lifecycle_jobs j JOIN tenants t ON t.id=j.tenant_id
@@ -46,6 +49,9 @@ export class LifecycleWorker {
       return fn(client,tenant);
     });
     const guard=()=>fenced(async()=>{});
+    const meterMachine=async(machine:{id:string;state:string},at=Date.now())=>{
+      if(this.dependencies.metering)await fenced(client=>observeMeterResource(client,job.tenant_id,job.generation,machineMeterResource(machine),at));
+    };
     let heartbeatBusy=false;
     const heartbeat=setInterval(()=>{if(heartbeatBusy)return;heartbeatBusy=true;void guard().catch(()=>{}).finally(()=>{heartbeatBusy=false;});},20000).unref();
     const creation=(kind:string)=>()=>fenced(async client=>{
@@ -75,11 +81,14 @@ export class LifecycleWorker {
         const location=tenant.region??region;if(!location)throw new Error('Tenant region required.');
         const volume=await fly.ensureVolume(app,tenant.id,location,creation('volume'));
         await fenced(async client=>{await client.query('UPDATE tenants SET volume_id=$2,region=$3 WHERE id=$1',[tenant.id,volume.id,location]);await observed(client,'volume',volume.id);});
+        if(this.dependencies.metering)await fenced(client=>observeMeterResource(client,tenant.id,job.generation,volumeMeterResource(volume)));
         await guard();await envelopes.create(tenant.id);await guard();
         const machine=await fly.ensureMachine(app,tenant.id,volume.id,image,location,job.generation,creation('machine'));
+        const machineObservedAt=Date.now();
         await fenced(async client=>{
           await client.query('UPDATE tenants SET machine_id=$2,image_digest=$3 WHERE id=$1',[tenant.id,machine.id,image]);await observed(client,'machine',machine.id);
         });
+        await meterMachine(machine,machineObservedAt);
         if(['created','stopped'].includes(machine.state)){
           // Persist a bootstrap hash before putting the bearer in a stopped VM.
           // A failed update is safe to retry with a new token while it stays down.
@@ -87,11 +96,13 @@ export class LifecycleWorker {
         }
         await fenced(client=>setHostIntent(client,{tenant:tenant.id,machine:machine.id,generation:job.generation},'run'));
         await guard();await fly.action(app,machine.id,'start',tenant.id,job.generation,guard);await guard();
+        if(this.dependencies.metering)await meterMachine(await fly.machine(app,tenant.id,machine.id,volume.id,job.generation));
         if(!await this.hosts.ready({tenant:tenant.id,machine:machine.id,generation:job.generation}))throw new LifecyclePending('host_readiness_pending');
         await fenced(async client=>{await client.query("UPDATE tenants SET state='active' WHERE id=$1",[tenant.id]);});
       }else if(job.operation==='wake'||job.operation==='suspend'){
         if(!tenant.fly_app||!tenant.machine_id||!tenant.volume_id)throw new Error('Tenant infrastructure is missing.');
-        await guard();const machine=await fly.machine(tenant.fly_app,tenant.id,tenant.machine_id,tenant.volume_id,job.generation);await guard();
+        await guard();const machine=await fly.machine(tenant.fly_app,tenant.id,tenant.machine_id,tenant.volume_id,job.generation);const machineObservedAt=Date.now();await guard();
+        await meterMachine(machine,machineObservedAt);
         if(job.operation==='wake'){
           await fenced(async client=>{await client.query("UPDATE tenants SET state='provisioning' WHERE id=$1",[tenant.id]);});
           if(['stopped','created'].includes(machine.state))await bootstrapMachine(tenant.fly_app,tenant.machine_id);
@@ -100,13 +111,15 @@ export class LifecycleWorker {
             await setHostIntent(client,{tenant:tenant.id,machine:tenant.machine_id,generation:job.generation},'run');
           });
           await guard();await fly.action(tenant.fly_app,tenant.machine_id,'start',tenant.id,job.generation,guard);await guard();
+          if(this.dependencies.metering)await meterMachine(await fly.machine(tenant.fly_app,tenant.id,tenant.machine_id,tenant.volume_id,job.generation));
           if(!await this.hosts.ready({tenant:tenant.id,machine:tenant.machine_id,generation:job.generation}))throw new LifecyclePending('host_readiness_pending');
         }else{
           await fenced(client=>setHostIntent(client,{tenant:tenant.id,machine:tenant.machine_id,generation:job.generation},'hold'));
           // Stop gives a durable inactive writer, unlike freezing a process whose
           // authorization timers and external writes would resume from memory.
           await guard();await fly.action(tenant.fly_app,tenant.machine_id,'stop',tenant.id,job.generation,guard);
-          await fly.waitStopped(tenant.fly_app,tenant.id,tenant.machine_id,job.generation);await guard();
+          const stopped=await fly.waitStopped(tenant.fly_app,tenant.id,tenant.machine_id,job.generation);await guard();
+          await meterMachine(stopped);
         }
         await fenced(async client=>{await client.query('UPDATE tenants SET state=$2 WHERE id=$1',[tenant.id,job.operation==='wake'?'active':'suspended']);});
       }else if(job.operation==='delete'){

@@ -1,4 +1,6 @@
 import { Pool, type PoolClient } from 'pg';
+import { bindTenantLog } from './tenant-logs.js';
+import { admitNewTenant } from './onboarding.js';
 import { randomBytes, createHash } from 'node:crypto';
 export const hashToken = (v: string) => createHash('sha256').update(v).digest('hex');
 export const opaqueToken = () => randomBytes(32).toString('base64url');
@@ -119,6 +121,16 @@ export class Directory {
         CREATE TABLE IF NOT EXISTS signup_policy (
           singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton), config jsonb NOT NULL,
           revision bigint NOT NULL DEFAULT 1, updated_by text NOT NULL REFERENCES tenants(id), updated_at timestamptz NOT NULL DEFAULT now());
+        ALTER TABLE signup_policy ALTER COLUMN updated_by DROP NOT NULL;
+        CREATE TABLE IF NOT EXISTS web_invites (
+          code text PRIMARY KEY, max_uses integer NOT NULL CHECK(max_uses BETWEEN 1 AND 100000),
+          uses integer NOT NULL DEFAULT 0 CHECK(uses>=0 AND uses<=max_uses), revoked boolean NOT NULL DEFAULT false,
+          expires_at timestamptz NOT NULL, note text, created_at timestamptz NOT NULL DEFAULT clock_timestamp());
+        CREATE TABLE IF NOT EXISTS web_waitlist (
+          id text PRIMARY KEY, contact text NOT NULL UNIQUE, kind text NOT NULL CHECK(kind IN ('email','phone')),
+          created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+          invite_code text REFERENCES web_invites(code), approved_at timestamptz);
+        ALTER TABLE phone_attempts ADD COLUMN IF NOT EXISTS invite_code text;
         CREATE TABLE IF NOT EXISTS signup_waitlist (
           phone text PRIMARY KEY, channel text NOT NULL CHECK(channel IN ('imessage','sms','whatsapp')),
           state text NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','approved','declined')),
@@ -180,6 +192,27 @@ export class Directory {
           used_bytes bigint NOT NULL CHECK(used_bytes BETWEEN 0 AND 10737418240000),received_at timestamptz NOT NULL DEFAULT clock_timestamp(),
           PRIMARY KEY(tenant_id,at));
         ALTER TABLE host_usage_samples ADD COLUMN IF NOT EXISTS filesystems jsonb;
+        CREATE TABLE IF NOT EXISTS tenant_meter (
+          tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, day date NOT NULL,
+          metric text NOT NULL, quantity numeric NOT NULL CHECK(quantity>=0 AND quantity<1e15), unit text NOT NULL,
+          cost_usd numeric CHECK(cost_usd>=0 AND cost_usd<1e15), source text NOT NULL,
+          updated_at timestamptz NOT NULL DEFAULT clock_timestamp(), PRIMARY KEY(tenant_id,day,metric,source),
+          CHECK((source='provisioner' AND ((metric='machine_running_seconds' AND unit='seconds') OR (metric='storage_gb_days' AND unit='GB-days')))
+            OR (source='tenant' AND ((metric='model_spend_usd' AND unit='USD') OR (metric IN ('computer_minutes','voice_minutes') AND unit='minutes')))));
+        CREATE INDEX IF NOT EXISTS tenant_meter_retention ON tenant_meter(day);
+        CREATE TABLE IF NOT EXISTS tenant_allowances (
+          tenant_id text PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+          monthly_usd numeric NOT NULL CHECK(monthly_usd>0 AND monthly_usd<=1000000000),
+          updated_at timestamptz NOT NULL DEFAULT clock_timestamp());
+        CREATE TABLE IF NOT EXISTS tenant_meter_status (
+          tenant_id text PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+          report_at bigint, reported_at timestamptz, last_tunnel_at timestamptz,
+          last_poll_at timestamptz, observed_at timestamptz, poll_failed boolean NOT NULL DEFAULT false);
+        CREATE TABLE IF NOT EXISTS tenant_meter_resources (
+          tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          kind text NOT NULL CHECK(kind IN ('machine','volume')), resource_id text NOT NULL,
+          generation bigint NOT NULL, at bigint NOT NULL, quantity numeric NOT NULL CHECK(quantity>=0 AND quantity<=10000),
+          state text NOT NULL, PRIMARY KEY(tenant_id,kind,resource_id));
         CREATE TABLE IF NOT EXISTS retired_volumes (
           tenant_id text NOT NULL REFERENCES tenants(id),volume_id text NOT NULL,operation_id text NOT NULL REFERENCES environment_operations(id),
           delete_after timestamptz NOT NULL,state text NOT NULL DEFAULT 'pending',error_code text,PRIMARY KEY(tenant_id,volume_id));
@@ -261,13 +294,14 @@ export class Directory {
       WHERE s.hash=$1 AND t.id=s.tenant_id AND t.state NOT IN ('deleting','deleted')
       AND s.expires_at>now() AND s.last_seen_at>now()-interval '24 hours'
       RETURNING s.*,t.generation,t.state,t.display_name,t.verified_email`, [hashToken(raw)]);
+    if (rows[0]) bindTenantLog(rows[0].tenant_id);
     return rows[0] ?? null;
   }
-  async identity(provider: string, subject: string, profile: { name: string; email?: string }, linkSession?: string) {
-    return this.transaction(client => this.identityInTransaction(client, provider, subject, profile, linkSession));
+  async identity(provider: string, subject: string, profile: { name: string; email?: string }, linkSession?: string, inviteCode?: string) {
+    return this.transaction(client => this.identityInTransaction(client, provider, subject, profile, linkSession, inviteCode));
   }
   /** For verified identity workflows that must consume their authorization in the same transaction. */
-  async identityInTransaction(client: PoolClient, provider: string, subject: string, profile: { name: string; email?: string }, linkSession?: string) {
+  async identityInTransaction(client: PoolClient, provider: string, subject: string, profile: { name: string; email?: string }, linkSession?: string, inviteCode?: string) {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${provider}:${subject}`]);
       const existing = (await client.query('SELECT tenant_id FROM identities WHERE provider=$1 AND subject=$2', [provider, subject])).rows[0];
       const link = linkSession ? (await client.query(`SELECT tenant_id FROM sessions WHERE hash=$1 AND expires_at>now()
@@ -287,8 +321,9 @@ export class Directory {
       if (link && !(await client.query("SELECT 1 FROM tenants WHERE id=$1 AND state NOT IN ('deleting','deleted') FOR UPDATE", [tenant])).rowCount) throw new Error('account_revoked');
       if(legacy&&!(await client.query("SELECT 1 FROM tenants WHERE id=$1 AND state NOT IN ('deleting','deleted','failed') FOR UPDATE",[tenant])).rowCount)throw new Error('account_revoked');
       if (!link&&!legacy) {
+        await admitNewTenant(client, provider, subject, inviteCode);
         // Equal emails are deliberately not an identity join. Linking is explicit and session-bound.
-        await client.query('INSERT INTO tenants(id,display_name,verified_email,composio_user_id) VALUES($1,$2,$3,$4)', [tenant, profile.name, profile.email ?? null, tenant]);
+        await client.query('INSERT INTO tenants(id,display_name,verified_email,composio_user_id,created_at) VALUES($1,$2,$3,$4,clock_timestamp())', [tenant, profile.name, profile.email ?? null, tenant]);
         await client.query("INSERT INTO lifecycle_jobs(id,tenant_id,operation) VALUES($1,$2,'create')", [opaqueToken(), tenant]);
       }
       await client.query('INSERT INTO identities(provider,subject,tenant_id) VALUES($1,$2,$3)', [provider, subject, tenant]);
@@ -304,6 +339,7 @@ export class Directory {
       if (previous) await client.query('DELETE FROM sessions WHERE hash=$1', [hashToken(previous)]);
       await client.query('INSERT INTO sessions(hash,tenant_id,device) VALUES($1,$2,$3)', [hashToken(raw), tenant, device.slice(0, 200)]);
     });
+    bindTenantLog(tenant);
     return raw;
   }
   async revokeTenant(tenant: string, authorization?: {sessionHash:string} | {phone:{channel:string;revision:string;tokenHash:string}}) {
@@ -324,6 +360,9 @@ export class Directory {
       await client.query('UPDATE runtime_credentials SET revoked_at=now() WHERE tenant_id=$1', [tenant]);
       await client.query('DELETE FROM companion_routes WHERE tenant_id=$1', [tenant]);
       await client.query('DELETE FROM host_usage_samples WHERE tenant_id=$1', [tenant]);
+      for (const table of ['tenant_meter','tenant_allowances','tenant_meter_resources','tenant_meter_status']) {
+        await client.query(`DELETE FROM ${table} WHERE tenant_id=$1`, [tenant]);
+      }
       await client.query("UPDATE environment_operations SET capacity_change=capacity_change-'samples' WHERE tenant_id=$1 AND capacity_change ? 'samples'",[tenant]);
       await client.query("UPDATE messaging_routes SET state='revoked',revision=revision+1 WHERE tenant_id=$1", [tenant]);
       await client.query('DELETE FROM messaging_tokens WHERE tenant_id=$1', [tenant]);

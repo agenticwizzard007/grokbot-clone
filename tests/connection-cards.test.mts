@@ -45,7 +45,15 @@ for (const id of ['owner', 'other']) {
 let modelCalls = 0;
 mock.method(llmClient(360_000).responses, 'create', async () => {
   modelCalls++;
-  return (async function* () { yield { type: 'response.completed', response: { id: 'mock-card-response', output: [], status: 'completed' } }; })();
+  // A completed operational turn must deliver a reply; an empty response is
+  // correctly uncertain and cannot stand in for a successful continuation.
+  const text = `Completed fixture work ${modelCalls}.`;
+  const message = { id: `mock-card-message-${modelCalls}`, type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text, annotations: [] }] };
+  return (async function* () {
+    yield { type: 'response.output_text.delta', delta: text };
+    yield { type: 'response.output_item.done', item: message };
+    yield { type: 'response.completed', response: { id: `mock-card-response-${modelCalls}`, output: [message], status: 'completed' } };
+  })();
 });
 const deferred = () => {
   let resolve!: () => void;
@@ -387,7 +395,7 @@ test('independent work cannot overtake a provider-confirmed connection before it
   await settleAgentJobs();
   const continuation = jobs().find(job => job.id === bodyAt(row.seq).answerJobId);
   assert.equal(JSON.parse(continuation.trigger).parentJobId, 'assignment-a');
-  assert.equal(continuation.state, 'completed');
+  assert.equal(continuation.state, 'completed', JSON.stringify(listRows(bot.id).filter(row => row.kind === 'notice').map(row => row.body)));
   assert.equal(jobs().find(job => job.id === independentId).state, 'completed');
   assert.equal(modelCalls, 2, 'A continues once, then queued B runs once');
 });

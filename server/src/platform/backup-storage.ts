@@ -2,6 +2,20 @@ import { S3Client, DeleteObjectsCommand, ListObjectVersionsCommand, ListMultipar
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable, Transform } from 'node:stream';
 import { createHash } from 'node:crypto';
+import { cloudEndpointConfig } from './cloud-config.js';
+
+export function backupS3Config(env: NodeJS.ProcessEnv = process.env) {
+  const accessKeyId = env.BACKUP_S3_ACCESS_KEY_ID;
+  const secretAccessKey = env.BACKUP_S3_SECRET_ACCESS_KEY;
+  const sessionToken = env.BACKUP_S3_SESSION_TOKEN;
+  if ((accessKeyId || secretAccessKey || sessionToken) && (!accessKeyId || !secretAccessKey)) {
+    throw new Error('Both BACKUP_S3_ACCESS_KEY_ID and BACKUP_S3_SECRET_ACCESS_KEY are required.');
+  }
+  return {
+    ...cloudEndpointConfig(env, 'BACKUP_S3'),
+    ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey, ...(sessionToken ? { sessionToken } : {}) } } : {}),
+  };
+}
 
 export const MAX_BACKUP_BYTES=13*1024**3;
 export const MAX_BACKUP_PARTS=100001;
@@ -16,7 +30,7 @@ export interface BackupStorage {
 }
 /** Only the trusted platform owns S3 credentials. Every key has an immutable tenant prefix. */
 export class S3BackupStorage implements BackupStorage {
-  constructor(private bucket=process.env.BACKUP_BUCKET!,private prefix=process.env.BACKUP_PREFIX??'swarm-backups',private client=new S3Client({})){
+  constructor(private bucket=process.env.BACKUP_BUCKET!,private prefix=process.env.BACKUP_PREFIX??'swarm-backups',private client=new S3Client(backupS3Config())){
     if(!bucket||!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)||! /^[A-Za-z0-9_-]{1,80}$/.test(prefix))throw new Error('Scoped backup bucket configuration is required.');
   }
   private key(tenant:string,id:string,name?:string){return `${this.prefix}/${backupLocation(tenant,id,name)}`;}

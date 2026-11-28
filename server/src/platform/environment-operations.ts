@@ -1,12 +1,22 @@
+import { bindTenantLog } from './tenant-logs.js';
 import {randomBytes,createHash} from 'node:crypto';
 import type {PoolClient} from 'pg';
 import {Directory,hashToken,opaqueToken} from './directory.js';
 import type {FlyTenants} from './fly-tenants.js';
 import {HostControl,setHostIntent} from './host-control.js';
 import {stageHostInstallation} from './host-installations.js';
-import {assertQualifiedImage} from './release-policy.js';
+import {assertProvisioningImage,tenantDriver} from './release-policy.js';
 import {backupLocation} from './backup-storage.js';
 import {capacityDigest,validateCapacityChange,assertCapacityQualified,validateGuest,sameGuest,type CapacityChange} from './tenant-capacity.js';
+
+function usableVolume(volume:any,region:string) {
+  if(!volume||volume.region!==region)return false;
+  // Local Docker storage is an explicit development policy, never an encrypted
+  // Fly volume attestation. The Docker driver has already verified its ownership.
+  return tenantDriver()==='docker'
+    ? volume.driver==='docker'&&volume.encrypted===false&&volume.quota_enforced===false
+    : volume.encrypted===true;
+}
 
 export interface EnvironmentPlan {
   version:1;tenant:string;kind:'restore'|'update';generation:string;machine:string;volume:string;sourceImage:string;
@@ -25,7 +35,7 @@ async function validateBackups(client:PoolClient,tenant:string,full?:string,data
 export async function planEnvironmentOperation(directory:Directory,input:{tenant:string;kind:'restore'|'update';image:string;fullBackup?:string;databaseBackup?:string;capacity?:CapacityChange}):Promise<EnvironmentPlan>{
   if(!/^usr_[A-Za-z0-9_-]{8,100}$/.test(input.tenant)||!['restore','update'].includes(input.kind)||input.kind==='update'&&(input.fullBackup||input.databaseBackup)||input.capacity&&input.kind!=='update')throw new Error('Invalid environment operation.');
   return directory.transaction(async client=>{
-    await assertQualifiedImage(client,input.image);
+    await assertProvisioningImage(client,input.image);
     const source=(await client.query("SELECT * FROM tenants WHERE id=$1 AND state IN ('active','suspended')",[input.tenant])).rows[0];
     if(!source?.machine_id||!source.volume_id||!source.image_digest||!source.region||!source.fly_app)throw new Error('An isolated source environment is required.');
     if(input.kind==='restore')await validateBackups(client,input.tenant,input.fullBackup,input.databaseBackup);
@@ -43,7 +53,7 @@ export async function queueEnvironmentOperation(directory:Directory,plan:Environ
   return directory.transaction(async client=>{
     const source=(await client.query("SELECT * FROM tenants WHERE id=$1 AND generation=$2 AND machine_id=$3 AND volume_id=$4 AND image_digest=$5 AND region=$6 AND state IN ('active','suspended') FOR UPDATE",[plan.tenant,plan.generation,plan.machine,plan.volume,plan.sourceImage,plan.region])).rows[0];
     if(!source)throw new Error('The reviewed source changed. Generate a new plan.');
-    await assertQualifiedImage(client,plan.image);
+    await assertProvisioningImage(client,plan.image);
     if((await client.query("SELECT 1 FROM lifecycle_jobs WHERE tenant_id=$1 AND state='running'",[plan.tenant])).rowCount
       ||(await client.query("SELECT 1 FROM infrastructure_actions WHERE tenant_id=$1 AND state='dispatching'",[plan.tenant])).rowCount
       ||(await client.query("SELECT 1 FROM migration_runs WHERE tenant_id=$1 AND phase!='active'",[plan.tenant])).rowCount)throw new Error('Source operations require reconciliation.');
@@ -74,7 +84,7 @@ export async function requestEnvironmentRollback(directory:Directory,id:string){
       AND o.phase NOT IN ('completed','cancelled') AND o.run_authorized_at IS NULL AND t.generation=o.target_generation
       AND t.state IN ('suspended','provisioning') FOR UPDATE OF o,t`,[id])).rows[0];
     if(!operation)throw new Error('Rollback requires an unactivated target; reconcile a fresh checkpoint instead.');
-    await assertQualifiedImage(client,operation.source_image);
+    await assertProvisioningImage(client,operation.source_image);
     await client.query("UPDATE tenants SET state='suspended' WHERE id=$1",[operation.tenant_id]);
     await client.query('DELETE FROM runtime_credentials WHERE tenant_id=$1',[operation.tenant_id]);
     await client.query("UPDATE environment_operations SET phase='aborting',fence=fence+1,lease_until=NULL,retry_at=clock_timestamp(),error_code=NULL WHERE id=$1",[id]);
@@ -97,6 +107,7 @@ export class EnvironmentWorker {
       return (await client.query("UPDATE environment_operations SET lease_owner=$2,lease_until=clock_timestamp()+interval '2 minutes',fence=fence+1,attempts=attempts+1 WHERE id=$1 RETURNING *",[row.id,this.worker])).rows[0];
     });
     if(!operation)return 'idle';
+    bindTenantLog(operation.tenant_id);
     const id=operation.id,tenant=operation.tenant_id,generation=String(operation.target_generation),app=this.fly.name(tenant),owner=()=>({tenant,generation,machine:operation.target_machine as string});
     const fenced=async<T>(fn:(client:PoolClient)=>Promise<T>)=>this.directory.transaction(async client=>{
       // Lock first. A locking WHERE may have been evaluated before waiting;
@@ -121,7 +132,7 @@ export class EnvironmentWorker {
     const phase=async(value:string)=>{await fenced(async client=>{await client.query('UPDATE environment_operations SET phase=$2,error_code=NULL WHERE id=$1',[id,value]);});operation.phase=value;};
     let heartbeatBusy=false;const heartbeat=setInterval(()=>{if(heartbeatBusy)return;heartbeatBusy=true;void guard().catch(()=>{}).finally(()=>{heartbeatBusy=false;});},20000).unref();
     try{
-      await assertQualifiedImage(this.directory.pool,operation.phase==='aborting'?operation.source_image:operation.image_digest);await guard();
+      await assertProvisioningImage(this.directory.pool,operation.phase==='aborting'?operation.source_image:operation.image_digest);await guard();
       if(operation.capacity_change&&operation.phase!=='aborting')await assertCapacityQualified(this.directory.pool,operation.image_digest);
       const operations=(await this.directory.pool.query('SELECT id FROM environment_operations WHERE tenant_id=$1',[tenant])).rows.map(r=>r.id);
       const inventory=await this.fly.inventory(app,tenant,operations);await guard();
@@ -156,12 +167,12 @@ export class EnvironmentWorker {
         });
         if((await this.directory.pool.query("SELECT 1 FROM infrastructure_actions WHERE tenant_id=$1 AND generation=$2 AND state='dispatching'",[tenant,generation])).rowCount)throw new PendingOperation('cloud_creation_uncertain');
         const source=inventory.volumes.find(v=>v.id===operation.source_volume);
-        if(!source||source.encrypted!==true||source.region!==operation.region)throw new Error('Preserved source volume is unavailable.');
+        if(!usableVolume(source,operation.region))throw new Error('Preserved source volume is unavailable.');
         for(const machine of inventory.machines){await guard();await this.fly.removeStoppedMachine(app,tenant,machine.id,String(machine.config.metadata.swarm_generation));await guard();}
         const unused=inventory.volumes.find(v=>v.name===this.fly.deploymentVolumeName(tenant,id));
         if(unused&&unused.id!==operation.source_volume){await this.fly.removeRetiredVolume(app,tenant,unused.id,operations);await guard();}
         await fenced(async client=>{
-          await assertQualifiedImage(client,operation.source_image);
+          await assertProvisioningImage(client,operation.source_image);
           const replacement=randomBytes(16).toString('hex'),nextGeneration=String(BigInt(generation)+1n);
           await client.query("UPDATE environment_operations SET phase='cancelled',lease_until=NULL,rollback_operation=$2,error_code=NULL WHERE id=$1",[id,replacement]);
           await client.query(`INSERT INTO environment_operations(id,tenant_id,kind,source_generation,target_generation,source_machine,source_volume,source_image,image_digest,region,source_removed,source_guest,source_volume_gb)
@@ -189,7 +200,7 @@ export class EnvironmentWorker {
           const created=await this.fly.ensureDeploymentVolume(app,tenant,id,operation.region,operations,beforeCreate('volume'),operation.source_volume_gb);volume=created.id;
         }else{
           const current=inventory.volumes.find(v=>v.id===operation.source_volume);
-          if(!current||current.encrypted!==true||current.region!==operation.region)throw new Error('The source volume is unavailable or foreign.');
+          if(!usableVolume(current,operation.region))throw new Error('The source volume is unavailable or foreign.');
           volume=operation.source_volume;
         }
         const capacity:Omit<CapacityChange,'samples'>|undefined=operation.capacity_change??undefined;

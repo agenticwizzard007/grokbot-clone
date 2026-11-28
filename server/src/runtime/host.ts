@@ -1,3 +1,4 @@
+import { tenantMeteringEnabled } from './meter-contract.js';
 // Trusted microVM host entrypoint, never imported by an application role.
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -18,7 +19,7 @@ import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 const exec=promisify(execFile);
 const tenant=process.env.SWARM_TENANT_ID!,machine=process.env.FLY_MACHINE_ID!,volume=process.env.SWARM_VOLUME_ID!,generation=process.env.SWARM_RUNTIME_GENERATION!;
-const collectUsage=usageCollectionEnabled(process.env.TENANT_USAGE_COLLECTION);
+const collectUsage=usageCollectionEnabled(process.env.TENANT_USAGE_COLLECTION),collectMeter=tenantMeteringEnabled();
 if(!/^usr_[A-Za-z0-9_-]{8,100}$/.test(tenant)||!machine||!volume||!generation)throw new Error('Missing immutable machine identity.');
 const release=JSON.parse(await fs.readFile('/opt/swarm/release.json','utf8'));
 for(const key of ['appImage','runnerImage','mcpImage','desktopImage']){
@@ -125,6 +126,7 @@ const basic=['run','--detach','--pull=never',`--label=swarm.tenant=${tenant}`,'-
 const appEnv={NODE_ENV:'production',SWARM_ROLE:'tenant',SWARM_TENANT_ID:tenant,SWARM_VOLUME_ID:volume,SWARM_RUNTIME_GENERATION:generation,
   PLATFORM_URL:process.env.PLATFORM_URL!,APP_URL:process.env.PLATFORM_URL!,SERVER_URL:process.env.PLATFORM_URL!,COMPOSIO_GATEWAY_URL:process.env.COMPOSIO_GATEWAY_URL!,
   COMPUTER_PROVIDER:'local',DB_PATH:'/data/swarm.db',FILES_DIR:'/files',PORT:'8787',TENANT_DATA_KEY_FILE:'/run/swarm/data-key',TENANT_MANIFEST_FILE:'/run/swarm/tenant-manifest.json',
+  ...(collectMeter?{TENANT_METERING:'1'}:{}),
   RUNTIME_TOKEN_FILE:'/run/swarm/runtime-token',PLATFORM_PUBLIC_KEY_FILE:'/run/swarm/platform-public.pem',SWARM_RUNNER_SOCKET:'/run/swarm/runner.sock',
   SESSION_SECRET:(await fs.readFile('/run/swarm/session-secret','utf8')).trim()};
 await fs.writeFile('/run/swarm-host/app.env',Object.entries(appEnv).map(([k,v])=>{if(/[\r\n]/.test(v))throw new Error('Invalid environment.');return `${k}=${v}`;}).join('\n'),{mode:0o600});

@@ -1,3 +1,4 @@
+import { bindTenantLog } from './tenant-logs.js';
 import { importPKCS8, importSPKI, jwtVerify, SignJWT } from 'jose';
 import type { Directory } from './directory.js';
 import { hashToken, opaqueToken } from './directory.js';
@@ -47,6 +48,7 @@ export class RuntimeIdentity {
       AND $5::double precision>extract(epoch FROM clock_timestamp()) AND $6::double precision>=extract(epoch FROM clock_timestamp())-300
       AND ($4='swarm-host' OR EXISTS(SELECT 1 FROM host_policies p WHERE p.tenant_id=tenants.id AND p.generation=tenants.generation AND p.machine_id=tenants.machine_id AND p.desired='run'))`, [payload.sub, payload.generation, payload.machine,audience,payload.exp,payload.iat]);
     if (!rows.length) throw new Error('Runtime revoked.');
+    bindTenantLog(rows[0].id);
     return { tenant: rows[0].id as string, generation: String(rows[0].generation), machine: rows[0].machine_id as string };
   }
   async authorized<T>(token: string, effect: (owner: VerifiedRuntime, client: PoolClient) => Promise<T>) {

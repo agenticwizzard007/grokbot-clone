@@ -8,6 +8,7 @@ export const deploymentRole = value as DeploymentRole;
 export const production = process.env.NODE_ENV === 'production';
 export const tenantId = process.env.SWARM_TENANT_ID ?? '';
 export const isTenant = deploymentRole === 'tenant';
+export const platformCredentialNames = ['COMPOSIO_API_KEY', 'COMPOSIO_WEBHOOK_SECRET', 'FLY_API_TOKEN', 'DATABASE_URL', 'MIGRATION_DATABASE_URL', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'BACKUP_S3_ACCESS_KEY_ID', 'BACKUP_S3_SECRET_ACCESS_KEY', 'BACKUP_S3_SESSION_TOKEN', 'INKBOX_ADMIN_API_KEY', 'INKBOX_API_KEY', 'DIRECT_API_KEY', 'OPENROUTER_API_KEY', 'XAI_API_KEY', 'GOOGLE_CLIENT_SECRET', 'APPLE_PRIVATE_KEY'] as const;
 export function validateDeployment() {
   // A production process must name its role. SWARM_ROLE=standalone is the legacy single shared server (fly.toml sets it);
   // it is not per-user isolation and the other roles are the isolated platform. Leaving SWARM_ROLE unset is refused so a
@@ -16,7 +17,7 @@ export function validateDeployment() {
   if (production && process.env.DEV_LOGIN === '1') throw new Error('Development authentication is forbidden in production.');
   if (isTenant) {
     if (!/^usr_[A-Za-z0-9_-]{8,100}$/.test(tenantId)) throw new Error('Tenant identity is required.');
-    for (const name of ['COMPOSIO_API_KEY', 'COMPOSIO_WEBHOOK_SECRET', 'FLY_API_TOKEN', 'DATABASE_URL', 'MIGRATION_DATABASE_URL', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'INKBOX_ADMIN_API_KEY', 'INKBOX_API_KEY', 'DIRECT_API_KEY', 'OPENROUTER_API_KEY', 'XAI_API_KEY', 'GOOGLE_CLIENT_SECRET', 'APPLE_PRIVATE_KEY']) {
+    for (const name of platformCredentialNames) {
       if (process.env[name]) throw new Error(`Platform credential ${name} is forbidden in a tenant process.`);
     }
     if (!process.env.TENANT_DATA_KEY_FILE || !process.env.TENANT_MANIFEST_FILE) throw new Error('Tenant key and volume manifest are required.');

@@ -1,3 +1,5 @@
+import { isTenant } from './deployment.js';
+import { tenantMeteringEnabled } from './runtime/meter-contract.js';
 import { llmProvider } from './lib/llm.js';
 import { personalOpenRouterKey, usesPersonalOpenRouter } from './providers/openrouter.js';
 import { selectedCli } from './cli/store.js';
@@ -25,9 +27,14 @@ const nextUtcMidnight = () => {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
 };
 
-usageApi.get('/summary', (c) => {
+usageApi.get('/summary', async (c) => {
   c.header('Cache-Control', 'no-store');
-  return c.json(planUsageSummary(c.get('user').id, Date.now(), 'account'));
+  const summary=planUsageSummary(c.get('user').id, Date.now(), 'account');
+  if(isTenant&&tenantMeteringEnabled()){
+    try { return c.json(await (await import('./runtime/tenant-meter.js')).tenantAllowanceSummary(summary)); }
+    catch { return c.json({error:'Monthly allowance is temporarily unavailable.'},503); }
+  }
+  return c.json(summary);
 });
 
 usageApi.get('/', (c) => {

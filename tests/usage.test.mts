@@ -523,3 +523,30 @@ test('computer daily estimates use one allocation for local chart, totals and CS
   vm.recordVmSeconds(3600, Date.parse('2026-11-23T12:00:00Z'));
   near(vm.computerTotals(member, '2026-11-22', '2026-11-22', 'UTC', at).runningHours, 24);
 });
+
+test('tenant meter claims aggregate only this account in UTC without exporting tokens or identities',async()=>{
+  clear();db.prepare('DELETE FROM vm_usage').run();
+  await usage.recordModelUsage({userId:member,model:'fixture',response:{id:'meter-utc',usage:{cost:2.5,input_tokens:20,output_tokens:10}}});
+  await usage.recordModelUsage({userId:owner,model:'private',response:{usage:{cost:99}}});
+  usage.recordUnits({userId:member,kind:'voice',model:'voice',provider:'direct',units:3.5,unit:'minutes'});
+  const at=Date.parse('2026-11-28T00:01:00Z');
+  db.prepare("UPDATE usage_events SET created_at=? WHERE user_id=?").run(at-30000,member);
+  db.prepare("UPDATE users SET timezone='America/Los_Angeles' WHERE id=?").run(member);
+  db.prepare('INSERT INTO vm_usage(day,user_id,vm_key,provider,state,seconds,updated_at) VALUES(?,?,?,?,?,?,?)').run('2026-11-28',member,'meter','fake','running',120,at);
+  try{
+    const days=usage.dailyMeterClaims(member,at),today=days.at(-1)!;
+    assert.equal(days.length,32);assert.deepEqual(today,{day:'2026-11-28',modelSpendUsd:2.5,computerMinutes:2,voiceMinutes:3.5});
+    assert.equal(days.slice(0,-1).reduce((n,d)=>n+d.modelSpendUsd+d.computerMinutes+d.voiceMinutes,0),0);
+    assert.doesNotMatch(JSON.stringify(days),/tokens|private|user_id|model_id|provider/);
+  }finally{db.prepare('UPDATE users SET timezone=NULL WHERE id=?').run(member);}
+});
+
+test('standalone usage summary ignores tenant meter flag and keeps the existing allowance',async()=>{
+  const original=process.env.TENANT_METERING;
+  try{
+    delete process.env.TENANT_METERING;const before=(await get(member,'/api/usage/summary')).body;
+    process.env.TENANT_METERING='1';const after=await get(member,'/api/usage/summary');
+    assert.equal(after.status,200);assert.equal(after.body.plan.name,before.plan.name);assert.equal(after.body.plan.limitCents,before.plan.limitCents);
+    assert.equal(after.body.plan.softLimit,undefined);assert.equal(after.body.plan.source,undefined);
+  }finally{if(original===undefined)delete process.env.TENANT_METERING;else process.env.TENANT_METERING=original;}
+});
