@@ -37,10 +37,10 @@ async function until(check) {
 const apiPort = await port(), mockPort = await port(), webPort = await port();
 const backend = `http://127.0.0.1:${apiPort}`, base = `http://127.0.0.1:${webPort}`;
 const cases = [
-  { code: 'google_denied', provider: 'Google', message: 'Google did not approve access. Try again and review the permissions. If Google says the app is blocked, your Google account or workspace administrator may need to allow it.' },
+  { code: 'google_denied', provider: 'Google', message: 'Google sign-in was cancelled. You can try again or choose another sign-in option.' },
   { code: 'apple_denied', provider: 'Apple', message: 'Apple sign-in was cancelled. You can try again or choose another sign-in option.' },
   { code: 'openrouter_denied', provider: 'OpenRouter', message: 'OpenRouter authorization was cancelled. You can try again.' },
-  { code: 'google_session', provider: 'Google', message: 'This sign-in link no longer matches this browser. Start again here and finish in the same browser.' },
+  { code: 'google_session', provider: 'Google', message: 'That sign-in link expired. Please try again.' },
   { code: 'apple_invalid', provider: 'Apple', message: 'Apple sign-in could not be verified. Please try again.' },
   { code: 'openrouter_session', provider: 'OpenRouter', message: 'This OpenRouter sign-in expired or does not match this browser. Please start again.' },
 ];
@@ -77,7 +77,7 @@ try {
       await page.goto(`${base}/?keep=fixture&login=${test.code}`);
       await page.getByRole('alert').waitFor();
       assert.equal(await page.getByRole('alert').innerText(), test.message);
-      assert.equal(await page.locator(`a[href="/api/auth/${test.provider.toLowerCase()}/start"]`).count(), 1);
+      assert.equal(await page.locator(`a[href="/api/auth/${test.provider.toLowerCase()}/start"]`).count(), test.provider === 'Google' ? 2 : 1);
       assert.equal(new URL(page.url()).search, '?keep=fixture');
     }
     await page.goto(`${base}/?login=expired`);
@@ -92,7 +92,7 @@ try {
       await page.goto(`${base}/?keep=fixture&login=${test.code}#settings/account`);
       const banner = page.locator('.auth-callback[role="alert"]');
       await banner.waitFor();
-      await page.getByRole('heading', { name: 'Your account', exact: true }).waitFor();
+      await page.locator('.app-settings').getByText('Sign-in methods', { exact: true }).waitFor();
       assert.equal(await banner.locator('.auth-callback__message').innerText(), test.message);
       assert.ok(await page.locator('.app').isVisible(), 'keep the existing session shell');
       assert.equal(await page.locator('.signin').count(), 0);
@@ -119,7 +119,8 @@ try {
       // Exercise retry navigation locally, returning another failure without leaving the fixture.
       if (reviewGoogleLink) {
         await retry.click();
-        await page.getByRole('heading', { name: 'Text your Bots', exact: true }).waitFor();
+        await page.locator('.access-messaging').waitFor();
+        await page.locator('.access-messaging summary').filter({ hasText: 'Learn more' }).click();
         assert.equal(await page.getByRole('link', { name: 'Connect Google', exact: true }).getAttribute('href'), '/api/auth/google/start?intent=link');
         assert.equal(await banner.count(), 0);
         await page.goto(`${base}/?login=${test.code}`);
@@ -158,9 +159,10 @@ try {
     await page.goto(`${base}/?login=google_denied`);
     await page.locator('.auth-callback').waitFor();
     assert.equal(await page.locator('.auth-callback').getByRole('link', { name: 'Try Google again', exact: true }).getAttribute('href'), '/api/auth/google/start');
-    await page.getByRole('region', { name: 'Confirm it’s you', exact: true }).getByText('Sign-in did not complete. Try again to continue.', { exact: true }).waitFor();
+    await page.locator('.subscription-reauth').getByText('Sign-in did not complete. Try again to continue.', { exact: true }).waitFor();
     assert.equal(await page.getByText(/You’re signed in again/).count(), 0, 'a failed callback must not become a successful reauthentication');
     assert.deepEqual(errors, []);
+    await context.unrouteAll({ behavior: 'wait' });
     await context.close();
     console.log(`PASS A-02 at ${width}: signed-in and signed-out provider errors, retry, dismiss, URL cleanup, session preservation and layout.`);
   }

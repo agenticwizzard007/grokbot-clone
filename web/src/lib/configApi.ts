@@ -251,7 +251,7 @@ export const configApi = {
   policies: () => req<{ policies: { tool: string; mode: string }[] }>('GET', '/policies'),
   deletePolicy: (tool: string) => req<{ ok: true }>('DELETE', `/policies/${encodeURIComponent(tool)}`),
 
-  connectedApps: (signal?: AbortSignal) => req<{ connectedApps?: Toolkit[]; connected: string[] }>('GET', '/apps?limit=1', undefined, signal),
+  connectedApps: (signal?: AbortSignal) => req<{ connectedApps?: Toolkit[]; connected: string[]; notConfigured?: boolean }>('GET', '/apps?limit=1', undefined, signal),
   logout: () => req<{ ok: true }>('POST', '/auth/logout'),
 
   messaging: () => req<MessagingStatus>('GET', '/messaging'),

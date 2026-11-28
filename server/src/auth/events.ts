@@ -16,7 +16,7 @@ const reasons = new Map<string, Reason>([
 for (const provider of ['google', 'apple', 'openrouter']) {
   for (const [suffix, reason] of Object.entries({
     session: 'attempt_expired', expired: 'attempt_expired', denied: 'provider_denied',
-    unavailable: 'provider_failure', pending: 'provider_failure', permissions: 'invalid_identity',
+    unavailable: 'provider_failure', failed: 'provider_failure', pending: 'provider_failure', permissions: 'invalid_identity',
     identity: 'invalid_identity', email_required: 'invalid_identity', already_linked: 'link_conflict',
     link_required: 'link_conflict', link_signin: 'reauth_required', busy: 'busy',
     key: 'invalid_identity', management: 'invalid_identity',

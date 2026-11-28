@@ -27,6 +27,7 @@ export function SignIn() {
   const { code: loginCode, error: callbackError } = useAuthCallback();
   const [error, setError] = useState<string | null>(callbackError);
   const expired = loginCode === 'expired';
+  const googleRecovery = !!error && loginCode.startsWith('google_');
 
   useEffect(() => {
     // A genuinely expired session may need a provider redirect before connecting.
@@ -49,7 +50,7 @@ export function SignIn() {
         <div><h2>Ready on day one.</h2><Row title="Roles" /><Row title="Control" /><Row title="Your plan" /></div>
         <div className="signin__works"><ProviderLabel provider="claude">Claude</ProviderLabel><ProviderLabel provider="openai">ChatGPT</ProviderLabel><ProviderLabel provider="openrouter">OpenRouter</ProviderLabel></div>
       </aside>
-      <div className="signin__form-column">{codeStep && <header className="signin__topbar"><button type="button" aria-label="Back" onClick={() => setPhoneAttempt(n => n + 1)}><ChevronLeft size={20} aria-hidden /><span>Back</span></button></header>}<Page type="form" className="signin-page"><div className="signin__card">
+      <div className="signin__form-column">{(codeStep || googleRecovery) && <header className="signin__topbar"><button type="button" aria-label="Back" onClick={() => codeStep ? setPhoneAttempt(n => n + 1) : setError(null)}><ChevronLeft size={20} aria-hidden /><span>Back</span></button></header>}<Page type="form" className="signin-page"><div className="signin__card">
         <header className="signin__header">
           <div className="signin__brand signin__phone-brand">
             <img className="signin__brand-light" src="/assets/swarms/wordmark.svg" width="200" height="32.62" alt="swarms.so" />
@@ -61,7 +62,10 @@ export function SignIn() {
           </div>
         </header>
         {expired && <div className="signin__notice" role="status">That sign-in link has expired or was already used.</div>}
-        {error && <div className="card__error signin__error" role="alert">{error}</div>}
+        {error && (googleRecovery ? <div className="signin__recovery">
+          <div className="card__error signin__error" role="alert">{error}</div>
+          {googleLogin && <AuthLink href="/api/auth/google/start">Try again</AuthLink>}
+        </div> : <div className="card__error signin__error" role="alert">{error}</div>)}
         <PhoneAuth key={phoneAttempt} mode="signin" onCodeStep={setCodeStep} />
         <section className="access-signin__alternatives" aria-labelledby="signin-other-methods">
           <h2 className="signin__divider" id="signin-other-methods">or</h2>
