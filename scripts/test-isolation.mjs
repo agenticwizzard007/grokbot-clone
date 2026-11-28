@@ -6,6 +6,7 @@ if (!process.env.TEST_DATABASE_URL) {
   process.exit(1);
 }
 const files = [
+  'tenant-cross-access',
   'platform-onboarding', 'platform-onboarding-auth',
   'cloud-endpoints', 'docker-platform',
   'docker-tenants', 'docker-tenant-policy', 'docker-lifecycle',
