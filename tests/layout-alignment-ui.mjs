@@ -103,7 +103,9 @@ export function inspectAlignment({ selector = '.shell-content > :not(.shell-head
     }
     if (el.matches('[role="tablist"], [role="radiogroup"], .seg, .segmented, .cfg-seg, .task-filters, nav[aria-label$="sections"]')) {
       const children = [...el.children].filter(visible).map(rect);
-      if (children.some(r => !close(r.width, children[0].width))) issues.push(`Unequal segmented cells: ${label(el)} (${children.map(r => r.width.toFixed(2)).join(', ')})`);
+      // The refined Tasks design uses content-sized desktop tabs and filters.
+      const compactTaskNavigation = el.closest('.tasks-view') && el.matches('.work-tabs, .task-filters');
+      if (!compactTaskNavigation && children.some(r => !close(r.width, children[0].width))) issues.push(`Unequal segmented cells: ${label(el)} (${children.map(r => r.width.toFixed(2)).join(', ')})`);
     }
     if (el.matches('.layout-section__header')) {
       const title = el.querySelector(':scope > h2');
