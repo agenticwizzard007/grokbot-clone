@@ -322,3 +322,20 @@ export function usageCsv(userId: string | null, range: UsageRange, timezone = us
   }
   return [cols.join(','), ...lines].join('\n') + '\n';
 }
+
+/** Meter export is explicitly UTC and scoped to one account. No tokens, prompts or provider identities leave the tenant.
+ * Re-send the last 32 days, including empty days, so late prices and month rollover converge by replacement.
+ * Cost has the same recorded/estimated semantics as usageReport.totals.costUsd, not a provider invoice.
+ */
+export function dailyMeterClaims(userId: string, at = Date.now()): import('./runtime/meter-contract.js').MeterDay[] {
+  const dayMs = 86_400_000, last = new Date(at).toISOString().slice(0,10), start = Date.parse(last)-31*dayMs;
+  const events = db.prepare(`SELECT strftime('%Y-%m-%d',created_at/1000,'unixepoch') day,
+    COALESCE(sum(cost_usd),0) modelSpendUsd, COALESCE(sum(CASE WHEN unit='minutes' THEN units ELSE 0 END),0) voiceMinutes
+    FROM usage_events WHERE user_id=? AND created_at>=? AND created_at<=? GROUP BY day`).all(userId,start,at) as {day:string;modelSpendUsd:number;voiceMinutes:number}[];
+  const computers = db.prepare(`SELECT day,COALESCE(sum(seconds),0)/60 AS minutes FROM vm_usage
+    WHERE user_id=? AND state='running' AND day>=? AND day<=? GROUP BY day`).all(userId,new Date(start).toISOString().slice(0,10),last) as {day:string;minutes:number}[];
+  return Array.from({length:32},(_,i)=>{
+    const day=new Date(start+i*dayMs).toISOString().slice(0,10),event=events.find(e=>e.day===day);
+    return {day,modelSpendUsd:event?.modelSpendUsd??0,voiceMinutes:event?.voiceMinutes??0,computerMinutes:computers.find(c=>c.day===day)?.minutes??0};
+  });
+}

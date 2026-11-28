@@ -1,3 +1,4 @@
+import { tenantMeteringEnabled } from '../runtime/meter-contract.js';
 import { createHash } from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
 import { pinnedImage } from '../runtime/container-policy.js';
@@ -57,7 +58,7 @@ export class FlyTenants {
     if(machine.id!==id)throw new Error('Machine identity changed.');this.checkMachine(machine,tenant,volume,generation);return machine;
   }
   async ensureMachine(app:string,tenant:string,volume:string,image:string,region:string,generation:string,beforeCreate?:BeforeCreate,guest:TenantGuest={cpu_kind:'shared',cpus:2,memory_mb:4096}){
-    const collectUsage=usageCollectionEnabled(process.env.TENANT_USAGE_COLLECTION);
+    const collectUsage=usageCollectionEnabled(process.env.TENANT_USAGE_COLLECTION),collectMeter=tenantMeteringEnabled();
     this.appName(app,tenant);pinnedImage(image);validateGuest(guest);
     const machines=await this.request('GET',`/apps/${segment(app)}/machines`);
     if(!Array.isArray(machines)||machines.some((m:any)=>m.state!=='destroyed'&&m.config?.metadata?.swarm_tenant!==tenant))throw new Error('Foreign machine in tenant application.');
@@ -69,7 +70,7 @@ export class FlyTenants {
       image,guest:{...guest},mounts:[{volume,path:'/data'}],
       services:[],metadata:{swarm_tenant:tenant,swarm_generation:generation},
       env:{SWARM_TENANT_ID:tenant,SWARM_VOLUME_ID:volume,SWARM_RUNTIME_GENERATION:generation,PLATFORM_URL:process.env.PLATFORM_URL,COMPOSIO_GATEWAY_URL:process.env.COMPOSIO_GATEWAY_URL,
-        ...(collectUsage?{TENANT_USAGE_COLLECTION:'1'}:{})},
+        ...(collectUsage?{TENANT_USAGE_COLLECTION:'1'}:{}),...(collectMeter?{TENANT_METERING:'1'}:{})},
       restart:{policy:'on-failure',max_retries:5},
     }});
     this.checkMachine(machine,tenant,volume,generation);if(!sameGuest(machine.config.guest,guest))throw new Error('Created machine size is unverified.');return machine as TenantMachine;

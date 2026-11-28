@@ -1,3 +1,4 @@
+import { startTenantMeter } from './runtime/tenant-meter.js';
 import { isTenant, tenantId } from './deployment.js';
 import { startTenantTunnel } from './runtime/tunnel-client.js';
 import { initRuntimeEvents } from './runtime/events.js';
@@ -158,4 +159,4 @@ startVmMeter();
 if (computers.kind === 'local') resumeThisComputer();
 
 
-if (isTenant) { await startTenantTunnel(env.port); initRuntimeEvents(); }
+if (isTenant) { await startTenantTunnel(env.port); initRuntimeEvents(); await startTenantMeter(); }

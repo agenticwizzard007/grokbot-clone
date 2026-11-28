@@ -1,3 +1,4 @@
+import { bindTenantLog } from './tenant-logs.js';
 import {randomBytes,createHash} from 'node:crypto';
 import type {PoolClient} from 'pg';
 import {Directory,hashToken,opaqueToken} from './directory.js';
@@ -97,6 +98,7 @@ export class EnvironmentWorker {
       return (await client.query("UPDATE environment_operations SET lease_owner=$2,lease_until=clock_timestamp()+interval '2 minutes',fence=fence+1,attempts=attempts+1 WHERE id=$1 RETURNING *",[row.id,this.worker])).rows[0];
     });
     if(!operation)return 'idle';
+    bindTenantLog(operation.tenant_id);
     const id=operation.id,tenant=operation.tenant_id,generation=String(operation.target_generation),app=this.fly.name(tenant),owner=()=>({tenant,generation,machine:operation.target_machine as string});
     const fenced=async<T>(fn:(client:PoolClient)=>Promise<T>)=>this.directory.transaction(async client=>{
       // Lock first. A locking WHERE may have been evaluated before waiting;

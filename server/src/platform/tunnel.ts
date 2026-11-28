@@ -1,3 +1,5 @@
+import { noteMeterTunnel } from './meter.js';
+import { tenantMeteringEnabled } from '../runtime/meter-contract.js';
 import type { Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { randomUUID, createHash } from 'node:crypto';
@@ -57,6 +59,7 @@ export class TunnelBroker {
           const claims = await this.identity.verify(token);
           if (!this.directoryReady) throw new Error('Revocation subscription unavailable.');
           runtime.handleUpgrade(req, socket, head, ws => {
+            if (tenantMeteringEnabled()) void noteMeterTunnel(this.directory,this.identity,token).catch(()=>{});
             const previous = this.tunnels.get(claims.tenant); previous?.ws.close(4401, 'Runtime replaced');
             const tunnel: Tunnel = { ws, generation: claims.generation, machine: claims.machine, requests: new Map() };
             this.tunnels.set(claims.tenant, tunnel);
