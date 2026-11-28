@@ -36,7 +36,7 @@ try {
           const group = page.locator('.ho-loop-receipt').filter({ has: page.locator(`a[href="#loop/${run.id}"]`) });
           await group.getByRole('button', { name: /^Show passes\b/ }).click();
           await group.getByRole('button', { name: /^Hide passes\b/ }).waitFor();
-          const passes = group.getByRole('group', { name: 'Loop passes', exact: true });
+          const passes = group.getByRole('group', { name: /\bpasses$/ });
           await passes.getByRole('link', { name: /^View handoff/ }).first().waitFor();
           await group.scrollIntoViewIfNeeded();
           report.screenshots.push(await screenshot(page, evidence, `${mode}-receipts-expanded`, width));
