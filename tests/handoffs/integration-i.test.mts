@@ -127,6 +127,19 @@ test('mounted APIs provide UI envelopes, keep raw identities and end event pagin
   assert.equal((await call(f, '/handoff-task-links')).status, 200);
 });
 
+test('D3 mounted job outputs keep one envelope for artifacts and empty completed jobs', async () => {
+  const f = fixture(), saved = output(f);
+  const response = await call(f, `/outputs/by-job/${saved.jobId}`);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.output.id, saved.id);
+  assert.equal(body.output.output, undefined);
+  assert.equal(body.terminal, true);
+  const empty = jobs.acceptJob(f.maker.id, { type: 'user' });
+  jobs.beginJob(empty.id); jobs.finishJob(empty.id, true);
+  assert.deepEqual(await (await call(f, `/outputs/by-job/${empty.id}`)).json(), { output: null, terminal: true });
+});
+
 test('mounted Flow refresh enqueues once and mounted routes retain tenant and flag checks', async () => {
   const f = fixture(), other = fixture();
   assert.equal((await call(f, `/bots/${f.maker.id}/flow`)).status, 200);

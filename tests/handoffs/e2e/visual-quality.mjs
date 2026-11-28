@@ -59,7 +59,7 @@ export async function visualEvidence(page, { finished = false } = {}) {
     return { words, countedRegion: main?.className || main?.tagName || null, standard: 'BUILD-SPEC 0b/0c/0d plus merged HO-P visual quality gate' };
   });
   if (page.viewportSize().width <= 760 && !await page.getByRole('dialog').count()) {
-    const count = await page.getByRole('button', { name: 'Back', exact: true }).count();
+    const count = await page.getByRole('button', { name: /^Back(?: |$)/ }).count();
     if (count !== 1) alignment.push(`Expected one phone Back, found ${count}`);
   }
   const surface = await page.locator('dialog[open]').count() ? 'dialog[open]' : '.ho-route, .flow-tab, .agents-settings, .ho-receipt, .ho-output-card';

@@ -20,7 +20,7 @@ def s_settings_home(t, mobile):
             groups += sec_head(t,g) + card(t, ''.join(f'<div style="display: flex; align-items: center; gap: 12px; height: 48px; {"border-bottom: 1px solid "+t("bsoft")+";" if i<len(items)-1 else ""}">{icon(ic,t("text2"),18)}<div style="flex: 1">{txt(l,t("ink"),15,500)}</div>{icon("cr",t("text3"),16)}</div>' for i,(ic,l) in enumerate(items)), pad=12, gap=0)
         acct = card(t, f'<div style="display: flex; align-items: center; gap: 12px"><div style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 22px; background: {t("primary")}">{txt("TU",t("onprimary"),15,600)}</div><div style="display: flex; flex-direction: column; flex: 1">{txt("Test User",t("ink"),15,600)}{txt("user@example.com",t("text3"),13)}</div>{icon("cr",t("text3"),16)}</div>', pad=14)
         return mob(t, mtop(t,'Settings',None,None), mbody(t, acct + groups, gap=10), 'settings')
-    inner = (row(t,'eye','Theme','',seg(t,[('Light',''),('Dark',''),('Auto','')],0 if t.mode=='light' else 1).replace('flex: 1;','')) 
+    inner = (row(t,'eye','Theme','',seg(t,[('Light',''),('Dark',''),('System','')],0 if t.mode=='light' else 1).replace('flex: 1;',''))
              + row(t,'panel','Show details panel','',toggle(t,True))
              + row(t,'clock','Time zone','Europe, Central time',btn('Change',t,'secondary'))
              + row(t,'more','Keyboard shortcuts','',btn('View',t,'secondary')))

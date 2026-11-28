@@ -13,6 +13,8 @@
 .ho-back { align-self: flex-start; padding-inline: 0; }
 .ho-output-card { display: flex; flex-direction: column; gap: var(--space-2); }
 .ho-summary { line-height: var(--line-body); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.ho-output-title .md > * { font: inherit; }
+.ho-output-card .md > * + * { margin-top: 8px; }
 .ho-summary.is-expanded { display: block; overflow: visible; }
 .ho-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .ho-chips:empty { display: none; }

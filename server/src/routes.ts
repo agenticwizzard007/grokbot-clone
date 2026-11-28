@@ -144,7 +144,8 @@ for (const path of ['/outputs/*', '/handoffs', '/handoffs/*', '/handoff-settings
     const value = await c.res.clone().json();
     const route = c.req.path.replace(/^\/api/, '');
     let extra: Record<string, unknown> | undefined;
-    if (/^\/outputs\/(?:by-job\/[^/]+|[^/]+)$/.test(route)) extra = { output: value };
+    // Job lookups already return their { output, terminal } envelope.
+    if (/^\/outputs\/[^/]+$/.test(route)) extra = { output: value };
     else if (route === '/handoff-settings') extra = { settings: value };
     else if (route.startsWith('/handoffs') && value.id) {
       const { events, sourceOutput, resultOutput, ...handoff } = value;

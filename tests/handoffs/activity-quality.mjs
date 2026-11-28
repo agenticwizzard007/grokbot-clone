@@ -48,7 +48,7 @@ try {
         const alignment = await page.evaluate(inspectAlignment);
         assert.deepEqual(quality.issues, [], `${width} ${theme} ${direction} quality`);
         assert.deepEqual(alignment, [], `${width} ${theme} ${direction} alignment`);
-        if (width <= 760) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1);
+        if (width <= 760) assert.equal(await page.getByRole('button', { name: /^Back(?: |$)/ }).count(), 1);
         report.push({ width, theme, direction, ...quality, alignment });
         console.log(`PASS Activity ${width} ${theme} ${direction}`);
       }
@@ -66,7 +66,7 @@ try {
       const alignment = await page.evaluate(inspectAlignment);
       assert.deepEqual(quality.issues, []);
       assert.deepEqual(alignment, []);
-      if (width <= 760) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1);
+      if (width <= 760) assert.equal(await page.getByRole('button', { name: /^Back(?: |$)/ }).count(), 1);
       malformed = false;
       await section.getByRole('button', { name: 'Retry', exact: true }).click();
       await section.locator('.ho-receipt').first().waitFor();

@@ -177,3 +177,22 @@ test('insertions reject invalid anchors, indices, node records and stale reviews
   }
   assert.throws(() => compareDefaultView(settingsKey, settingsExpected, settingsExpected, contentReviewed), /remove the review/);
 });
+
+test('reviewed trailing empty-state nodes require an exact end anchor and full snapshot', () => {
+  const reviews = structuredClone(settingsReviewed);
+  reviews[settingsKey].insertions = [{ index: settingsExpected.nodes.length, before: null, nodes: insertedNodes }];
+  const value = settingsChanged(); value.nodes.push(...structuredClone(insertedNodes));
+  assert.equal(compareDefaultView(settingsKey, value, settingsExpected, reviews), 'reviewed');
+  for (const edit of [
+    actual => { actual.nodes.at(-1).rect[3] += 1; },
+    actual => { actual.nodes.at(-1).padding = '24px'; },
+    actual => { actual.nodes.push(structuredClone(insertedNodes[0])); },
+    actual => { actual.nodes.pop(); },
+    actual => { actual.tokens['--color-bg-pane'] = '#000000'; },
+  ]) {
+    const actual = structuredClone(value); edit(actual);
+    assert.throws(() => compareDefaultView(settingsKey, actual, settingsExpected, reviews));
+  }
+  reviews[settingsKey].insertions[0].before = settingsExpected.nodes.at(-1);
+  assert.throws(() => compareDefaultView(settingsKey, value, settingsExpected, reviews), /pinned insertion anchor/);
+});

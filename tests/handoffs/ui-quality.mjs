@@ -42,7 +42,7 @@ export function inspectQuality({ selector, finished = false }) {
     }
     if (el.matches('[data-layout="card"]')) {
       check('d.card', ['paddingTop','paddingRight','paddingBottom','paddingLeft'].every(k => close(parseFloat(css[k]),16)) && close(parseFloat(css.borderTopLeftRadius),12) && close(parseFloat(css.borderTopWidth),1), el, `${css.padding} radius ${css.borderTopLeftRadius}`);
-      const title = el.querySelector('.layout-row__title, h2, h3'); const body = el.querySelector('p');
+      const title = el.querySelector('.layout-row__title, h2, h3'); const body = [...el.querySelectorAll('p')].find(node => !node.closest('.layout-row__title'));
       if (title && body) check('g.unique-title', !body.textContent.trim().toLowerCase().startsWith(title.textContent.trim().toLowerCase()), el);
     }
     if (el.matches(chip)) { check('e.chip', [el, el.closest('a')].filter(Boolean).every(node => getComputedStyle(node).textDecorationLine === 'none'), el); check('e.chip-size', close(r.height,20) && close(parseFloat(css.fontSize),12) && close(parseFloat(css.lineHeight),16) && css.fontWeight === '500', el); }

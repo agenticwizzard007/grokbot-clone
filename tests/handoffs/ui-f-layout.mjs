@@ -111,7 +111,7 @@ export async function runRoomsTasksDemo() {
       assert.deepEqual(await page.evaluate(inspectAlignment), []);
       await screenshot('bot-tasks');
       results.push({ width, case: 'Bot Tasks actions, one Back and shared layout', pass: true });
-      if (width === 390) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1);
+      if (width === 390) assert.equal(await page.getByRole('button', { name: /^Back(?: |$)/ }).count(), 1);
       featureEnabled = false;
       await page.reload();
       await page.getByRole('radio', { name: 'All', exact: true }).click();
