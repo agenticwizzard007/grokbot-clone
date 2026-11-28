@@ -99,3 +99,23 @@ test('Bots has no Back label and closing its surface retains the previous screen
   navigation.initialize({ kind: 'bots' }); label('');
   backFromSurface(); assert.equal(f.location.hash, '#reports');
 });
+
+
+test('artifact links retain their pathname without a chat hash when sign-in and roster loading finish', () => {
+  const previous = useStore.getState();
+  f.location.pathname = '/artifacts/artifact_shared';
+  f.reset('');
+  navigation.reset();
+  try {
+    useStore.setState({ user: null, botsLoaded: false });
+    useStore.setState({ user: { id: 'artifact-reader' } as any });
+    useStore.setState({ bots: [...bots], botsLoaded: true, selectedBotId: 'fixture' });
+    assert.equal(f.location.hash, '');
+    assert.equal(navigation.screen, null);
+    useStore.setState({ bots: [...bots] });
+    assert.equal(f.location.hash, '', 'subsequent roster refreshes keep the shared link unchanged');
+  } finally {
+    f.location.pathname = '/';
+    useStore.setState({ user: previous.user, bots: previous.bots, botsLoaded: previous.botsLoaded });
+  }
+});
