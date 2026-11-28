@@ -1,0 +1,9 @@
+# Multitenant owner steps
+
+## MT-B: Docker tenant driver
+
+No external account, secret or DNS record is needed to build or run the fake-engine tests. To use Docker staging, the owner or operator must provide a dedicated Linux host whose Docker `/info` reports `MemoryLimit`, `SwapLimit`, `CpuCfsQuota` and `PidsLimit` as true and includes `name=seccomp,profile=builtin`. The current development sandbox lacks swap-limit enforcement; run the real two-tenant command in `docs/docker-tenants.md` on a capable disposable host before making any isolation claim.
+
+Set `TENANT_DRIVER=docker`, `DOCKER_HOST=unix:///var/run/docker.sock`, `TENANT_REGION=local` and `TENANT_HOST_IMAGE=<reviewed preloaded repository@sha256:digest or local sha256:image-config-digest>` on the provisioner. Never give the socket or provider credentials to tenants. Keep `TENANT_DRIVER=fly` for production. If the owner accepts shared-kernel isolation for a separate deployment, document that risk acceptance and set `SWARM_ALLOW_DOCKER_TENANTS=1` explicitly when `NODE_ENV=production`. This does not approve Fly release gates or disable any containment checks.
+
+Full Swarm host readiness additionally requires a compatible pinned image that passes the existing preflight under the restrictive Docker profile and a separately reviewed egress design to the owned platform/gateway HTTPS origins. The existing Fly host image is not qualified for this profile. The driver permits no external egress and does not attest local-volume encryption or disk quotas. Do not migrate customer accounts or run capacity growth through Docker until encrypted, quota-capable storage and the host/network boundaries have been implemented and reviewed. Never seed Fly evidence or weaken seccomp, capability drops, read-only roots, firewall rules or resource limits to satisfy these prerequisites.

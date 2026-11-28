@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import {TenantNames} from './tenant-names.js';
 import {setTimeout as delay} from 'node:timers/promises';
 import { pinnedImage } from '../runtime/container-policy.js';
 import {usageCollectionEnabled} from '../runtime/host-usage.js';
@@ -6,8 +6,8 @@ import {validateGuest,sameGuest,type TenantGuest,type TenantCapacity} from './te
 const segment=(s:string)=>encodeURIComponent(s);
 export type BeforeCreate=()=>Promise<void>;
 export interface TenantMachine {id:string;state:string;region?:string;config:any}
-export class FlyTenants {
-  constructor(private token=process.env.FLY_API_TOKEN,private org=process.env.FLY_ORG_SLUG) {if(!token||!org)throw new Error('Fly provisioner credentials are required.');}
+export class FlyTenants extends TenantNames {
+  constructor(private token=process.env.FLY_API_TOKEN,private org=process.env.FLY_ORG_SLUG) {super();if(!token||!org)throw new Error('Fly provisioner credentials are required.');}
   async request(method:string,route:string,body?:unknown):Promise<any>{
     const result=await fetch(`https://api.machines.dev/v1${route}`,{method,redirect:'error',headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(45_000)});
     if(!result.ok){await result.body?.cancel();throw Object.assign(new Error(`Fly request failed (${result.status}).`),{status:result.status});}
@@ -17,10 +17,6 @@ export class FlyTenants {
     try{while(true){const next=await reader.read();if(next.done)break;bytes+=next.value.length;if(bytes>8*1024*1024)throw new Error('Fly response limit exceeded.');chunks.push(next.value);}}finally{await reader.cancel();}
     const text=Buffer.concat(chunks).toString();return text?JSON.parse(text):{};
   }
-  name(tenant:string){if(!/^usr_[A-Za-z0-9_-]{8,100}$/.test(tenant))throw new Error('Invalid tenant.');return `swarm-u-${createHash('sha256').update(tenant).digest('hex').slice(0,32)}`;}
-  network(tenant:string){this.name(tenant);return `tenant-${createHash('sha256').update(tenant).digest('hex').slice(0,32)}`;}
-  volumeName(tenant:string){this.name(tenant);return `tenant_${createHash('sha256').update(tenant).digest('hex').slice(0,16)}`;}
-  deploymentVolumeName(tenant:string,operation:string){this.name(tenant);if(!/^[a-f0-9]{32}$/.test(operation))throw new Error('Invalid deployment operation.');return `v_${createHash('sha256').update(JSON.stringify([tenant,operation])).digest('hex').slice(0,26)}`;}
   private appName(app:string,tenant:string){if(app!==this.name(tenant))throw new Error('Foreign tenant application.');}
   async ensureApp(tenant:string,beforeCreate?:BeforeCreate){
     const app=this.name(tenant),network=this.network(tenant);
