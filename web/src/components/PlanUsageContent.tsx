@@ -14,7 +14,7 @@ export function PlanUsageContent({ summary, error = false, sidebar = false }: { 
     <span className="plan-usage__amount">{view?.amount ?? (error ? 'Try again' : 'Loading amount')}</span>
     <span className="plan-usage__quota">
       {view?.percent != null && <progress max={100} value={view.percent} aria-label={`${summary!.plan.name} usage`} />}
-      <span className="plan-usage__status">{view ? <>{summary!.plan.unit === 'usd' && <span>{view.status}</span>}{view.warning && <span>{view.warning}</span>}</> : ' '}</span>
+      <span className="plan-usage__status">{view ? <>{summary!.plan.unit === 'usd' && <span>{view.status}</span>}{view.warning && <span className="plan-usage__warning">{view.warning}</span>}</> : ' '}</span>
     </span>
     <span className="plan-usage__reset">{error && summary ? 'Update unavailable' : view?.reset ?? ' '}</span>
     {(summary && (summary.ownKeys.usedCents > 0 || summary.ownKeys.requests > 0)) && <span className="plan-usage__own">{usageDollars(summary.ownKeys.usedCents)} {summary.ownKeys.label}</span>}

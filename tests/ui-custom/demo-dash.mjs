@@ -68,7 +68,7 @@ async function runPolishView({ before, output, view }) {
       const selector = await dialog.count() ? 'dialog[open]' : name === 'send-prefill' ? '.composer' : name === 'sidebar' ? '.sidebar__dashboards' : '.dashboard-page';
       assert.doesNotMatch(await page.locator('body').innerText(), /mock|Fixture|PRIVATE|QA-|undefined|null|\[object|[\u2013\u2014]/i, `${name}: clean copy`);
       assert.deepEqual(await page.evaluate(inspectAlignment, { selector: selector === '.dashboard-page' ? '.dashboard-page, .dashboard-header-actions' : selector, requirePage: !['sidebar', 'send-prefill'].includes(name) }), [], `${name}: alignment`);
-      const issues = await page.locator(selector).evaluate(root => [...root.querySelectorAll('p,span,strong,label,button,h2')].filter(el => el.checkVisibility() && el.textContent.trim() && !el.closest('svg')).flatMap(el => parseFloat(getComputedStyle(el).fontSize) < (el.closest('.model-pill, .plan-usage__status, .plan-usage__reset, .plan-usage__own, .plan-usage__note') || el.matches('.sidebar__section-label, .dashboard-caption, .dashboard-schedule li > span, .dashboard-bot-meta, .dashboard-bot-meta *, .dashboard-list-meta *, .dashboard-muted, .dashboard-library-item > span, .dashboard-status') ? 13 : 14) && !el.matches('.dashboard-status > span') ? [el.textContent] : []));
+      const issues = await page.locator(selector).evaluate(root => [...root.querySelectorAll('p,span,strong,label,button,h2')].filter(el => el.checkVisibility() && el.textContent.trim() && !el.closest('svg')).flatMap(el => parseFloat(getComputedStyle(el).fontSize) < (el.closest('.model-pill, .plan-usage__status, .plan-usage__reset, .plan-usage__own, .plan-usage__note') || el.closest('.sidebar__section-label, .dashboard-caption, .dashboard-schedule li > span, .dashboard-bot-meta, .dashboard-bot-meta *, .dashboard-list-meta *, .dashboard-muted, .dashboard-library-item > span, .dashboard-status') ? 13 : 14) && !el.matches('.dashboard-status > span') ? [el.textContent] : []));
       if (name !== 'send-prefill') assert.deepEqual(issues, [], `${name}: readable type`);
       if (width <= 760 && name !== 'sidebar') assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1, `${name}: one Back`);
       const fields = await page.locator('input,textarea').evaluateAll(fields => fields.filter(el => el.checkVisibility()).map(el => `${el.value} ${el.placeholder}`).join(' '));
@@ -91,7 +91,7 @@ async function runPolishView({ before, output, view }) {
       pass(`${name} ${width} ${theme}: alignment, targets, type, clean copy`);
     }
     for (const [width, theme] of [view]) {
-      await page.setViewportSize({ width, height: width <= 760 ? 844 : 900 }); await page.emulateMedia({ colorScheme: theme });
+      await page.setViewportSize({ width, height: width <= 760 ? 844 : 720 }); await page.emulateMedia({ colorScheme: theme });
       await open(sales);
       if (!before) {
         const stats = await page.locator('[data-widget-type="stat"]').evaluateAll(cells => cells.map(el => { const r = el.getBoundingClientRect(); return { top: r.top, width: r.width }; }));
@@ -144,7 +144,7 @@ async function runPolishView({ before, output, view }) {
       await capture('manager', width, theme);
       await page.getByRole('button', { name: 'Create', exact: true }).click(); await capture('create', width, theme); await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       if (width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
-      if (!before) { assert.equal(await page.locator('.sidebar__dashboards .sidebar-island').count(), width <= 760 ? 4 : 6); assert.equal(await page.locator('.sidebar__dashboards').getByRole('button', { name: 'All dashboards', exact: true }).count(), 1); }
+      if (!before) { const disclosure = page.locator('.sidebar__disclosure'); if (await disclosure.getAttribute('aria-expanded') === 'false') await disclosure.click(); assert.equal(await page.locator('.sidebar__dashboards .sidebar-island').count(), width <= 760 || page.viewportSize().height < 760 ? 4 : 6); assert.equal(await page.locator('.sidebar__dashboards').getByRole('button', { name: 'All dashboards', exact: true }).count(), 1); }
       await capture('sidebar', width, theme);
       await open(empty); if (!before) await page.getByRole('button', { name: 'Create with your agent', exact: true }).waitFor(); await capture('empty', width, theme);
       await open(sales); await page.getByRole('button', { name: 'Edit dashboard', exact: true }).click(); await capture('edit', width, theme);

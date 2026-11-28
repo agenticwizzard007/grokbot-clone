@@ -155,4 +155,4 @@
 @media (max-width: 760px) {
   .dashboard-header-actions--editing { width: 152px; }
 }
-.dashboard-empty-hint { margin: 16px 0 0; font-size: 14px; line-height: 20px; color: var(--color-text-secondary); }
+.dashboard-page .dashboard-empty-hint { margin: 0; padding-top: 16px; font-size: 14px; line-height: 20px; color: var(--color-text-secondary); }

@@ -87,6 +87,9 @@ export async function runFixDash3({ before = false, output = path.resolve(`.cont
         await page.waitForTimeout(100);
         const issues = await page.evaluate(inspectSidebarRows); guards.push({ view: label, position, issues }); check(`whole rows ${position} ${label}`, issues.length === 0, issues.join('; '));
       }
+      const create = page.locator('.sidebar:visible .sidebar__create');
+      await create.focus();
+      check(`keyboard reveals edge row ${label}`, await create.evaluate(el => !el.hasAttribute('data-sidebar-clipped')) && (await page.evaluate(inspectSidebarRows)).length === 0);
       await page.locator('.sidebar:visible .sidebar__custom-scroll').evaluate(el => { el.scrollTop = 0; });
       if (exists) {
         await disclosure.focus(); await page.keyboard.press('Enter');
