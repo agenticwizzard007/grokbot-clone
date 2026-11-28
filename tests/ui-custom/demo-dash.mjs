@@ -3,13 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { agenticFixture } from './e2e/agentic-fixture.mjs';
 import { inspectAlignment } from '../layout-alignment-ui.mjs';
+import { inspectDashboardPolish, inspectSidebarUsage } from './dashboard-polish-guards.mjs';
 
 export const DASH_POLISH_STATES = ['sales-pipeline', 'operations', 'manager', 'create', 'sidebar', 'empty', 'empty-widget', 'edit', 'widget-settings', 'add-widget', 'ask-agent', 'approve-confirm', 'send-prefill'];
 const prompt = 'Show my tasks that have been open for more than 2 days';
 const widget = (id, type, title, span, rows, source, options = {}) => ({ id: `$new${id}`, type, title, span, rows, ...(source ? { source: { id: source, params: {} } } : {}), options });
 async function runPolishView({ before, output, view }) {
   fs.mkdirSync(output, { recursive: true });
-  const server = await agenticFixture(), checks = [], screenshots = [], counts = [], failures = [];
+  const server = await agenticFixture(), checks = [], screenshots = [], counts = [], failures = [], guards = [];
   const pass = label => { checks.push(label); console.log(`PASS ${label}`); };
   let page;
   try {
@@ -59,6 +60,9 @@ async function runPolishView({ before, output, view }) {
       await page.evaluate(() => document.fonts.ready);
       const file = path.join(output, `${name}-${width}-${theme}.png`);
       await page.screenshot({ path: file, animations: 'disabled' }); screenshots.push(file);
+      const guardIssues = [...await page.evaluate(inspectDashboardPolish), ...await page.evaluate(inspectSidebarUsage)];
+      guards.push({ name, width, theme, issues: guardIssues });
+      if (!before) assert.deepEqual(guardIssues, [], `${name}: dashboard polish guards`);
       if (before) return;
       const dialog = page.locator('dialog[open]');
       const selector = await dialog.count() ? 'dialog[open]' : name === 'send-prefill' ? '.composer' : name === 'sidebar' ? '.sidebar__dashboards' : '.dashboard-page';
@@ -142,7 +146,7 @@ async function runPolishView({ before, output, view }) {
       if (!before) { assert.equal(await page.locator('.sidebar__dashboards button').count(), 6); assert.equal(await page.locator('.sidebar__dashboards').getByRole('button', { name: 'All dashboards', exact: true }).count(), 1); }
       await capture('sidebar', width, theme);
       await open(empty); if (!before) await page.getByRole('button', { name: 'Create with your agent', exact: true }).waitFor(); await capture('empty', width, theme);
-      await open(sales); await page.getByRole('button', { name: before ? 'Edit' : 'Edit dashboard', exact: true }).click(); await capture('edit', width, theme);
+      await open(sales); await page.getByRole('button', { name: 'Edit dashboard', exact: true }).click(); await capture('edit', width, theme);
       await page.getByRole('button', { name: 'Settings: Open tasks', exact: true }).first().click(); await capture('widget-settings', width, theme); await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       await page.getByRole('button', { name: 'Add widget', exact: true }).click(); await capture('add-widget', width, theme);
       if (!before) assert.match(await page.locator('.dashboard-library-item').first().innerText(), /^Ask your agent/);
@@ -160,13 +164,13 @@ async function runPolishView({ before, output, view }) {
       assert.match(await page.locator('.composer__input').inputValue(), /^Make me a dashboard for /); assert.equal(sends, 0); pass('Create with your agent prefills without sending');
     }
   } catch (error) { if (page) await page.screenshot({ path: path.join(output, `failure-${view[0]}-${view[1]}.png`) }); failures.push(error.stack); throw error; }
-  finally { await server.close(); fs.writeFileSync(path.join(output, `results-${view[0]}-${view[1]}.json`), JSON.stringify({ passed: checks.length, failed: failures.length, checks, failures, screenshots, counts }, null, 2)); }
-  return { passed: checks.length, failed: failures.length, checks, failures, screenshots, counts };
+  finally { await server.close(); fs.writeFileSync(path.join(output, `results-${view[0]}-${view[1]}.json`), JSON.stringify({ passed: checks.length, failed: failures.length, checks, failures, screenshots, counts, guards }, null, 2)); }
+  return { passed: checks.length, failed: failures.length, checks, failures, screenshots, counts, guards };
 }
 export async function runDashboardPolish({ before = false, output = path.resolve(`.context/ui-custom/demo-dash${before ? '/before' : ''}`), views = [[320,'light'],[390,'light'],[500,'light'],[1280,'light'],[390,'dark'],[1280,'dark']] } = {}) {
   const results = [];
   for (const view of views) results.push(await runPolishView({ before, output, view }));
-  const report = { passed: results.reduce((n,r) => n + r.passed, 0), failed: 0, screenshots: results.flatMap(r => r.screenshots), counts: results.flatMap(r => r.counts), checks: results.flatMap(r => r.checks) };
+  const report = { passed: results.reduce((n,r) => n + r.passed, 0), failed: 0, screenshots: results.flatMap(r => r.screenshots), counts: results.flatMap(r => r.counts), checks: results.flatMap(r => r.checks), guards: results.flatMap(r => r.guards) };
   fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify(report, null, 2));
   console.log(`DEMO DASH: ${report.passed} passed, 0 failed. ${output}/results.json`);
   return report;
