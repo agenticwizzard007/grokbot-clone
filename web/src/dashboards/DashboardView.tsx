@@ -12,7 +12,6 @@ import { AddWidgetSheet } from './AddWidgetSheet';
 import { WidgetSettings } from './WidgetSettings';
 import { findDashboard, type Widget, type Dashboard } from './model';
 import { useWidgetData } from './useWidgetData';
-import '../styles/dashboards.css';
 import './dashboard-ui.css';
 
 export default function DashboardView({ dashboardId, id, slug }: { dashboardId?: string; id?: string; slug?: string }) {

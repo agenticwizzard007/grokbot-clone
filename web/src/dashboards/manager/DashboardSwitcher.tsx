@@ -10,7 +10,6 @@ import { SuggestDashboardSheet } from '../SuggestDashboardSheet';
 import { DashboardForm } from './DashboardForm';
 import { openDashboard, useDashboardManager } from './useDashboardManager';
 import { DASHBOARD_LIMIT } from './model';
-import '../../styles/dashboards.css';
 import '../dashboard-ui.css';
 export function DashboardSwitcher({ dashboardId }: { dashboardId: string }) {
   const manager = useDashboardManager(), dashboards = useEffectiveConfig().dashboards;

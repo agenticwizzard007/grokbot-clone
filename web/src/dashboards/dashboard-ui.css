@@ -1,3 +1,5 @@
+@import '../styles/dashboards.css';
+
 .dashboard-caption { font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }
 .dashboard-page, .dashboard-dialog { font-size: 14px; line-height: 20px; }
 .dashboard-page p, .dashboard-dialog p { margin: 0; }
@@ -120,11 +122,6 @@
   .dashboard-dialog-heading > button[aria-label="Close"] { display: none; }
   .dashboard-grid:not(.dashboard-grid--editing) > .dashboard-grid-slot:not([data-widget-kind="stat"]) { grid-column: 1 / -1; }
   .dashboard-grid--editing > .dashboard-grid-slot { grid-column: 1 / -1; }
-}
-@media (min-width: 360px) and (max-width: 480px) {
-  .dashboard-grid { grid-template-columns: repeat(6,minmax(0,1fr)); }
-  .dashboard-grid-slot { grid-column: span var(--widget-small-span); }
-  .dashboard-grid--editing .dashboard-grid-slot { grid-column: span 6; }
 }
 @media (max-width: 359px) {
   .dashboard-grid-slot[data-widget-kind="stat"][data-widget-span="4"] { grid-column: span 2; }

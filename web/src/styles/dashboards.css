@@ -102,6 +102,11 @@
   .dashboard-chart svg { height: 112px; }
   .dashboard-library { grid-template-columns: minmax(0,1fr); }
 }
+/* Keep every grid breakpoint together so lazy sheet imports cannot reorder them. */
+@media (min-width: 360px) and (max-width: 480px) {
+  .dashboard-grid { grid-template-columns: repeat(6,minmax(0,1fr)); }
+  .dashboard-grid-slot { grid-column: span var(--widget-small-span); }
+}
 @media (forced-colors: active) { .dashboard-chart-series { fill: Highlight; stroke: Highlight; } .dashboard-chart-series-1 { fill: CanvasText; stroke: CanvasText; } .dashboard-bot-avatar { border: 1px solid CanvasText; } }
 
 .dashboard-empty-data { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 16px; height: 100%; }
@@ -150,11 +155,11 @@
   .dashboard-actions { width: 100%; max-width: none; flex: 1; }
   .dashboard-dialog { box-sizing: border-box; width: 100%; max-height: calc(100dvh - 16px); margin: auto 0 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .dashboard-task-board { grid-template-columns: minmax(0,1fr); }
+  .dashboard-empty .layout-button-group { flex-direction: column; }
 }
 @media (max-width: 480px) {
-  .dashboard-grid--editing .dashboard-grid-slot { grid-column: span 2; }
+  .dashboard-grid--editing .dashboard-grid-slot { grid-column: 1 / -1; }
   .dashboard-settings .cfg-seg { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .dashboard-empty .layout-button-group { flex-direction: column; }
 }
 
 .dashboard-table .dashboard-status > span { display: none; }

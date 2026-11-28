@@ -8,7 +8,6 @@ import { useDashboardManager, openDashboard } from './useDashboardManager';
 import { AgentDashboardSheet } from '../AgentDashboardSheet';
 import { SuggestDashboardSheet } from '../SuggestDashboardSheet';
 import { refreshUiConfig } from '../../customization/store';
-import '../../styles/dashboards.css';
 import '../dashboard-ui.css';
 export default function DashboardsManager() {
   const manager = useDashboardManager(), { doc, busy, status, error, patch } = manager;
