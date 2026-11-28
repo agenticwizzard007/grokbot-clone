@@ -27,7 +27,7 @@ try {
   ]);
   await page.getByRole('region', { name: 'Pinned', exact: true }).waitFor();
   assert.equal(await page.locator('.sidebar').getByRole('button', { name: 'Files', exact: true }).count(), 0);
-  const order = await page.locator('.sidebar__custom-scroll').evaluate(el => [...el.children].map(child => child.getAttribute('aria-label') || child.className));
+  const order = await page.locator('.sidebar__custom-scroll > .sidebar__scroll-content').evaluate(el => [...el.children].map(child => child.getAttribute('aria-label') || child.className));
   assert.equal(order[0], 'Pinned'); assert.equal(order[1], 'Dashboards');
   assert.equal(await page.locator('.sidebar > .sidebar__footer').count(), 1, 'Settings stays pinned outside the reordered scroll area');
   await page.waitForFunction(() => Math.round(document.querySelector('.sidebar').getBoundingClientRect().width) === 320);
