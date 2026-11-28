@@ -19,6 +19,7 @@ test('SO D-03: missing signup routes and the standalone HTML fallback are not ad
       return response;
     });
     assert.deepEqual(await configApi.platformSignup(), { admin: false });
+    assert.equal(response.bodyUsed, true, 'Absent admin surfaces release the response body');
     fetch.mock.restore();
   }
 });
