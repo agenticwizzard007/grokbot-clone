@@ -29,6 +29,10 @@ The demo records 104 screenshots and clean capture audits, plus 568 mandatory ch
 
 Candidate and main results are retained under `.context/handoffs/integrated-checks/` and `integrated-followup/`, with matching directories inside `main-polish-baseline/.context/handoffs/`. The candidate Node suites pass 735 tests; main passes 687. HO-H adds 38 security cases, eight widget contract cases and two mock-script cases. Both pass typecheck, web build and the real-runtime loop regression. The candidate's ten existing UI suites pass 442 checks.
 
+Both branches pass shared alignment covering 250 general/dashboard views, 42 dashboard-suggestion checks and 568 handoff views, plus 870 navigation cases. The candidate's route layout and accessibility audit passes 12 cases with no skips. All 11 fresh performance budgets pass; the committed reference remains unchanged.
+
+Main's initial loop behavior run timed out when its Retry control disappeared before the click. The unchanged standalone rerun passes all 37 checks, bringing its existing UI comparison to 442 passing checks. The original failure and successful retry are both retained under the baseline worktree's evidence directory.
+
 The final consolidated report is `.context/handoffs/final-report.json`. It records the completed alignment, navigation and performance commands, comparison counts and any retained retry evidence. Passing performance measurements are saved separately in `.context/handoffs/perf-h/measured.json`; the committed reference is not refreshed for a passing run.
 
 The deployed `BASE_URL` mode is implemented and documented, but has not been exercised without an isolated deployed test account configured for the scripted provider. The bundle comparison measures HO-H additions against integrated main, not historical pre-feature cost.
