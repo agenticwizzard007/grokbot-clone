@@ -106,7 +106,12 @@ export async function runFixDash4({ before = false, output = path.resolve(`.cont
       check(`ask mode persisted config unchanged ${tag}`,pendingConfig.revision===saved.revision&&JSON.stringify(pendingConfig.doc)===JSON.stringify(saved.doc));
       const effective=await page.evaluate(async()=>(await import('/src/customization/store.ts')).useCustomization.getState().effective.dashboards.map(d=>d.name));
       check(`Pending absent from navigation ${tag}`,!effective.includes('Open tasks'),effective);
-      if(width>760) { await page.locator('.sidebar__disclosure').click(); check(`Pending absent from sidebar ${tag}`,await page.locator('.sidebar__dashboards').getByText('Open tasks',{exact:true}).count()===0); }
+      if(width>760) {
+        const disclosure=page.locator('.sidebar__disclosure');
+        if(await disclosure.getAttribute('aria-expanded')!=='true') await disclosure.click();
+        const list=page.locator('.sidebar__dashboards');
+        check(`Pending absent from sidebar ${tag}`,await list.getByText(dashboard.name,{exact:true}).isVisible()&&await list.getByText('Open tasks',{exact:true}).count()===0);
+      }
       await capture('preview-pending','.ui-preview-card',false);
       await card.getByRole('button',{name:'Apply',exact:true}).click();
       await page.waitForURL(/#dash\//);
