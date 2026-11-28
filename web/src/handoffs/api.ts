@@ -40,7 +40,7 @@ const query = (values: Record<string, string | number | undefined>) => {
 export const handoffApi = {
   agents: (signal?: AbortSignal) => request<{ bots: HandoffAgent[] }>('/bots', 'GET', undefined, signal),
   output: (outputId: string, signal?: AbortSignal) => request<{ output: RunOutput }>(`/outputs/${id(outputId)}`, 'GET', undefined, signal),
-  outputByJob: (jobId: string, signal?: AbortSignal) => request<{ output: RunOutput | null }>(`/outputs/by-job/${id(jobId)}`, 'GET', undefined, signal),
+  outputByJob: (jobId: string, signal?: AbortSignal) => request<{ output: RunOutput | null; terminal: boolean }>(`/outputs/by-job/${id(jobId)}`, 'GET', undefined, signal),
   part: (outputId: string, partId: string, offset = 0, signal?: AbortSignal) => request<PartPage>(`/outputs/${id(outputId)}/parts/${id(partId)}?${query({ offset, limit: 8000 })}`, 'GET', undefined, signal),
   send: (input: SendInput) => request<{ handoff: Handoff }>('/handoffs', 'POST', input),
   detail: (handoffId: string, signal?: AbortSignal) => request<HandoffDetailData>(`/handoffs/${id(handoffId)}`, 'GET', undefined, signal),

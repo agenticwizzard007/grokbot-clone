@@ -19,6 +19,6 @@ export async function uiRequest<T>(path: string, options: { method?: string; bod
   });
   if (response.status === 304) return null;
   const body = await response.json().catch(() => ({ message: 'Could not load your dashboards.' }));
-  if (!response.ok) throw new UiApiError(response.status, body.details ?? [{ path: '/', code: body.code ?? 'invalid_value', message: body.message ?? 'Could not update appearance.' }]);
+  if (!response.ok || body.code === 'disabled') throw new UiApiError(response.status, body.details ?? [{ path: '/', code: body.code ?? 'invalid_value', message: body.message ?? 'Could not update appearance.' }]);
   return body as T;
 }

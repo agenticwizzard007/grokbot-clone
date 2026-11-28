@@ -37,7 +37,7 @@ try {
     await page.addInitScript(({ id, theme }) => { localStorage.setItem('swarm.selectedBot', id); localStorage.setItem('swarm.detailsOpen', '0'); localStorage.setItem('swarm.theme', theme); }, { id: bot.id, theme });
     await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     await page.goto(origin);
-    if (width === 390) await page.locator('.pinned__tile').click();
+    if (width === 390) await page.getByRole('button', { name: /^CLI fixture/ }).click();
     await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
     const send = async text => assert.equal((await context.request.post(`${origin}/api/bots/${bot.id}/messages`, { data: { text } })).status(), 200);
     for (const [name, request] of [['remember', 'I prefer fixture memory checks. Remember this.'], ['save_file', 'Save a fixture file.'], ['create_task', 'Create a fixture task.']]) {
@@ -66,18 +66,19 @@ try {
       await page.waitForFunction(async () => !!(await import('/src/store.ts')).useStore.getState().user);
       await page.evaluate(async () => (await import('/src/configStore.ts')).useConfigUI.getState().openAppSettings('apps'));
       const settings = page.locator('.access-apps-settings');
-      await settings.getByText(scenario === 'zero' ? 'No apps connected yet' : '1 app connected', { exact: true }).waitFor();
+      // The current Settings layout uses connection rows instead of a count heading.
+      await settings.getByText(scenario === 'zero' ? 'No connections' : 'Connected', { exact: true }).waitFor();
       const snapshot = await (await context.request.get(`${origin}/api/apps/connections`)).json();
       assert.equal(snapshot.connectedCount, scenario === 'zero' ? 0 : 1);
       assert.equal(snapshot.connections.length, scenario === 'zero' ? 0 : scenario === 'expired' ? 2 : 1);
       if (scenario === 'expired') {
-        await settings.getByText('Expired connections (1)', { exact: true }).click();
-        await settings.getByText('Needs reconnecting', { exact: true }).waitFor();
-      } else assert.equal(await settings.getByText('Needs reconnecting', { exact: true }).count(), 0);
+        await settings.getByText('Sign in needed', { exact: true }).waitFor();
+      } else assert.equal(await settings.getByText('Sign in needed', { exact: true }).count(), 0);
+      assert.equal(await settings.locator('.settings-provider').count(), snapshot.connections.length);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.screenshot({ path: path.join(evidence, `settings-${scenario}-${width}-${theme}.png`), fullPage: true });
       if (scenario === 'expired') {
-        await settings.getByText('Needs reconnecting', { exact: true }).scrollIntoViewIfNeeded();
+        await settings.getByText('Sign in needed', { exact: true }).scrollIntoViewIfNeeded();
         await page.screenshot({ path: path.join(evidence, `settings-expired-status-${width}-${theme}.png`), fullPage: true });
       }
     }

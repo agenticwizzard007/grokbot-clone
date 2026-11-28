@@ -67,7 +67,7 @@ export async function finishedChat(page, data, width) {
   const { jobIds } = await response.json(); assert.equal(jobIds.length, 1);
   const output = await poll(async () => {
     const result = await page.request.get(new URL(`/api/outputs/by-job/${jobIds[0]}`, page.url()).href);
-    return result.ok() ? result.json() : null;
+    return result.ok() ? (await result.json()).output : null;
   }, value => value?.status === 'final', 'This reply has a finished run output');
   const card = page.locator('.ho-output-card').filter({ has: page.locator(`a[href="#output/${output.id}"]`) });
   await card.waitFor(); await card.scrollIntoViewIfNeeded();

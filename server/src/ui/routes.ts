@@ -74,7 +74,11 @@ export function createUiApi(service: SqliteUiConfigService) {
   });
   api.use('*', async (c, next) => {
     c.header('Cache-Control', 'private, no-store');
-    if (!service.enabled(user(c))) return c.json({ code: 'disabled', message: 'Appearance customization is disabled.' }, 404);
+    if (!service.enabled(user(c))) {
+      // Loading the default appearance is expected when customization is off.
+      const configRead = c.req.method === 'GET' && c.req.path.endsWith('/config');
+      return c.json({ code: 'disabled', message: 'Appearance customization is disabled.' }, configRead ? 200 : 404);
+    }
     if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
       const bytes = await boundedBytes(c);
       c.req.raw = new Request(c.req.raw, { body: bytes as BodyInit });
