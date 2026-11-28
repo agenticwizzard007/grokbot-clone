@@ -31,6 +31,7 @@ mock.method(composio(), 'create', async (userId: string, options: any) => {
     return { id: 'fixture-gmail', redirectUrl: consent.href };
   } };
 });
+mock.method(composio().connectedAccounts, 'list', async () => ({ items: [], nextCursor: null }) as any);
 after(() => { mock.restoreAll(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
 
 async function begin() {
@@ -53,15 +54,16 @@ test('D1 login scopes are exactly identity scopes while connect Gmail retains Gm
   assert.equal(gmailAuthorizations, 1);
 });
 
-test('D1 missing or partial Google client configuration never falls back to Gmail consent', async () => {
+test('D1 missing, partial or blank Google client configuration restores the Composio login', async () => {
   const before = gmailAuthorizations;
-  for (const [id, secret] of [['', ''], ['fixture-client', ''], ['', 'fixture-secret']]) {
-    process.env.GOOGLE_CLIENT_ID = id; process.env.GOOGLE_CLIENT_SECRET = secret;
+  for (const [id, secret] of [[undefined, undefined], ['', ''], ['fixture-client', ''], ['', 'fixture-secret'], ['   ', 'fixture-secret'], ['fixture-client', '  ']]) {
+    if (id === undefined) delete process.env.GOOGLE_CLIENT_ID; else process.env.GOOGLE_CLIENT_ID = id;
+    if (secret === undefined) delete process.env.GOOGLE_CLIENT_SECRET; else process.env.GOOGLE_CLIENT_SECRET = secret;
     try {
       const response = await app.request('/api/auth/google/start');
-      assert.equal(response.headers.get('location'), 'https://swarm.test/?login=google_unavailable');
-      assert.equal((await (await app.request('/api/auth/me')).json() as any).googleLogin, false);
-      assert.equal(gmailAuthorizations, before);
+      assert.equal(response.headers.get('location'), 'https://connect.fixture/consent?scope=https%3A%2F%2Fmail.google.com%2F');
+      assert.equal((await (await app.request('/api/auth/me')).json() as any).googleLogin, true);
+      assert.ok(gmailAuthorizations > before);
     } finally {
       process.env.GOOGLE_CLIENT_ID = 'fixture-client'; process.env.GOOGLE_CLIENT_SECRET = 'fixture-secret';
     }
@@ -104,7 +106,7 @@ test('D1 existing sessions survive missing configuration and failed sign-in atte
     assert.equal((await profile()).user.id, 'd1-existing');
     assert.equal((await profile()).googleLinked, true);
     assert.equal((await app.request('/api/auth/google/start', { headers: { cookie: session } })).headers.get('location'),
-      'https://swarm.test/?login=google_unavailable');
+      'https://connect.fixture/consent?scope=https%3A%2F%2Fmail.google.com%2F');
     assert.equal((await profile()).user.id, 'd1-existing');
   } finally { process.env.GOOGLE_CLIENT_SECRET = 'fixture-secret'; }
   const { url, cookie } = await begin();

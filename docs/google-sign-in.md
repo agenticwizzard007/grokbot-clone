@@ -1,9 +1,10 @@
 # Google sign-in
 
-New sign-ins use Google OAuth/OIDC directly with exactly `openid email profile`.
+When both Google client values are nonblank, sign-ins use Google OAuth/OIDC
+directly with exactly `openid email profile`.
 The server creates state, nonce and an S256 PKCE challenge when the browser follows
 `/api/auth/google/start`. It verifies the ID token signature, issuer, audience,
-age, nonce and verified email before creating a session. Login does not create a
+age, nonce and verified email before creating a session. Direct OIDC login does not create a
 Composio connection. Gmail access remains a separate choice in connect-apps.
 
 ## Owner configuration
@@ -31,15 +32,21 @@ For local development use a development client with
 `http://localhost:8787/api/auth/google/callback`, or the callback matching the
 local `SERVER_URL`. Automated tests use mocked providers and synthetic clients.
 
-If either client value is absent, Google sign-in is unavailable. The server
-returns to Welcome and never falls back to a Gmail consent screen. Existing
-sessions and other sign-in methods remain available. Existing Google subject
-bindings continue to identify the same accounts. Pending legacy Composio
-callbacks and their cleanup records remain supported during the transition.
+If either client value is absent or blank, the welcome page still offers Continue
+with Google through the existing Composio configuration. No new client secrets or
+deploy-time configuration are required for this fallback. It restores the previous
+Composio-managed Gmail authorization flow, including its managed permissions.
+The identity-only scope restriction applies to direct OIDC; the compatibility
+fallback can still request Gmail access as it did before PR #293.
+
+Both flows bind the verified Google subject to the same Swarm user ID. An older
+account without a subject binding can be adopted only when its own active Gmail
+authorization proves the same Google subject. Matching an email alone is not
+sufficient. Existing sessions and pending callbacks remain valid across a switch.
+Temporary fallback authorizations retain the existing cleanup protections.
 
 Do not change the Composio Gmail auth configuration for this fix. Connect-apps
-still authorizes the `gmail` toolkit with its managed Gmail permissions, only
-after the user chooses to connect Gmail.
+continues to authorize the `gmail` toolkit with its managed permissions.
 
 ## Recovery
 
@@ -47,14 +54,16 @@ Each Continue with Google or Try again click requests a new authorization.
 Failed callbacks return to Welcome with an inline message and a full-width retry
 control. Expired callbacks display: "That sign-in link expired. Please try again."
 Provider error text is mapped to fixed messages, never rendered directly.
-New logins never visit a Composio link. A legacy link already open on Composio's
-own error page cannot be redirected by Swarm if Composio never calls back; the
-user can return to Welcome and start a new direct Google sign-in.
+Both flows supply the Swarm callback URL and return provider failures to Welcome.
+A link already open on Composio's own error page cannot be redirected by Swarm if
+Composio never calls back; the user can return to Welcome and start a fresh sign-in.
+Missing native client values alone never produce `google_unavailable` when the
+Composio fallback is configured. That state indicates a provider start failure.
 
 ## Local verification
 
 Run `npm run test:google-auth` for identity scopes, Gmail config separation,
 missing-client behavior, callback errors, existing sessions, OIDC verification,
-and legacy cleanup. Run `npm run test:google-sign-in-ui` for click-time
+cross-provider account reuse, and fallback cleanup. Run `npm run test:google-sign-in-ui` for click-time
 requests, welcome recovery at both widths, and a Gmail connection without a
 Google login client. These commands use temporary databases and mocked providers.
