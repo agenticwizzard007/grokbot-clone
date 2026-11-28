@@ -110,7 +110,7 @@ try {
       if (state.cli) assert.doesNotMatch(await meter.innerText(), /No limit|\$/);
       if (state.level !== 'normal') assert.match(await meter.innerText(), state.level === 'critical' ? /Limit reached/ : /Near limit/);
       assert.equal(await meter.locator('.plan-usage__own').count(), 0);
-      assert.equal(await meter.and(page.getByRole('button', { name: new RegExp(snapshot.plan.name) })).count(), 1, 'Compact meter retains the plan name for assistive technology');
+      assert.equal(await meter.and(page.getByRole('button', { name: new RegExp(state.name === 'cli-unknown' ? '^Usage unavailable$' : snapshot.plan.name) })).count(), 1, 'Available meters retain the plan name; unavailable meters announce their state');
       await readableWords(meter);
       if (width <= 760) assert.ok((await meter.boundingBox()).height <= 73, 'Phone quota states fit the compact meter');
       const issues = await meter.evaluate(el => {
