@@ -69,6 +69,26 @@ export async function poll(fn, predicate, message, timeout = 60000) {
   do { value = await fn(); if (predicate(value)) return value; await new Promise(r => setTimeout(r, 100)); } while (Date.now() - start < timeout);
   throw new Error(`${message}: ${JSON.stringify(value).slice(0, 2000)}`);
 }
+export async function waitForLoopReceipts(page, expected = null) {
+  // Chat rows arrive before each group's loop detail. All rendered groups must
+  // resolve, including older loops outside the group being expanded.
+  await page.waitForFunction(expected => {
+    const groups = [...document.querySelectorAll('.ho-loop-receipt')]
+      .filter(group => group.checkVisibility() && !group.closest('[inert], [aria-hidden="true"]'));
+    let found = !expected;
+    for (const group of groups) {
+      const row = group.querySelector('.ho-receipt--loop');
+      const title = row?.querySelector('.layout-row__title')?.textContent.trim();
+      const status = row?.querySelector('.ho-receipt-meta [role="status"]')?.textContent.trim();
+      if (!title || /^(?:(?:agent|new|untitled) )?loop$/i.test(title) || !status || /^(Loading|Unavailable)$/.test(status)) return false;
+      if (expected && row.querySelector(`a[href="#loop/${expected.id}"]`)) {
+        if (title !== expected.name) return false;
+        found = true;
+      }
+    }
+    return found;
+  }, expected);
+}
 export async function screenshot(page, evidence, name, width) {
   await page.waitForFunction(() => document.documentElement.dataset.theme === window.handoffTheme);
   const theme = await page.evaluate(() => document.documentElement.dataset.theme || 'light');
@@ -76,7 +96,11 @@ export async function screenshot(page, evidence, name, width) {
   // The application scrolls inside its shell. Expand only the screenshot height.
   const surface = page.locator('.ho-route, .flow-page').first();
   if (await surface.count()) await page.setViewportSize({ width, height: Math.min(5000, Math.max(1000, await surface.evaluate(el => el.scrollHeight) + 180)) });
-  if (!name.includes('failure')) { const quality = await visualEvidence(page, { finished: name === 'handoff-receipt' || name.endsWith('receipts-expanded') }); fs.writeFileSync(file.replace(/\.png$/, '.quality.json'), JSON.stringify(quality, null, 2)); }
+  if (!name.includes('failure')) {
+    await waitForLoopReceipts(page);
+    const quality = await visualEvidence(page, { finished: name === 'handoff-receipt' || name.endsWith('receipts-expanded') });
+    fs.writeFileSync(file.replace(/\.png$/, '.quality.json'), JSON.stringify(quality, null, 2));
+  }
   await page.screenshot({ path: file, fullPage: true });
   await page.setViewportSize({ width, height: 1000 }); return file;
 }

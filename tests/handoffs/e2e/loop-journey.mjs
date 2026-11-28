@@ -54,7 +54,7 @@ export async function recordExistingLoop(page, id, mode, evidence, width) {
   const iteration = ['loop.step_dispatched', 'loop.step_completed', 'loop.step_dispatched', 'loop.verdict', 'loop.step_completed', 'loop.iteration_completed'];
   assert.deepEqual(core.filter(type => type !== 'loop.warning'), ['loop.created', 'loop.started', ...iteration, ...iteration, ...iteration, 'loop.finished']);
   assert.equal(graphNodes, 6);
-  return { id, mode, width, status: detail.status, passes: detail.iteration, result: detail.resultText, steps: detail.steps, verdicts: detail.verdicts, events, screenshots: shots };
+  return { id, name: detail.spec.name, mode, width, status: detail.status, passes: detail.iteration, result: detail.resultText, steps: detail.steps, verdicts: detail.verdicts, events, screenshots: shots };
   } catch (error) { error.screenshots = shots; throw error; }
 }
 

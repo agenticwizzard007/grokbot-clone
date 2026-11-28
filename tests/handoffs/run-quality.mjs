@@ -12,6 +12,7 @@ const ui = [
   'tests/handoffs/integration-routes-ui.mjs', 'tests/flow/demo-g.mjs',
   'tests/handoffs/activity-quality.mjs',
   'tests/handoffs/loop-chip-quality.mjs',
+  'tests/handoffs/receipt-ready.mjs',
 ];
 const demos = ['a', 'b', 'c', 'd', 'e', 'f', 'i'].map(letter => `tests/handoffs/demo-${letter}.mjs`);
 const commands = process.argv.includes('--existing-ui') ? ui.map(file => [process.execPath, [file]]) : [

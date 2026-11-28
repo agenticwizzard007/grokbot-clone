@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fixture, browserSession, api, poll, screenshot } from '../tests/handoffs/e2e/fixture.mjs';
+import { fixture, browserSession, api, poll, screenshot, waitForLoopReceipts } from '../tests/handoffs/e2e/fixture.mjs';
 import { runUiQuality, assertVisibleCopy } from '../tests/handoffs/e2e/visual-quality.mjs';
 import { recordLoop, sendHandoff } from '../tests/handoffs/e2e/loop-journey.mjs';
 import { runQuality } from '../tests/handoffs/ui-quality.mjs';
@@ -34,6 +34,7 @@ try {
           await poll(() => api(page, '/jobs'), value => !value.jobs.some(job => [server.data.maker, server.data.checker].includes(job.bot_id) && ['queued', 'running'].includes(job.state)), 'Loop jobs finish');
           await page.goto(`${server.base}/#bot/${server.data.maker}`);
           const group = page.locator('.ho-loop-receipt').filter({ has: page.locator(`a[href="#loop/${run.id}"]`) });
+          await waitForLoopReceipts(page, { id: run.id, name: run.name });
           await group.getByRole('button', { name: /^Show passes\b/ }).click();
           await group.getByRole('button', { name: /^Hide passes\b/ }).waitFor();
           const passes = group.getByRole('group', { name: /\bpasses$/ });
