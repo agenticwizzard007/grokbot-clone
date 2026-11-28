@@ -5,6 +5,7 @@ export function useUiConfig() {
   return { saved, revision, status };
 }
 export const useEffectiveConfig = () => useCustomization(s => s.effective);
+export const useSuggestionsAvailable = () => useCustomization(s => s.status === 'ready' && s.suggestionsAvailable);
 export function useComponentVisible(id: ComponentId) {
   return useCustomization(s => {
     const entry = COMPONENTS.find(component => component.id === id), value = s.effective.components[id];

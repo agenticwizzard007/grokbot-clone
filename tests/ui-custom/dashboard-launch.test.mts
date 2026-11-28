@@ -56,3 +56,70 @@ test('every Settings registry section and dashboard Settings link resolves, incl
   assert.deepEqual(parseScreen('#settings/dashboards'), { kind: 'settings', section: 'appearance', dashboards: true });
   assert.equal(settingsLocationHash({ pathname: '/settings', search: '?section=dashboards', hash: '#tasks' }), '#tasks');
 });
+
+async function quietDashboards(instance: any, account: any) {
+  const page = await account.context.newPage(), requests: string[] = [], errors: string[] = [];
+  page.on('request', (request: any) => { if (new URL(request.url()).pathname.startsWith('/api/ui/requirements')) requests.push(request.url()); });
+  page.on('console', (message: any) => { if (message.type() === 'error') errors.push(message.text()); });
+  page.on('pageerror', (error: Error) => errors.push(error.message));
+  const config = await account.request('GET', '/ui/config');
+  assert.equal(config.status, 200); assert.equal(config.body.flags.ui_adapt, false);
+  const saved = await account.request('PATCH', '/ui/config', [{ op: 'add', path: '/dashboards/-', value: { id: '$new1', name: 'Daily summary', icon: 'layout-dashboard', widgets: [] } }], config.body.revision);
+  assert.equal(saved.status, 200);
+  for (const route of ['#dashboards', `#dash/${saved.body.doc.dashboards[0].id}`, '#settings/dashboards', '#settings/appearance', '#settings/appearance/use']) {
+    await page.goto('about:blank'); await page.goto(`${instance.base}/${route}`);
+    await page.locator('.shell-header').waitFor();
+    await page.waitForFunction(async () => (await import('/src/customization/store.ts')).useCustomization.getState().status === 'ready');
+    if (route === '#dashboards') {
+      await page.getByRole('button', { name: 'Create', exact: true }).click();
+      await page.getByRole('dialog').waitFor();
+    } else if (route.startsWith('#dash/')) await page.getByRole('button', { name: 'Add widget', exact: true }).waitFor();
+    else if (route.endsWith('/use')) await page.getByText('Dashboard suggestions are not available for your account yet.', { exact: true }).waitFor();
+    else await page.locator('#appearance-dashboards').waitFor();
+    await page.waitForTimeout(150);
+    assert.equal(await page.getByRole('button', { name: 'Suggest a dashboard for me', exact: true }).count(), 0, route);
+    assert.deepEqual(requests, [], `${route} must not probe the disabled requirements API`);
+    assert.deepEqual(errors, [], `${route} must have no console errors`);
+  }
+}
+
+test('UI_ADAPT unset: dashboard routes, Create and Settings never probe requirements or log console errors', async () => {
+  const off = await dashboardLaunchServer({ omitAdaptFlag: true });
+  const account = await off.context(browser);
+  try { await quietDashboards(off, account); }
+  finally { await account.context.close(); await off.close(); }
+});
+
+test('per-account suggestion override is advertised before any requirements request', async () => {
+  const account = await server.context(browser);
+  const db = new Database(server.dbPath);
+  db.prepare('INSERT INTO account_preferences(user_id,ui_adapt,updated_at) VALUES(?,0,?) ON CONFLICT(user_id) DO UPDATE SET ui_adapt=0').run(account.user.id, Date.now()); db.close();
+  try { await quietDashboards(server, account); }
+  finally { await account.context.close(); }
+});
+
+test('UI_ADAPT on: requirements load only when Suggest opens, then preview and Apply work', async () => {
+  const account = await server.context(browser), page = await account.context.newPage(), requests: string[] = [], errors: string[] = [];
+  page.on('request', (request: any) => { if (new URL(request.url()).pathname.startsWith('/api/ui/requirements')) requests.push(request.method()); });
+  page.on('console', (message: any) => { if (message.type() === 'error') errors.push(message.text()); });
+  try {
+    assert.equal((await account.request('GET', '/ui/config')).body.flags.ui_adapt, true);
+    await page.goto(`${server.base}/#dashboards`);
+    await page.getByRole('button', { name: 'Suggest a dashboard for me', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await page.getByRole('dialog').waitFor(); assert.deepEqual(requests, []);
+    await page.getByRole('dialog').getByRole('button', { name: 'Suggest a dashboard for me', exact: true }).click();
+    await page.getByLabel('Role', { exact: true }).fill('Project coordinator');
+    // Development StrictMode can replay the mount read; writes must remain singular.
+    const reads = requests.length;
+    assert.ok(reads >= 1 && reads <= 2); assert.ok(requests.every(method => method === 'GET'));
+    await page.getByLabel('Goals', { exact: true }).fill('Draft the launch email');
+    await page.getByRole('button', { name: 'Preview dashboard', exact: true }).click();
+    await page.getByRole('button', { name: 'Apply', exact: true }).waitFor();
+    assert.deepEqual((await account.request('GET', '/ui/config')).body.doc.dashboards, []);
+    await page.getByRole('button', { name: 'Apply', exact: true }).click();
+    await page.getByRole('button', { name: 'Edit dashboard', exact: true }).waitFor();
+    assert.equal((await account.request('GET', '/ui/config')).body.doc.dashboards.length, 1);
+    assert.deepEqual(requests, [...Array(reads).fill('GET'), 'PUT', 'POST']); assert.deepEqual(errors, []);
+  } finally { await account.context.close(); }
+});

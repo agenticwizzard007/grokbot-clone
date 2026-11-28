@@ -61,7 +61,8 @@ export function createUiApi(service: SqliteUiConfigService) {
   const api = new Hono<AuthVars>();
   const agentic = widgetRuntime(service);
   if (process.env.SWARM_NO_SCHEDULER !== '1') agentic.scheduler.start();
-  api.route('/requirements', createRequirementsApi(new RequirementsStore(service)));
+  const requirements = new RequirementsStore(service);
+  api.route('/requirements', createRequirementsApi(requirements));
   const user = (c: Context<AuthVars>) => c.get('user').id;
   api.use('*', async (c, next) => {
     const response = await requireUser(c, next);
@@ -114,7 +115,7 @@ export function createUiApi(service: SqliteUiConfigService) {
     const current = service.get(user(c)); c.header('ETag', `"${current.revision}"`);
     if ((c.req.header('If-None-Match') ?? '').split(',').map(tag => tag.trim().replace(/^W\//, '')).includes(`"${current.revision}"`)) return c.body(null, 304);
     return c.json({ ...current, status: current.status ?? 'ready', effective: { preset: current.doc.preset, dashboardCount: current.doc.dashboards.length },
-      flags: { enabled: true, ui_agent_widgets: agentic.widgets.enabled(user(c)), agentApplyMode: service.agentApplyMode(user(c)) } });
+      flags: { enabled: true, ui_adapt: requirements.enabled(user(c)), ui_agent_widgets: agentic.widgets.enabled(user(c)), agentApplyMode: service.agentApplyMode(user(c)) } });
   });
   api.patch('/config', async c => {
     const input = await body(c, patchBody), revision = expected(c);

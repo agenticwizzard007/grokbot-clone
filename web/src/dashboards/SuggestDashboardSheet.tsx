@@ -4,22 +4,25 @@ import { ButtonGroup, Section } from '../components/layout';
 import { UiPreviewCard } from '../components/cards/UiPreviewCard';
 import { appearanceRequest } from '../components/config/appearance/api';
 import { DashboardDialog } from './Dialog';
+import { useSuggestionsAvailable } from '../customization';
 
 export function SuggestDashboardSheet({ close }: { close(): void }) {
+  const available = useSuggestionsAvailable();
   const [role, setRole] = useState(''), [goals, setGoals] = useState('');
   const [revision, setRevision] = useState(0), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0), [preview, setPreview] = useState<UiPreviewCardBody>();
   const pending = useRef(false);
   useEffect(() => {
+    if (!available) return;
     let alive = true; setLoading(true); setError('');
     void appearanceRequest<{ profile: { role: string; goals: string[] } | null; revision: number }>('/ui/requirements')
       .then(value => { if (alive) { setRole(value.profile?.role ?? ''); setGoals(value.profile?.goals.join('\n') ?? ''); setRevision(value.revision); } })
       .catch(() => { if (alive) setError('Could not load your profile.'); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [attempt]);
+  }, [attempt, available]);
   return <DashboardDialog title={preview ? 'Suggested dashboard' : 'About you'} fullScreen close={() => { if (!pending.current) close(); }}>
-    {preview ? <UiPreviewCard body={preview} /> : loading ? <p role="status">Loading your profile...</p> : <form onSubmit={async event => {
+    {!available ? <p role="status">Dashboard suggestions are not available for your account yet.</p> : preview ? <UiPreviewCard body={preview} /> : loading ? <p role="status">Loading your profile...</p> : <form onSubmit={async event => {
       event.preventDefault(); if (pending.current || !role.trim()) return;
       pending.current = true; setBusy(true); setError('');
       try {

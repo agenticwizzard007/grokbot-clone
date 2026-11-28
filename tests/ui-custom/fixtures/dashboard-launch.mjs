@@ -18,7 +18,7 @@ export function flyUiEnvironment(root = process.cwd()) {
 }
 
 /** A blank database and real auth/dev cookie issuance, with no seeded users or preferences. */
-export async function dashboardLaunchServer({ root = process.cwd() } = {}) {
+export async function dashboardLaunchServer({ root = process.cwd(), omitAdaptFlag = false } = {}) {
   root = path.resolve(root);
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dashboard-launch-'));
   const port = async () => { const s = net.createServer().listen(0, '127.0.0.1'); await once(s, 'listening'); const p = s.address().port; await new Promise(r => s.close(r)); return p; };
@@ -45,6 +45,7 @@ export async function dashboardLaunchServer({ root = process.cwd() } = {}) {
     SWARM_ROLE: 'standalone', SWARM_NO_SCHEDULER: '1', SESSION_SECRET: 'dashboard-launch-local', COMPUTER_PROVIDER: 'local',
     DEV_LOGIN: '1', INKBOX_TUNNEL: '0', WHATSAPP_DISABLED: '1', PORT: String(apiPort), APP_URL: base, SERVER_URL: base,
     LLM_PROVIDER: 'direct', DIRECT_API_KEY: 'local-placeholder', DIRECT_BASE_URL: `http://127.0.0.1:${proxy.address().port}/v1`, DIRECT_MODEL: 'gpt-4.1' };
+  if (omitAdaptFlag) delete env.UI_ADAPT;
   const preload = path.join(temp, 'offline.mjs');
   fs.writeFileSync(preload, `const local=globalThis.fetch;globalThis.fetch=(input,init)=>{const u=new URL(input instanceof Request?input.url:input);if(['localhost','127.0.0.1'].includes(u.hostname))return local(input,init);return Promise.resolve(Response.json({data:[],items:[]}));};`);
   const start = (args, cwd = root, extra = {}) => {

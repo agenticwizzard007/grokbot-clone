@@ -10,12 +10,12 @@ export const CACHE_KEY = 'swarm.ui.v1';
 export const USER_KEY = 'swarm.ui.user';
 export type UiStatus = 'loading' | 'ready' | 'offline' | 'disabled';
 interface UiState {
-  userId: string | null; saved: UiConfig; effective: UiConfig; revision: number; status: UiStatus;
+  userId: string | null; saved: UiConfig; effective: UiConfig; revision: number; status: UiStatus; suggestionsAvailable: boolean;
   preview: StoredPreview | null; showBefore: boolean; safe: boolean; phone: boolean; invalidStored: boolean;
   errors: Violation[]; undoUntil: number; undoMessage: string; undoLocation: string;
   visiblePreviewCards: Record<string, string>;
 }
-const initial: UiState = { userId: null, saved: DEFAULT_CONFIG, effective: DEFAULT_CONFIG, revision: 0, status: 'loading', preview: null, showBefore: false, safe: false, phone: false, invalidStored: false, errors: [], undoUntil: 0, undoMessage: '', undoLocation: '', visiblePreviewCards: {} };
+const initial: UiState = { userId: null, saved: DEFAULT_CONFIG, effective: DEFAULT_CONFIG, revision: 0, status: 'loading', suggestionsAvailable: false, preview: null, showBefore: false, safe: false, phone: false, invalidStored: false, errors: [], undoUntil: 0, undoMessage: '', undoLocation: '', visiblePreviewCards: {} };
 export const useCustomization = create<UiState>(() => initial);
 let generation = 0;
 let previewRequest = 0;
@@ -59,11 +59,11 @@ function cacheSaved() {
   const { userId, saved: doc, revision, status } = useCustomization.getState();
   if (userId && status !== 'disabled') storage(store => store.setItem(CACHE_KEY, JSON.stringify({ userId, revision, doc, boot: { light: effectiveTokens(effectiveConfig(doc), 'light'), dark: effectiveTokens(effectiveConfig(doc), 'dark'), phoneLight: effectiveTokens(effectiveConfig(doc, true), 'light'), phoneDark: effectiveTokens(effectiveConfig(doc, true), 'dark') } })));
 }
-function accept(value: { doc: UiConfig; revision: number; status?: string }) {
+function accept(value: { doc: UiConfig; revision: number; status?: string; flags?: { ui_adapt?: boolean } }) {
   const parsed = uiConfigSchema.safeParse(value.doc);
   if (!parsed.success || !Number.isSafeInteger(value.revision)) throw new Error('Invalid appearance response.');
   if (value.revision < useCustomization.getState().revision) return;
-  update({ saved: parsed.data, revision: value.revision, status: 'ready', invalidStored: value.status === 'invalid_stored', errors: [] });
+  update({ saved: parsed.data, revision: value.revision, status: 'ready', invalidStored: value.status === 'invalid_stored', errors: [], ...(value.flags ? { suggestionsAvailable: value.flags.ui_adapt === true } : {}) });
   cacheSaved();
 }
 export function clearPreview() {
@@ -91,15 +91,14 @@ export async function refreshUiConfig(): Promise<void> {
     do {
       refreshAgain = false;
       try {
-        const state = useCustomization.getState();
-        // Startup must see invalid_stored even if a cached revision still matches.
-        const result = await uiRequest<{ doc: UiConfig; revision: number; status?: string }>('/config', { etag: state.status === 'loading' ? undefined : state.revision || undefined });
+        // Account capabilities can change without changing the document revision.
+        const result = await uiRequest<{ doc: UiConfig; revision: number; status?: string; flags?: { ui_adapt?: boolean } }>('/config');
         if (epoch !== generation) return;
-        if (result) accept(result); else update({ status: 'ready' });
+        if (result) accept({ ...result, flags: result.flags ?? {} }); else update({ status: 'ready' });
       } catch (error) {
         if (epoch !== generation) return;
         if (error instanceof UiApiError && (error.status === 404 || error.errors[0]?.code === 'disabled')) {
-          clearPreview(); update({ status: 'disabled', saved: DEFAULT_CONFIG, revision: 0 });
+          clearPreview(); update({ status: 'disabled', saved: DEFAULT_CONFIG, revision: 0, suggestionsAvailable: false });
           storage(store => store.removeItem(CACHE_KEY));
         } else update({ status: 'offline' });
       }
