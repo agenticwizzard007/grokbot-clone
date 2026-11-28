@@ -53,6 +53,15 @@ try {
     fixture.respond = ({ path, url }) => {
       if (path === '/api/auth/me') return { json: { user: { id: 'fixture-owner', name: 'Account', email: 'account@example.test', timezone } } };
       if (path === '/api/models') return { json: { provider: 'codex-cli', billing: 'plan', plan: null, usage: { available: false, windows: [], checkedAt: Date.now() }, models: [], favourites: [] } };
+      if (path === '/api/usage/summary') return { json: {
+        plan: { name: 'Codex plan', provider: 'codex-cli', billing: 'plan', unit: 'percent',
+          periodStart: Date.parse(`${days[0]}T00:00:00Z`), periodEnd: Date.parse(`${days.at(-1)}T12:00:00Z`),
+          usedCents: 0, limitCents: null, percentUsed: null, resetsAt: null, estimatedCents: 0, unpricedRequests: 0 },
+        ownKeys: { usedCents: 4299, requests: 5, estimatedCents: 0, unpricedRequests: 0, label: 'On your own keys (does not count toward the plan)' },
+        uncategorized: { usedCents: 0, requests: 0, estimatedCents: 0, unpricedRequests: 0, label: 'Unknown source' },
+        week: { start: Date.parse(`${days[0]}T00:00:00Z`), end: Date.parse(`${days.at(-1)}T12:00:00Z`), planUsedCents: 0, ownKeysUsedCents: 4299, uncategorizedCents: 0, days: [] },
+        computedAt: Date.now(),
+      } };
       if (path === '/api/usage') return { json: report(url.searchParams.get('range')) };
       if (path === '/api/usage/provider') return { json: { provider: 'codex-cli', openrouter: null, note: 'Your current connection uses your ChatGPT subscription. Check your provider account for remaining limits and any extra usage charges. The report above includes all billing sources used in the selected period.' } };
       if (path === '/api/usage/export.csv') return { contentType: 'text/csv', body: 'day,timezone\n2026-11-22,Asia/Dubai\n' };
@@ -69,12 +78,13 @@ try {
     }, section);
     await page.goto(`${origin}/#settings/usage`);
     await page.locator('.usage-report__summary strong').waitFor();
-    // Settings can be the first catalog consumer on a cold link.
-    await page.evaluate(async () => (await import('/src/lib/models.ts')).useModels.getState().load());
+    // The sidebar reads the account summary independently of the model catalog.
+    if (width === 390) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
     const footer = page.locator('.sidebar-usage');
-    await page.waitForFunction(() => document.querySelector('.sidebar-usage')?.textContent.includes('Limits unavailable'));
+    await footer.getByText('Quota unavailable', { exact: true }).waitFor();
     assert.match(await footer.innerText(), /Codex plan/);
-    assert.equal(await footer.and(page.getByRole('button', { name: /Limits unavailable/ })).count(), 1);
+    assert.equal(await footer.and(page.getByRole('button', { name: /Quota unavailable/ })).count(), 1);
+    if (width === 390) await page.getByRole('button', { name: 'Close navigation', exact: true }).click();
     const rangeLabel = page.locator('.usage-head__span');
     assert.equal(await rangeLabel.innerText(), 'Nov 19 to Nov 25 · Asia/Dubai');
     assert.ok(await rangeLabel.isVisible());

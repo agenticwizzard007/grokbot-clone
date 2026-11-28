@@ -39,6 +39,19 @@ export async function accessibilityFixture() {
   // 30-batch/minute budget. Live refresh behavior has its own dashboard suites.
   const dataReads = new Map();
   return { ...server,
+    async usage(page, state) {
+      const response = await page.context().request.get(`${server.base}/api/usage/summary`);
+      assert.equal(response.status(), 200);
+      const summary = await response.json();
+      const cli = state.startsWith('cli-');
+      const percent = { normal: 24.68, warning: 80, critical: 100, 'no-limit': null, 'cli-known': 82.5, 'cli-unknown': null }[state];
+      assert.notEqual(percent, undefined, 'Usage state must be registered');
+      summary.plan = { ...summary.plan, name: cli ? 'Claude Pro plan' : 'API credits', provider: cli ? 'claude-cli' : null,
+        billing: cli ? 'plan' : 'api', unit: cli ? 'percent' : 'usd', usedCents: cli ? 0 : percent === null ? 1234 : percent * 50,
+        limitCents: cli || percent === null ? null : 5000, percentUsed: percent, resetsAt: Date.UTC(2026, 11, 1) };
+      summary.ownKeys = { ...summary.ownKeys, usedCents: 237, requests: 2 };
+      await page.route('**/api/usage/summary', route => route.fulfill({ json: summary }));
+    },
     async preset(id) {
       const { presetConfig } = await tsImport('../../../server/src/ui-config/presets.ts', import.meta.url);
       const next = presetConfig(id); next.theme.mode = 'system'; next.dashboards = doc.dashboards;
