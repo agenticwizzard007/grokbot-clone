@@ -9,6 +9,8 @@ import { preparePbeState } from './paper-pbe-states.mjs';
 import { layoutServer } from './layout-fixture.mjs';
 import { readableWords } from './paper-label-geometry.mjs';
 import { runDashboardPolish } from './ui-custom/demo-dash.mjs';
+import { inspectSidebarUsage } from './ui-custom/dashboard-polish-guards.mjs';
+import { auditSidebarPolish } from './ui-custom/sidebar-polish-ui.mjs';
 
 export const DASHBOARD_POLISH_ROUTES = ['sales-pipeline', 'operations', 'manager', 'create', 'sidebar', 'empty', 'empty-widget', 'edit', 'widget-settings', 'add-widget', 'ask-agent', 'approve-confirm', 'send-prefill'].map(name => ({ name: `dashboard-${name}`, owner: 'FIX-DASH', enforce: true }));
 
@@ -135,7 +137,7 @@ async function main() {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const report = [];
   try {
-    for (const width of (process.env.LAYOUT_WIDTHS || '390,1280').split(',').map(Number)) for (const theme of ['light', 'dark']) {
+    for (const width of (process.env.LAYOUT_WIDTHS || '320,390,500,1280').split(',').map(Number)) for (const theme of ['light', 'dark']) {
       const context = await browser.newContext({ viewport: { width, height: width <= 760 ? 844 : 900 }, reducedMotion: 'reduce', colorScheme: theme });
       await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
       await context.addInitScript(theme => { if (location.origin === 'null') return; localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
@@ -161,6 +163,7 @@ async function main() {
           if (route.state) await preparePbeState(page, route.state, server.fixture.bot.id);
           if (route.enforce) await page.locator(route.hash.includes('/details/') ? '.pb-details [data-layout="page"]:visible' : '[data-layout="page"]:visible').first().waitFor();
           issues = await page.evaluate(inspectAlignment, {});
+          issues.push(...await page.evaluate(inspectSidebarUsage));
           for (const control of await page.locator('.shell-content :is([role="tablist"], [role="radiogroup"], .seg, .segmented, .cfg-seg, .task-filters, nav[aria-label$="sections"]):visible').all()) {
             try { await readableWords(control); } catch (e) { issues.push(e.message); }
           }
@@ -219,6 +222,7 @@ async function main() {
     report.push(...await auditDashboardRoutes(path.join(evidence, 'dashboards'), inspectAlignment));
     const polish = await runDashboardPolish({ output: path.join(evidence, 'dashboard-polish') });
     report.push(...polish.checks.map(name => ({ name, owner: 'FIX-DASH', enforce: true, issues: [] })));
+    report.push(...await auditSidebarPolish(ROUTES, path.join(evidence, 'sidebar-polish')));
   }
   fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   assert.equal(report.filter(r => r.enforce && r.issues.length).length, 0, 'Enforced routes follow the shared layout system');
