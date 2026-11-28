@@ -45,7 +45,7 @@ test('Google OIDC binds browser state, verifies identity, rotates and rejects re
 });
 test('unverified email, expired attempt, denial and substituted nonce fail',async()=>{
   verified=false;assert.match((await finish(await begin())).headers.get('location')!,/google_invalid/);verified=true;
-  const expired=await begin();db.prepare('UPDATE google_oidc_attempts SET expires_at=? WHERE id=?').run(now()-1,expired.state);assert.match((await finish(expired)).headers.get('location')!,/google_session/);
+  const expired=await begin();db.prepare('UPDATE google_oidc_attempts SET expires_at=? WHERE id=?').run(now()-1,expired.state);assert.match((await finish(expired)).headers.get('location')!,/google_expired/);
   const denied=await begin();denied.path+='&error=access_denied';assert.match((await finish(denied)).headers.get('location')!,/google_denied/);
   const changed=await begin();nonce=proof();assert.match((await finish(changed)).headers.get('location')!,/google_invalid/);
 });

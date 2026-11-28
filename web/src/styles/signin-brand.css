@@ -125,3 +125,8 @@
 .signin__topbar { position: absolute; top: 8px; left: var(--space-5); }
 .signin__topbar button { display: inline-flex; align-items: center; gap: 4px; min-height: var(--control-h); color: var(--color-primary); }
 @media (max-width: 760px) { .signin__topbar { left: var(--space-3); } }
+
+/* Google callback recovery uses the same full-width controls as sign-in. */
+.access-signin .signin__recovery { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.access-signin .signin__recovery .signin__error { padding: 16px; font-size: 14px; line-height: 24px; }
+.access-signin .signin__recovery .auth-button { min-height: 48px; padding: 8px 16px; gap: 8px; }
