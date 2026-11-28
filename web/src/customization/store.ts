@@ -53,6 +53,7 @@ function update(partial: Partial<UiState>) {
 }
 export function rememberPreviewStatus(id: string, status: StoredPreview['status']) {
   const decisions = useCustomization.getState().previewDecisions;
+  if (status === 'pending' && decisions[id] && decisions[id] !== 'pending') return;
   if (decisions[id] !== status) update({ previewDecisions: { ...decisions, [id]: status } });
 }
 function storage(action: (store: Storage) => void) { try { action(localStorage); } catch { /* Private browsing can disable storage. */ } }
@@ -151,8 +152,13 @@ export async function applyPreview() {
   if (result?.ok) { rememberPreviewStatus(preview.id, 'applied'); clearPreview(); accept(result); offerUndo(saved, result.doc); }
 }
 export async function discardPreview() {
-  const { preview, revision } = useCustomization.getState();
-  if (preview) { await uiRequest(`/previews/${encodeURIComponent(preview.id)}/discard`, { method: 'POST', body: {}, revision }); rememberPreviewStatus(preview.id, 'discarded'); clearPreview(); }
+  const { preview, revision } = useCustomization.getState(), epoch = generation;
+  if (preview) {
+    await uiRequest(`/previews/${encodeURIComponent(preview.id)}/discard`, { method: 'POST', body: {}, revision });
+    if (epoch !== generation) return;
+    rememberPreviewStatus(preview.id, 'discarded');
+    if (useCustomization.getState().preview?.id === preview.id) clearPreview();
+  }
 }
 export const setShowBefore = (showBefore: boolean) => update({ showBefore });
 export const setUiPhone = (phone: boolean) => update({ phone });

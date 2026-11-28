@@ -46,3 +46,14 @@ for(const status of ['applied','discarded'] as const) test(`${status} preview re
   assert.deepEqual(previewMessageRows(rows,{preview:'pending'}),rows);
   assert.deepEqual(previewMessageRows([...rows,row(5,{type:'card',card:'ui_preview',previewId:'pending',jobId:'turn',status:'pending'})],{preview:status}).slice(0,4),rows);
 });
+
+test('companion empty, malformed and cancellation errors retain specific reason codes',async()=>{
+  const { widgetFailure }=await import('../../server/src/ui/widget-failure.ts');
+  for(const [message,reason] of [
+    ['Codex returned empty structured output.','empty'],
+    ['Claude returned malformed structured output.','parse'],
+    ['Codex did not return a readable structured output file.','parse'],
+    ['CLI output exceeded the 8 MB limit.','parse'],
+    ['CLI request cancelled.','cancelled'],
+  ]) assert.equal(widgetFailure(new Error(message),'provider_unavailable'),reason);
+});

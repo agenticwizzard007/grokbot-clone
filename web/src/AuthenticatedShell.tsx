@@ -94,14 +94,14 @@ function Shell() {
   const backTarget = parentScreen(screen) ?? parseScreen(navigation.trail.at(-1) ?? '') ?? { kind: 'bots' };
   const backText = mobile ? 'Back' : screen.kind === 'settings' ? 'Back to chat' : backTarget.kind === 'chat' ? 'Back to chat' : backLabel(backTarget, bots);
   const back = () => {
-    if (screen.kind !== 'settings' && parentScreen(screen)) {
-      navigation.backTo(backTarget);
-      return;
-    }
     if (!mobile && screen.kind === 'settings') {
       const bot = bots.find(bot => bot.id === selectedBotId) ?? bots.find(bot => bot.isPrimary);
       if (bot) openConversation(bot.id);
       else useConfigUI.getState().setView('bots');
+      return;
+    }
+    if (parentScreen(screen)) {
+      navigation.backTo(backTarget);
       return;
     }
     navigation.back(parentScreen(screen) ?? { kind: 'bots' });

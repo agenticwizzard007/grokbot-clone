@@ -19,8 +19,8 @@ export function widgetFailure(error: unknown, fallback: WidgetFailureCode = 'int
   const value = error as { code?: string; name?: string; message?: string; status?: number } | null;
   if (value?.code === 'cost_cap' || value?.status === 402 || /budget|quota|usage limit|credit|insufficient/i.test(value?.message ?? '')) return 'budget';
   if (/timeout|timed out/i.test(`${value?.name} ${value?.message}`)) return 'timeout';
-  if (value?.name === 'AbortError') return 'cancelled';
-  if (/empty response|neither a reply nor an action/i.test(value?.message ?? '')) return 'empty';
-  if (value?.name === 'ZodError' || value?.name === 'SyntaxError' || /invalid.*(?:output|response|arguments)/i.test(value?.message ?? '')) return 'parse';
+  if (value?.name === 'AbortError' || /request cancelled/i.test(value?.message ?? '')) return 'cancelled';
+  if (/empty (?:structured )?(?:response|output)|neither a reply nor an action/i.test(value?.message ?? '')) return 'empty';
+  if (value?.name === 'ZodError' || value?.name === 'SyntaxError' || /(?:invalid|malformed).*(?:output|response|arguments)|readable structured output|output exceeded/i.test(value?.message ?? '')) return 'parse';
   return fallback;
 }

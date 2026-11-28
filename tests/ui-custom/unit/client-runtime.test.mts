@@ -116,3 +116,9 @@ test('dashboard preview remains a draft across navigation and cache until Apply'
   assert.deepEqual(store.useCustomization.getState().effective.dashboards,[]);
   assert.equal(store.useCustomization.getState().previewDecisions[preview.id],'discarded');
 });
+
+test('late pending card reads cannot restore stale Apply copy after a decision',()=>{
+  store.rememberPreviewStatus('local-preview','applied');
+  store.rememberPreviewStatus('local-preview','pending');
+  assert.equal(store.useCustomization.getState().previewDecisions['local-preview'],'applied');
+});

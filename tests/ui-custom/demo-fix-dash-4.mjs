@@ -38,6 +38,14 @@ export async function runFixDash4({ before = false, output = path.resolve(`.cont
       };
       await page.goto(`${server.base}/#dash/${dashboard.id}`);
       await page.getByRole('button',{name:'Run',exact:true}).waitFor();
+      // Completion SSE can arrive before the initiating POST's response. Hold
+      // that response while the real service finishes, then replay a stale GET.
+      let releasePost;
+      const postGate = new Promise(resolve => { releasePost = resolve; });
+      await page.route(`**/api${route}/run`, async intercepted => {
+        const response = await intercepted.fetch(); await postGate;
+        await intercepted.fulfill({ response });
+      });
       await page.evaluate(() => {
         window.answerFlashes=[];
         const widget = document.querySelector('.dashboard-widget--agent');
@@ -58,11 +66,13 @@ export async function runFixDash4({ before = false, output = path.resolve(`.cont
       await page.waitForTimeout(200);
       replay.release();
       await server.wait(async ()=>(await request('GET',`${route}/result`)).body.state!=='running');
+      releasePost();
       await page.waitForFunction(()=>!document.querySelector('.dashboard-agent-state'));
       check(`plain Codex answer ${tag}`,await page.getByText('Hello there, nice to meet you.',{exact:true}).count()===1);
       check(`no No answer yet flash ${tag}`,await page.evaluate(()=>window.answerFlashes.length)===0);
       await page.evaluate(()=>window.answerObserver.disconnect());
       await page.unroute(`**/api${route}/result`);
+      await page.unroute(`**/api${route}/run`);
       await capture('prompt-answer');
       replay.set({error:'CLI generation timed out'});
       await page.getByRole('button',{name:'Refresh Ask your agent',exact:true}).click();
@@ -117,7 +127,7 @@ export async function runFixDash4({ before = false, output = path.resolve(`.cont
       // The production skill decision is a notice/event, not an assistant bubble.
       await page.evaluate(async id=>{const {useStore}=await import('/src/store.ts'); const state=useStore.getState(), prior=state.transcripts[id]; const rows=[['notice','Skill creation was declined: **Daily summary** with `draft`.'],['event','Skill creation was declined: **Launch planning** with `review`.']].map(([type,text],i)=>({botId:id,generation:prior.generation,seq:10000+i,updatedSeq:10000+i,createdAt:Date.now()+i,kind:type,body:{type,text}}));useStore.setState({transcripts:{...state.transcripts,[id]:{...prior,bySeq:Object.fromEntries(rows.map(row=>[row.seq,row]))}}});},account.bot.id);
       await page.locator('[data-row-seq="10001"]').scrollIntoViewIfNeeded(); await page.waitForTimeout(250);
-      check(`declined safe bold and code ${tag}`,await page.locator('[data-row-seq="10000"] strong').count()===1&&await page.locator('[data-row-seq="10000"] code').count()===1&&await page.locator('[data-row-seq="10001"] strong').count()===1);
+      check(`declined safe bold and code ${tag}`,await page.locator('[data-row-seq="10000"] strong').count()===1&&await page.locator('[data-row-seq="10000"] code').count()===1&&await page.locator('[data-row-seq="10001"] strong').count()===1&&!(await page.locator('.transcript').innerText()).includes('**'));
       await capture('declined-skill','.transcript',true);
       await page.context().close();
     }
