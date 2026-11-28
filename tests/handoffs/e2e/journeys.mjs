@@ -189,6 +189,9 @@ try {
       await poll(() => approve.isChecked(), checked => !checked, 'Settings renders restored pair approval');
       await mode.selectOption('suggest');
       await poll(() => api(page, `/handoff-links?botId=${f.maker}`), r => r.links[0].mode === 'suggest', 'Settings restores suggestion mode');
+      // The API can finish before React renders its save confirmation.
+      // Keep the Saved chip present in the unchanged accessibility audit.
+      await page.getByRole('status').filter({ hasText: /^Saved$/ }).waitFor({ state: 'visible' });
       await auditRoute(page, width);
     });
     await check(9, 'Room progress rows and member-only Send targets', async () => {
