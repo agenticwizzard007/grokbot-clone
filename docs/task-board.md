@@ -1,36 +1,36 @@
-# Task board
+# Task workspace
 
-The Swarms Tasks view uses a card-and-column layout and the task states already supported by the runtime:
+The Tasks view groups work into the three states supported by the runtime. Needs input comes first; there is no empty, unsupported “To do” column.
 
-| Runtime state | Column | Card label | Action |
-| --- | --- | --- | --- |
-| `needs_input` | Pending | Needs you | Reply in chat |
-| `working` | In progress | In progress | View progress |
-| `done` | Done | Completed | View result |
+| State | Column / filter | Primary card action |
+| --- | --- | --- |
+| `needs_input` | Needs input | Reply in chat |
+| `working` | In progress | View progress |
+| `done` | Done | View result |
 
-Pending cards come first, ordered by the oldest request for input. Other cards show the latest update first. An amber “Needs you” badge, a question icon, a stronger neutral border, and an explicit reply action distinguish pending work without relying on color. The pending request is shown in full. Clicking a card opens the owning bot’s conversation, where the user can answer questions or approve actions.
+Approvals, setup reviews, questions, and connection requests share the Needs input group. Their cards identify the request type and use the corresponding review action. Pending ordinary tasks show their full request note. Task cards show their owner and last update; the whole card is keyboard accessible and opens the owning conversation. Missing bots leave their tasks visible with disabled actions.
 
-The dashboard follows the app’s existing composer and menu styling: white surfaces, 24px card corners, subtle borders and shadows, neutral selected controls, and rounded action pills. The pending summary uses the composer’s thin spectrum border and restrained exterior glow. The design scope is the Tasks content panel: its header, summary, filters, and task cards. The existing platform supplies the sidebar, account controls, outer navigation, and mobile device chrome.
+The page has a heading and Add task action, compact section navigation, a conditional review notice, and a toolbar for status, search, and bot scope. Review clears search and selects Needs input while preserving the chosen bot. Search matches task titles, notes, bot names, and pending requests, without case sensitivity. Status counts reflect the search and bot scope. The review notice always reflects all pending work in the chosen bot scope, so search cannot hide a request that needs attention.
 
-The page shows all tasks by default. State filters and the bot selector work together, and all counts reflect the selected bot. A pending summary links to the pending filter. The summary has no redundant action while Pending is selected. Completed tasks remain available in the Done filter. Missing bots leave their tasks visible with a disabled action and an explanatory label.
+All tasks is the default filter. Pending ordinary tasks sort oldest first; in-progress and completed tasks sort newest first. Each completed card retains the optional Send to agent action. Loop and handoff links have explicit labels and compact secondary styling. Add task opens a composer draft without sending it.
 
-Above 880px of available content width, the board has three columns. Below that, status groups stack vertically; cards can use two columns on tablets. At 500px and narrower, cards become a single list and all four status filters remain visible with 44px-or-larger targets. There is no horizontal board scrolling on phones. Each bot’s details panel uses the same status labels and card treatment. Light and dark themes share the same hierarchy.
+The desktop board uses three columns above 880px of available content width. Smaller surfaces stack the groups and use multiple cards per row when space permits. At 500px and below, cards become one column and status filters form a two-by-two grid. Controls retain a minimum 44px height. Text fields use 16px text on phones to avoid focus zoom. The app shell supplies the sidebar, back navigation, and phone tabs.
 
-Task events and connection changes refresh the data. A failed request shows a retry action rather than a successful empty state. A failed refresh preserves the last known cards and explains that they may be stale.
+Loading and unavailable counts remain distinct from zero. Failed refreshes retain previous cards and an actionable retry. Searches do not report a successful empty state while a relevant data source is unavailable. Light and dark themes use the existing semantic color tokens.
 
-## Swarms design
+## Paper source
 
-The Swarms task board supports web and mobile layouts:
+Created through Paper Desktop MCP in [Swarms · Design delivery · Start here](https://app.paper.design/file/01M7XRD50KB121YXVPQPK0VG7S/p-3-0):
 
-- **Tasks · Web · All tasks**: all nine sample tasks across Pending, In progress, and Done, with a pending summary, owner filter, and explicit card actions.
-- **Tasks · Mobile · Pending**: a 390px phone layout with visible status filters and counts, three full-width pending cards, and a clear reply action on every card.
+- **Tasks · Refined workspace · Desktop**
+- **Tasks · Refined workspace · Mobile**
 
-Both layouts use Swarms bot avatar shapes and shared composer styling. The web design is 1090px wide and the mobile design is 390px wide, with heights that fit the full content. The shared app implementation mounts the Tasks panel within the existing app shell.
+The implementation uses the design’s exported JSX and computed styles: Instrument Sans, 28px page headings, 14px task titles, 12px metadata, 32px desktop / 16px mobile horizontal gutters, 20px column gaps, and 16px card padding. Existing theme, density, and font-size tokens are preserved. Artboards use illustrative task data; the app continues to render API data and the existing bot avatars.
 
 ## Verification
 
-Run `npm run build -w web && npm run test:tasks`.
+Run `npm run typecheck -w web && npm run build -w web && npm run test:tasks`.
 
-The isolated Playwright test uses sample data and checks 320, 390, 768, 1024, and 1440px layouts; task and bot filters; pending ordering; live updates; keyboard navigation to the correct bot; initial and refresh failures; retry; empty states; missing bots; long content; and dark mode. It does not call model providers or modify real tasks. Screenshots are written to `.context/tasks/`.
+The isolated browser test covers 320, 390, 500, 768, 1280, and 1440px in light and dark mode. It checks search, status and owner filters, Review from a conflicting search, ordering, live updates, stale data, retry, keyboard navigation, long identifiers, missing bots, empty states, stable section navigation, and task creation drafts. Selected phone and desktop cases also check approval navigation, incomplete search results, initial failures, loop links, Send to agent dialog/focus restoration, and automated WCAG accessibility checks.
 
-`npm run test:mobile` covers the existing mobile navigation and native app shell flows.
+Screenshots are saved under `.context/tasks-refined/`. No live account or model provider is used.
