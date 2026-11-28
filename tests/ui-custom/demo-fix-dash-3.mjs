@@ -57,6 +57,7 @@ export async function runFixDash3({ before = false, output = path.resolve(`.cont
       await capture('sales-pipeline');
       await open('#dashboards'); await page.locator('.dashboard-manager-row').first().waitFor();
       await capture('manager');
+      if (width <= 760) { await page.locator('.dashboard-manager-row').last().scrollIntoViewIfNeeded(); const hint = page.locator('.dashboard-empty-hint'); if (await hint.count()) await hint.scrollIntoViewIfNeeded(); await capture('manager-bottom'); }
       const text = await page.locator('.dashboards-manager').innerText();
       check(`manager no zero widgets ${label}`, !text.includes('0 widgets'));
       check(`manager single empty hint ${label}`, text.split(EMPTY_HINT).length === 2);

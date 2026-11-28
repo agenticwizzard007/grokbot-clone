@@ -64,3 +64,4 @@
 .paper-shell .sidebar .sidebar__disclosure { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; margin: 0; padding: 8px 16px; font: 600 13px/18px var(--font-stack); color: var(--color-text-secondary); border-radius: 8px; }
 .paper-shell .sidebar__disclosure:hover { background: var(--color-bg-hover); }
 .paper-shell .sidebar__disclosure svg { flex-shrink: 0; }
+.paper-shell .sidebar__disclosure:focus-visible { outline-offset: -2px; }
