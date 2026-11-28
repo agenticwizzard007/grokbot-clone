@@ -9,7 +9,6 @@ import { preparePbeState } from './paper-pbe-states.mjs';
 import { layoutServer } from './layout-fixture.mjs';
 import { readableWords } from './paper-label-geometry.mjs';
 import { runDashboardPolish } from './ui-custom/demo-dash.mjs';
-import { inspectSidebarUsage } from './ui-custom/dashboard-polish-guards.mjs';
 import { auditSidebarPolish } from './ui-custom/sidebar-polish-ui.mjs';
 
 export const DASHBOARD_POLISH_ROUTES = ['sales-pipeline', 'operations', 'manager', 'create', 'sidebar', 'empty', 'empty-widget', 'edit', 'widget-settings', 'add-widget', 'ask-agent', 'approve-confirm', 'send-prefill'].map(name => ({ name: `dashboard-${name}`, owner: 'FIX-DASH', enforce: true }));
@@ -46,11 +45,31 @@ export const SUGGESTION_ROUTES = [
 ];
 
 /** Browser-side geometry checks, also reused by the Settings matrix. */
-export function inspectAlignment({ selector = '.shell-content > :not(.shell-header):not(.phone-tabs), .signin, .access-signin, .join', requirePage = true } = {}) {
+export function inspectAlignment({ selector = '.shell-content > :not(.shell-header):not(.phone-tabs), .signin, .access-signin, .join', requirePage = true, sidebarOnly = false } = {}) {
+  const issues = [], near = (a, b) => Math.abs(a - b) <= 1;
+  for (const sidebar of document.querySelectorAll('.sidebar:not(.is-collapsed)')) {
+    const box = sidebar.getBoundingClientRect();
+    if (!sidebar.checkVisibility() || box.right <= 0 || box.left >= innerWidth) continue;
+    const meter = sidebar.querySelector('.sidebar-usage');
+    if (!meter?.checkVisibility()) continue;
+    const footer = sidebar.querySelector('.sidebar__footer'), scroll = sidebar.querySelector('.sidebar__custom-scroll, .sidebar__scroll');
+    const nav = sidebar.querySelector('.sidebar__nav, .sidebar__dashboards');
+    const m = meter.getBoundingClientRect(), f = footer.getBoundingClientRect(), s = scroll.getBoundingClientRect();
+    const css = getComputedStyle(sidebar), contentLeft = box.left + parseFloat(css.borderLeftWidth) + parseFloat(css.paddingLeft);
+    const contentRight = box.right - parseFloat(css.borderRightWidth) - parseFloat(css.paddingRight);
+    if (!near(m.left, contentLeft) || !near(m.right, contentRight)) issues.push(`G1 usage width/edges: ${m.width.toFixed(2)}px, sidebar content ${(contentRight - contentLeft).toFixed(2)}px`);
+    if (nav) { const n = nav.getBoundingClientRect(); if (!near(m.left, n.left) || !near(m.right, n.right)) issues.push('G1 usage edges differ from navigation'); }
+    if (f.top - m.bottom < -1 || f.top - m.bottom > 16) issues.push(`G1 usage/footer gap: ${(f.top - m.bottom).toFixed(2)}px`);
+    if (!near(f.bottom, box.bottom - parseFloat(css.paddingBottom) - parseFloat(css.borderBottomWidth))) issues.push('G1 Settings is not pinned to sidebar bottom');
+    if (s.bottom > m.top + 1 || scroll.contains(meter) || scroll.contains(footer)) issues.push('G1 usage or Settings overlaps the scroll area');
+    if (m.top < box.top || f.bottom > innerHeight + 1) issues.push('G1 usage or Settings is outside the viewport');
+    const mc = getComputedStyle(meter);
+    if (mc.padding !== '16px' || mc.borderTopLeftRadius !== '12px') issues.push('G1 usage card needs 16px padding and 12px radius');
+  }
+  if (sidebarOnly) return issues;
   const roots = [...document.querySelectorAll(selector)];
   const visible = el => el.checkVisibility() && el.getBoundingClientRect().width > 0;
   const all = [...new Set(roots.flatMap(root => [root, ...root.querySelectorAll('*')]))].filter(visible);
-  const issues = [];
   if (!all.length) issues.push('No visible route surface');
   const label = el => `${el.dataset.layout || el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]} ${(el.innerText || el.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 55)}`;
   const rect = el => el.getBoundingClientRect();
@@ -163,7 +182,6 @@ async function main() {
           if (route.state) await preparePbeState(page, route.state, server.fixture.bot.id);
           if (route.enforce) await page.locator(route.hash.includes('/details/') ? '.pb-details [data-layout="page"]:visible' : '[data-layout="page"]:visible').first().waitFor();
           issues = await page.evaluate(inspectAlignment, {});
-          issues.push(...await page.evaluate(inspectSidebarUsage));
           for (const control of await page.locator('.shell-content :is([role="tablist"], [role="radiogroup"], .seg, .segmented, .cfg-seg, .task-filters, nav[aria-label$="sections"]):visible').all()) {
             try { await readableWords(control); } catch (e) { issues.push(e.message); }
           }

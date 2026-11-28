@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { agenticFixture } from './e2e/agentic-fixture.mjs';
 import { inspectAlignment } from '../layout-alignment-ui.mjs';
-import { inspectDashboardPolish, inspectSidebarUsage } from './dashboard-polish-guards.mjs';
+import { inspectDashboardPolish } from './dashboard-polish-guards.mjs';
 
 export const DASH_POLISH_STATES = ['sales-pipeline', 'operations', 'manager', 'create', 'sidebar', 'empty', 'empty-widget', 'edit', 'widget-settings', 'add-widget', 'ask-agent', 'approve-confirm', 'send-prefill'];
 const prompt = 'Show my tasks that have been open for more than 2 days';
@@ -60,7 +60,7 @@ async function runPolishView({ before, output, view }) {
       await page.evaluate(() => document.fonts.ready);
       const file = path.join(output, `${name}-${width}-${theme}.png`);
       await page.screenshot({ path: file, animations: 'disabled' }); screenshots.push(file);
-      const guardIssues = [...await page.evaluate(inspectDashboardPolish), ...await page.evaluate(inspectSidebarUsage)];
+      const guardIssues = [...await page.evaluate(inspectDashboardPolish), ...await page.evaluate(inspectAlignment, { sidebarOnly: true })];
       guards.push({ name, width, theme, issues: guardIssues });
       if (!before) assert.deepEqual(guardIssues, [], `${name}: dashboard polish guards`);
       if (before) return;

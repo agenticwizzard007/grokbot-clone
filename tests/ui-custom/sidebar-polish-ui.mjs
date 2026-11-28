@@ -4,7 +4,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { chromium } from 'playwright';
 import { layoutServer } from '../layout-fixture.mjs';
-import { inspectSidebarUsage } from './dashboard-polish-guards.mjs';
+import { inspectAlignment } from '../layout-alignment-ui.mjs';
 
 export async function auditSidebarPolish(routes, output = path.resolve('.context/ui-custom/fix-dash-2/sidebar')) {
   fs.mkdirSync(output, { recursive: true });
@@ -49,14 +49,14 @@ export async function auditSidebarPolish(routes, output = path.resolve('.context
             }
             await page.locator('.sidebar:visible .sidebar-usage .plan-usage').waitFor();
             await page.evaluate(() => document.fonts.ready);
-            issues.push(...await page.evaluate(inspectSidebarUsage));
+            issues.push(...await page.evaluate(inspectAlignment, { sidebarOnly: true }));
             const scroll = page.locator('.sidebar:visible .sidebar__custom-scroll, .sidebar:visible .sidebar__scroll');
             const before = await page.locator('.sidebar:visible .sidebar-usage').boundingBox();
             const scrolling = await scroll.evaluate(el => { el.scrollTop = el.scrollHeight; return { top: el.scrollTop, height: el.clientHeight, total: el.scrollHeight }; });
             if (long && scrolling.top <= 0) issues.push('G1 long middle list must scroll');
             if (!long && scrolling.top !== 0) issues.push('G1 short list must retain free space above the footer');
             assert.deepEqual(await page.locator('.sidebar:visible .sidebar-usage').boundingBox(), before, 'G1 scrolling must not move Usage');
-            issues.push(...await page.evaluate(inspectSidebarUsage));
+            issues.push(...await page.evaluate(inspectAlignment, { sidebarOnly: true }));
             if (route === views[0]) await page.screenshot({ path: path.join(output, `${shape}-${width}-${theme}.png`) });
             if (width <= 760) await page.getByRole('button', { name: 'Close navigation', exact: true }).click();
           } catch (error) { issues.push(error.message); }
