@@ -91,10 +91,10 @@ function Shell() {
   const chatHeader = screen.kind === 'chat';
   const topLevel = isPhoneRoot(screen, phoneTabs);
   const hasBack = mobile ? !topLevel : screen.kind !== 'bots' || navigation.trail.length > 0;
-  const backTarget = (screen.kind === 'chat' ? parentScreen(screen) : parseScreen(navigation.trail.at(-1) ?? '') ?? parentScreen(screen)) ?? { kind: 'bots' };
+  const backTarget = parentScreen(screen) ?? parseScreen(navigation.trail.at(-1) ?? '') ?? { kind: 'bots' };
   const backText = mobile ? 'Back' : screen.kind === 'settings' ? 'Back to chat' : backTarget.kind === 'chat' ? 'Back to chat' : backLabel(backTarget, bots);
   const back = () => {
-    if (screen.kind === 'chat') {
+    if (screen.kind !== 'settings' && parentScreen(screen)) {
       navigation.backTo(backTarget);
       return;
     }

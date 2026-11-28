@@ -243,14 +243,18 @@ try {
    }
    const taps = await home() + Number(current.kind !== 'bots');
    assert.ok(taps <= 3, 'Home remains within three taps including Back');
-   // An unrelated previous screen takes precedence over the structural parent.
+   // Browser history follows the previous entry. In-app chat Back follows its
+   // parent, as separately asserted above and in livewalk-b-ui (#294).
    if (parseScreen(hash) && hash !== '#bot/missing') {
     const from = hash === '#reports' ? '#bot/research-bot' : '#reports';
     await page.evaluate(hash => { location.hash = hash; }, from); await hashIs(canonical(from));
     await page.evaluate(hash => { location.hash = hash; }, hash); await hashIs(canonical(hash));
-    if (phoneRoot) { await phoneTabsWithoutBack(hash); await page.goBack(); }
-    else { await back.waitFor(); await back.click(); }
-    await hashIs(width > 760 && current.kind === 'settings' ? canonical('#bot/coordinator') : canonical(from));
+    if (phoneRoot) await phoneTabsWithoutBack(hash);
+    await page.goBack(); await hashIs(canonical(from));
+    await page.goForward(); await hashIs(canonical(hash));
+    if (parentScreen(current) && current.kind !== 'settings') {
+      await back.click(); await hashIs(canonical(screenHash(parentScreen(current))));
+    }
    }
    assert.deepEqual(errors, [], `${hash}: no page errors`);
    results.push({ route: hash || '/', width, theme, back: 'pass', homeTaps: taps });
@@ -272,7 +276,7 @@ try {
   for (const title of ['Review the launch plan', 'Review the draft email']) {
    await page.locator('.task-card').filter({ hasText: title }).click();
    await hashIs(canonical('#bot/coordinator'));
-   await page.locator('.shell-back').click();
+   await page.goBack();
    await hashIs('#tasks');
   }
   fixture.respond = originalRespond;

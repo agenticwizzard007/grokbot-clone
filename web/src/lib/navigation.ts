@@ -282,13 +282,24 @@ export class ScreenHistory {
     if (target.delta) this.browser.history.go(target.delta);
     else this.navigate(target.screen, 'replace');
   }
-  /** Reuse only the immediately preceding parent entry, retaining its scroll state
-   * and Forward entry. Unrelated history must never choose a Back destination. */
+  /** Return to the nearest real parent entry without pushing a duplicate or
+   * discarding Forward history. A cold entry replaces itself with its parent. */
   backTo(parent: Screen, resolve: (screen: Screen) => Screen | null = screen => screen) {
-    const previous = parseScreen(this.trail.at(-1) ?? '');
-    const resolved = previous && resolve(previous);
-    if (resolved && screenHash(resolved) === screenHash(parent)) this.browser.history.go(-1);
-    else this.navigate(parent);
+    // Settings' explicit parent list is a navigable surface: retain its section
+    // entry and the existing section/list behavior.
+    if (parent.kind === 'settings') {
+      const previous = parseScreen(this.trail.at(-1) ?? '');
+      const resolved = previous && resolve(previous);
+      if (resolved && screenHash(resolved) === screenHash(parent)) this.browser.history.go(-1);
+      else this.navigate(parent);
+      return;
+    }
+    const target = backTarget(this.trail, parent, screen => {
+      const resolved = resolve(screen);
+      return !!resolved && screenHash(resolved) === screenHash(parent);
+    });
+    if (target.delta) this.browser.history.go(target.delta);
+    else this.navigate(parent, 'replace');
   }
   restore = () => {
     if (this.undoing) { this.undoing = false; return; }
