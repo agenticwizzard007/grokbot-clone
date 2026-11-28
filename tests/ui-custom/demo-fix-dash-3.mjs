@@ -30,7 +30,7 @@ export function inspectSidebarRows() {
 
 export async function runFixDash3({ before = false, output = path.resolve(`.context/ui-custom/fix-dash-3/${before ? 'before' : 'after'}`) } = {}) {
   fs.mkdirSync(output, { recursive: true });
-  const server = await layoutServer({ customization: true });
+  const server = await layoutServer({ customization: true, ...(process.env.FIX_DASH3_ROOT ? { root: path.resolve(process.env.FIX_DASH3_ROOT) } : {}) });
   const db = new Database(server.dbPath);
   const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const checks = [], failures = [], screenshots = [], guards = [];
@@ -110,7 +110,8 @@ export async function runFixDash3({ before = false, output = path.resolve(`.cont
     fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify({ passed: checks.length, failed: failures.length, checks, failures, guards, screenshots }, null, 2));
   }
   console.log(`FIX-DASH-3: ${checks.length} passed, ${failures.length} failed. ${output}/results.json`);
-  if (!before) assert.equal(failures.length, 0, 'FIX-DASH-3 acceptance');
+  // --before records the same assertions and deliberately exits nonzero on the old UI.
+  assert.equal(failures.length, 0, 'FIX-DASH-3 acceptance');
   return { checks, failures, screenshots, guards };
 }
 if (process.argv[1]?.endsWith('/demo-fix-dash-3.mjs')) await runFixDash3({ before: process.argv.includes('--before') });
