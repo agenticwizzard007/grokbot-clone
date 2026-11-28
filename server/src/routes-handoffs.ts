@@ -4,7 +4,7 @@ import { requireUser, type AuthVars } from './lib/auth.js';
 import { apiBodyLimit } from './security/body-limits.js';
 import { HandoffError } from './handoffs/errors.js';
 import { requireEnabled, ServiceError, settings, events } from './handoffs/db.js';
-import { getOutput, outputByJob, listOutputs, readPart, fromMessage } from './handoffs/outputs.js';
+import { getOutput, jobOutput, listOutputs, readPart, fromMessage } from './handoffs/outputs.js';
 import { createHandoff, handoffInputSchema, handoffDetail, listHandoffs, controlHandoff, messageRefSchema } from './handoffs/handoff-service.js';
 import { listLinks, replaceLinks, linkInputSchema, updateSettings, settingsSchema } from './handoffs/link-service.js';
 import { createLoop, createLoopSchema, listLoops, getLoop, loopDetail, controlLoop } from './handoffs/loop-service.js';
@@ -40,7 +40,7 @@ handoffsApi.onError((error, c) => {
     return c.json({ error: 'Could not complete the request.', code: 'internal_error' }, 500);
 });
 handoffsApi.get('/outputs', c => c.json(listOutputs(user(c), parse(querySchema, c.req.query()))));
-handoffsApi.get('/outputs/by-job/:jobId', c => c.json(outputByJob(user(c), c.req.param('jobId'))));
+handoffsApi.get('/outputs/by-job/:jobId', c => c.json(jobOutput(user(c), c.req.param('jobId'))));
 handoffsApi.get('/outputs/:id', c => c.json(getOutput(user(c), c.req.param('id'))));
 handoffsApi.get('/outputs/:id/parts/:partId', c => { const q = parse(z.object({ offset: z.coerce.number().int().nonnegative().default(0), limit: z.coerce.number().int().min(1).max(8000).default(8000), original: z.enum(['true', 'false']).optional() }).strict(), c.req.query()); return c.json(readPart(user(c), c.req.param('id'), c.req.param('partId'), q.offset, q.limit, q.original === 'true')); });
 handoffsApi.post('/outputs/from-message', async (c) => c.json(fromMessage(user(c), await body(c, messageRefSchema))));

@@ -45,6 +45,14 @@ export function outputByJob(userId: string, jobId: string): RunOutput {
     const r = db.prepare('SELECT * FROM run_outputs WHERE job_id=? AND user_id=?').get(jobId, userId);
     return r ? outputView(r) : missing();
 }
+/** An owned job can finish without producing a saved output. */
+export function jobOutput(userId: string, jobId: string): { output: RunOutput | null; terminal: boolean } {
+    requireEnabled(userId);
+    const job = db.prepare('SELECT state FROM agent_jobs WHERE id=? AND user_id=?').get(jobId, userId) as { state: string } | undefined;
+    if (!job) missing();
+    const row = db.prepare('SELECT * FROM run_outputs WHERE job_id=? AND user_id=?').get(jobId, userId);
+    return { output: row ? outputView(row) : null, terminal: !['queued', 'running'].includes(job.state) };
+}
 export function listOutputs(userId: string, opts: {
     botId?: string;
     after?: string;

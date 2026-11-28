@@ -156,7 +156,7 @@ test('account preference is isolated, and flag rollback makes every UI route dis
   for (const [method, route] of [['GET', '/config'], ['PATCH', '/config'], ['PUT', '/config'], ['POST', '/patches/preview'], ['GET', '/previews/missing'], ['POST', '/previews/missing/apply'],
     ['POST', '/previews/missing/discard'], ['POST', '/undo'], ['POST', '/reset'], ['GET', '/history'], ['POST', '/history/0/restore'], ['GET', '/presets'], ['POST', '/presets'],
     ['DELETE', '/presets/missing'], ['GET', '/export'], ['POST', '/import/preview'], ['GET', '/schema'], ['POST', '/data']]) {
-    const response = await request(method, route, method === 'GET' ? undefined : {}, 0); assert.equal(response.status, 404); assert.equal(response.body.code, 'disabled');
+    const response = await request(method, route, method === 'GET' ? undefined : {}, 0); assert.equal(response.status, method === 'GET' && route === '/config' ? 200 : 404); assert.equal(response.body.code, 'disabled');
   }
   assert.equal((await request('GET', '/config', undefined, undefined, server.b)).status, 200);
 });

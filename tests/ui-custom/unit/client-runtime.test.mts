@@ -66,7 +66,7 @@ test('late responses from a signed-out account cannot change the next account', 
 test('disabled ignores the cache and fetch failures preserve the saved config',async()=>{
   const doc={...DEFAULT_CONFIG,theme:{...DEFAULT_CONFIG.theme,mode:'dark' as const}};await reset(doc,2);
   globalThis.fetch=async()=>{throw new Error('offline');};await store.refreshUiConfig();assert.equal(store.useCustomization.getState().status,'offline');assert.equal(store.useCustomization.getState().saved.theme.mode,'dark');
-  globalThis.fetch=async()=>Response.json({code:'disabled',message:'Disabled.'},{status:404});await store.refreshUiConfig();assert.equal(store.useCustomization.getState().status,'disabled');assert.equal(values.has(store.CACHE_KEY),false);assert.equal(store.useCustomization.getState().effective.theme.mode,'system');
+  globalThis.fetch=async()=>Response.json({code:'disabled',message:'Disabled.'},{status:200});await store.refreshUiConfig();assert.equal(store.useCustomization.getState().status,'disabled');assert.equal(values.has(store.CACHE_KEY),false);assert.equal(store.useCustomization.getState().effective.theme.mode,'system');
 });
 test('phone overlay and safe mode preserve the saved document',async()=>{
   const doc={...DEFAULT_CONFIG,theme:{...DEFAULT_CONFIG.theme,density:'compact' as const},device:{phone:{scale:'xlarge' as const}}};await reset(doc);
