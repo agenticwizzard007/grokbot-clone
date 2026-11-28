@@ -52,7 +52,8 @@ async function runPolishView({ before, output, view }) {
     page = await server.page(account);
     let sends = 0; page.on('request', request => { if (request.method() === 'POST' && /\/messages$/.test(new URL(request.url()).pathname)) sends++; });
     async function open(board) {
-      await page.goto(`${server.base}/#dash/${board.id}`); await page.reload(); await page.locator('.dashboard-page').waitFor();
+      await page.goto(`${server.base}/#dash/${board.id}`); await page.locator('.dashboard-page').waitFor();
+      await page.reload(); await page.locator('.dashboard-page').waitFor();
       for (const cell of await page.locator('[data-widget-id]').all()) { await cell.scrollIntoViewIfNeeded(); await page.waitForFunction(id => document.querySelector(`[data-widget-id="${id}"]`)?.dataset.widgetState !== 'loading', await cell.getAttribute('data-widget-id')); }
       await page.locator('.dashboard-surface').evaluate(el => { el.scrollTop = 0; });
     }

@@ -19,7 +19,9 @@ export function PlanUsageContent({ summary, error = false, sidebar = false }: { 
       <span className="plan-usage__status">{view ? <>{summary!.plan.unit === 'usd' && <span>{view.status}</span>}{view.warning && <span className="plan-usage__warning">{view.warning}</span>}</> : ' '}</span>
     </span>
     <span className="plan-usage__reset">{error && summary ? 'Update unavailable' : view?.reset ?? ' '}</span>
-    {(summary && (summary.ownKeys.usedCents > 0 || summary.ownKeys.requests > 0)) && <span className="plan-usage__own" title={compact ? summary.ownKeys.label : undefined}>{compact && <KeyRound size={16} aria-hidden />}{usageDollars(summary.ownKeys.usedCents)} <span className={compact ? 'sr-only' : undefined}>{summary.ownKeys.label}</span></span>}
+    {(summary && (summary.ownKeys.usedCents > 0 || summary.ownKeys.requests > 0)) && <span className="plan-usage__own" title={compact ? summary.ownKeys.label : undefined}>
+      {compact ? <><span aria-hidden="true"><KeyRound size={16} />{usageDollars(summary.ownKeys.usedCents)}</span><span className="sr-only">{usageDollars(summary.ownKeys.usedCents)} {summary.ownKeys.label}</span></> : <>{usageDollars(summary.ownKeys.usedCents)} {summary.ownKeys.label}</>}
+    </span>}
     {!sidebar && summary && (summary.plan.estimatedCents > 0 || summary.plan.unpricedRequests > 0) && <span className="plan-usage__note">{[
       summary.plan.estimatedCents > 0 ? `${usageDollars(summary.plan.estimatedCents)} estimated` : '',
       summary.plan.unpricedRequests > 0 ? `${summary.plan.unpricedRequests} unpriced ${summary.plan.unpricedRequests === 1 ? 'request' : 'requests'}` : '',

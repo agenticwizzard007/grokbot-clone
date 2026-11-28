@@ -37,6 +37,7 @@
   .sidebar-usage .plan-usage__warning::before { content: none !important; }
   .sidebar-usage .plan-usage__own { display: inline-flex; align-items: center; gap: 4px; order: 2; flex: 0 0 auto; }
   .sidebar-usage .plan-usage__own svg { flex-shrink: 0; }
+  .sidebar-usage .plan-usage__own > [aria-hidden='true'] { display: inline-flex; align-items: center; gap: 4px; }
   /* The amount identifies a capped API plan; retain its name for screen readers. */
   .sidebar-usage .plan-usage[data-limited] .plan-usage__name { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
