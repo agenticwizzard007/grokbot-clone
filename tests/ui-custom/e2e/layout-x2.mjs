@@ -30,7 +30,7 @@ export async function auditDashboardRoutes(evidence, inspectAlignment) {
           await page.goto('about:blank');
           await page.goto(`${server.base}/${route.hash.replace('{dashboard}', id)}`);
           await page.locator('.dashboard-page').waitFor();
-          if (['edit', 'settings', 'add', 'add-agent'].includes(route.state)) await page.getByRole('button', { name: 'Edit', exact: true }).click();
+          if (['edit', 'settings', 'add', 'add-agent'].includes(route.state)) await page.getByRole('button', { name: 'Edit dashboard', exact: true }).click();
           if (route.state === 'settings') await page.getByRole('button', { name: 'Settings: Daily summary', exact: true }).click();
           if (route.state === 'add' || route.state === 'add-agent') await page.getByRole('button', { name: 'Add widget', exact: true }).click();
           if (route.state === 'add-agent') await page.getByRole('button', { name: /Ask your agent Answers/ }).click();

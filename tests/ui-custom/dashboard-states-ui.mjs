@@ -29,6 +29,11 @@ try {
           { id: 'fixture-2', title: 'Review the launch plan', name: 'Daily summary', state: 'needs_input', status: 'needs_you', botName: 'Project assistant', botId: 'fixture-bot', openTasks: 1, day: '2026-01-02', value: 3, created: 3, done: 2, at: Date.now() + 200000, routineId: 'r2' },
           { id: 'fixture-3', title: 'Publish the weekly update', name: 'Planning assistant', state: 'done', status: 'ready', botName: 'Project assistant', botId: 'fixture-bot', openTasks: 0, day: '2026-01-03', value: 2, created: 1, done: 1, at: Date.now() + 300000, routineId: 'r3' },
         ], available: true };
+        if (type === 'meter' && state === 'data') data.value = {
+          plan: { name: 'Starter', billing: 'plan', provider: null, periodStart: Date.now() - 86400000, periodEnd: Date.now() + 86400000,
+            usedCents: 370, limitCents: 1000, percentUsed: 37, unit: 'usd', resetsAt: Date.now() + 86400000, estimatedCents: 0, unpricedRequests: 0 },
+          ownKeys: { usedCents: 0, requests: 0, estimatedCents: 0, unpricedRequests: 0, label: 'Your own keys' },
+        };
         if (state === 'empty') data = { ok: true, count: 0, value: {}, rows: [], available: false };
         states[widget.id] = state === 'loading' ? { status: 'loading' } : state === 'error' ? { status: 'error', error: 'Data is unavailable.' } : { status: 'ready', data };
       }

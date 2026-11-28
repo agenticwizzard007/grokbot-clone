@@ -56,8 +56,8 @@ export function resolveSource(id: string, userId: string, params: Params): Sourc
       COALESCE(SUM(t.state='needs_input'),0) AS needs_input, COALESCE(SUM(t.state='done'),0) AS done
       FROM tasks t WHERE ${where}`, args);
     if (id === 'tasks.counts') return { value: counts, count: counts.total };
-    return { count: counts.total, rows: all(`SELECT t.id, t.title, t.state, b.name AS botName, b.id AS botId, t.updated_at AS updatedAt
-      FROM (SELECT t.id,t.title,t.state,t.bot_id,t.updated_at FROM tasks t WHERE ${where}
+    return { count: counts.total, rows: all(`SELECT t.id, t.title, t.state, b.name AS botName, b.id AS botId, t.created_at AS createdAt, t.updated_at AS updatedAt
+      FROM (SELECT t.id,t.title,t.state,t.bot_id,t.created_at,t.updated_at FROM tasks t WHERE ${where}
         ORDER BY t.updated_at DESC,t.id LIMIT ?) t JOIN bots b ON b.id=t.bot_id ORDER BY t.updated_at DESC,t.id`, [...args, limit]) };
   }
   if (id === 'tasks.series') {

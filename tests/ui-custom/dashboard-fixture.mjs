@@ -64,19 +64,20 @@ export async function assertGrid(page, width) {
   const geometry = await page.evaluate(() => {
     const grid = document.querySelector('.dashboard-grid'), bounds = grid.getBoundingClientRect(), style = getComputedStyle(grid);
     return { columns: style.gridTemplateColumns.split(' ').length, width: bounds.width, left: bounds.left, right: bounds.right, gap: parseFloat(style.columnGap), overflow: document.documentElement.scrollWidth > innerWidth,
-      slots: [...grid.children].map(slot => { const rect = slot.getBoundingClientRect(); return { span: Number(slot.dataset.widgetSpan), rows: Number(slot.dataset.widgetRows), width: rect.width, height: rect.height, top: rect.top, left: rect.left, right: rect.right }; }) };
+      slots: [...grid.children].map(slot => { const rect = slot.getBoundingClientRect(); return { type: slot.dataset.widgetKind, empty: !!slot.dataset.widgetEmpty, span: Number(slot.dataset.widgetSpan), rows: Number(slot.dataset.widgetRows), width: rect.width, height: rect.height, top: rect.top, left: rect.left, right: rect.right }; }) };
   });
-  const columns = width <= 480 ? 2 : width <= 1023 ? 6 : 12;
+  const columns = width < 360 ? 2 : width <= 1023 ? 6 : 12;
   assert.equal(geometry.columns, columns); assert.equal(geometry.overflow, false); assert.equal(geometry.gap, 16);
+  const spanOf = slot => width < 360 ? slot.type === 'stat' && slot.span === 4 ? 2 : slot.span <= 4 ? 1 : 2 : width <= 480 ? slot.type === 'stat' && slot.span === 4 ? 2 : slot.span <= 4 ? 3 : 6 : width <= 1023 ? Math.ceil(slot.span / 2) : slot.span;
   for (const slot of geometry.slots) {
-    const span = width <= 480 ? slot.span <= 4 ? 1 : 2 : width <= 1023 ? Math.ceil(slot.span / 2) : slot.span;
+    const span = spanOf(slot);
     const expected = (geometry.width - geometry.gap * (columns - 1)) / columns * span + geometry.gap * (span - 1);
     assert.ok(Math.abs(slot.width - expected) <= 1, `span ${span}: ${slot.width} versus ${expected}`);
-    for (const other of geometry.slots) if (Math.abs(slot.top - other.top) <= 1 && slot.rows === other.rows) assert.ok(Math.abs(slot.height - other.height) <= 1);
+    for (const other of geometry.slots) if (Math.abs(slot.top - other.top) <= 1 && slot.rows === other.rows && !slot.empty && !other.empty) assert.ok(Math.abs(slot.height - other.height) <= 1);
   }
   for (const slot of geometry.slots) {
     const row = geometry.slots.filter(other => Math.abs(slot.top - other.top) <= 1);
-    const total = row.reduce((sum, item) => sum + (width <= 480 ? item.span <= 4 ? 1 : 2 : width <= 1023 ? Math.ceil(item.span / 2) : item.span), 0);
+    const total = row.reduce((sum, item) => sum + spanOf(item), 0);
     if (total === columns) { assert.ok(Math.abs(Math.min(...row.map(item => item.left)) - geometry.left) <= 1); assert.ok(Math.abs(Math.max(...row.map(item => item.right)) - geometry.right) <= 1); }
   }
   return geometry;
