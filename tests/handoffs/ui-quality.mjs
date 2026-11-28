@@ -62,7 +62,7 @@ export function inspectQuality({ selector, finished = false }) {
     if (el.matches('.ho-receipt--loop')) {
       const title = el.querySelector('.layout-row__title').textContent.trim();
       check('k.loop-title', !!title && !/^(?:(?:agent|new|untitled) )?loop$/i.test(title), el);
-      check('k.loop-chip', /^(?:\d+ passes?|Pass \d+ of \d+)$/.test(el.querySelector('.ho-chip').textContent), el);
+      check('k.loop-chip', /^(?:\d+ pass(?:es)?|Pass \d+ of \d+)$/.test(el.querySelector('.ho-chip').textContent), el);
       const toggle = el.querySelector('.ho-receipt-expand');
       check('k.loop-toggle', toggle.getAttribute('aria-label') === `${toggle.getAttribute('aria-expanded') === 'true' ? 'Hide' : 'Show'} passes for ${title}`, toggle);
     }
