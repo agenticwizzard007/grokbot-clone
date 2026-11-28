@@ -30,16 +30,18 @@ try {
       for (const mode of ['converge', 'cap']) {
         try {
           const run = await recordLoop(page, server.data, mode, evidence, width);
-          report.runs.push({ ...run, theme }); report.screenshots.push(...run.screenshots); report.passed++;
-          console.log(`PASS ${width} ${theme} ${mode}: ${run.result}`);
+          report.runs.push({ ...run, theme }); report.screenshots.push(...run.screenshots);
           await poll(() => api(page, '/jobs'), value => !value.jobs.some(job => [server.data.maker, server.data.checker].includes(job.bot_id) && ['queued', 'running'].includes(job.state)), 'Loop jobs finish');
           await page.goto(`${server.base}/#bot/${server.data.maker}`);
           const group = page.locator('.ho-loop-receipt').filter({ has: page.locator(`a[href="#loop/${run.id}"]`) });
-          await group.getByRole('button', { name: 'Show passes', exact: true }).click();
+          await group.getByRole('button', { name: /^Show passes\b/ }).click();
+          await group.getByRole('button', { name: /^Hide passes\b/ }).waitFor();
           const passes = group.getByRole('group', { name: 'Loop passes', exact: true });
           await passes.getByRole('link', { name: /^View handoff/ }).first().waitFor();
           await group.scrollIntoViewIfNeeded();
           report.screenshots.push(await screenshot(page, evidence, `${mode}-receipts-expanded`, width));
+          report.passed++;
+          console.log(`PASS ${width} ${theme} ${mode}: ${run.result}`);
         } catch (error) {
           const id = new URL(page.url()).hash.match(/^#loop\/(lp_[^?]+)/)?.[1];
           const actual = id ? await api(page, `/loops/${id}`) : null;
