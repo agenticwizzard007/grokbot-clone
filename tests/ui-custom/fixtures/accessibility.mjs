@@ -26,7 +26,8 @@ export async function accessibilityFixture() {
     { id: 'w_a11y0002', type: 'list', title: 'Open tasks', span: 6, rows: 3, source: { id: 'tasks.list', params: {} }, options: { limit: 10 } },
     ...['text', 'stat', 'list'].map((kind, i) => ({ id: `w_a11y000${i + 3}`, type: 'agent', title: `Agent ${kind}`, span: 6, rows: 3, options: { prompt: 'Summarize my tasks', display: kind, schedule: 'manual' } })),
     { id: 'w_a11y0006', type: 'chart', title: 'Usage', span: 6, rows: 3, source: { id: 'usage.series', params: { range: '7d', metric: 'cost' } }, options: { kind: 'bar' } },
-  ] }, { id: 'd_a11y0002', name: 'Blank dashboard', icon: 'layout-dashboard', widgets: [] }];
+  ] }, { id: 'd_a11y0002', name: 'Blank dashboard', icon: 'layout-dashboard', widgets: [] },
+  ...['Launch planning', 'Customer follow ups', 'Content calendar', 'Research', 'Operations'].map((name, i) => ({ id: `d_a11y000${i + 3}`, name, icon: 'layout-dashboard', widgets: [] }))];
   const response = await fetch(`${server.base}/api/ui/config`, { method: 'PUT', headers: { cookie: 'swarm_session=layout-test-token', origin: server.base, 'content-type': 'application/json', 'if-match': '"0"' }, body: JSON.stringify(doc) });
   assert.equal(response.status, 200, await response.text());
   const profile = await fetch(`${server.base}/api/ui/requirements`, { method: 'PUT', headers: { cookie: 'swarm_session=layout-test-token', origin: server.base, 'content-type': 'application/json', 'if-match': '"0"' }, body: JSON.stringify({ patch: [
@@ -100,7 +101,7 @@ export async function accessibilityFixture() {
       if (p.includes(`/api/outputs/${output.id}/parts/`)) json = { output, part: output.parts[0], text: 'Placeholder output body.', next: null };
       const widget = p.match(/\/widgets\/d_a11y0001\/w_a11y000([345])\/result$/);
       if (widget) {
-        const result = widget[1] === '3' ? { kind: 'text', text: 'Review the launch plan and open tasks.' } : widget[1] === '4' ? { kind: 'stat', value: '12', label: 'Tasks', delta: '3 added' } : { kind: 'list', rows: Array.from({ length: 10 }, (_, i) => ({ title: `Task ${i + 1}`, subtitle: 'Review the next step', status: 'Working', action: { type: 'open', route: '#tasks' } })) };
+        const result = widget[1] === '3' ? { kind: 'text', text: 'Review the launch plan and open tasks.' } : widget[1] === '4' ? { kind: 'stat', value: '12', label: 'Tasks', delta: '3 added' } : { kind: 'list', rows: Array.from({ length: 10 }, (_, i) => ({ title: `Task ${i + 1}`, subtitle: 'Review the next step', status: 'Working', action: i === 1 ? { type: 'send', botId: server.fixture.bot.id, text: 'Draft next steps for Task 2.' } : i === 2 ? { type: 'approve', itemId: 'approval_a11y' } : { type: 'open', route: '#tasks' } })) };
         json = { dashboardId: 'd_a11y0001', widgetId: `w_a11y000${widget[1]}`, state: 'ready', doc: result, runAt: Date.now(), durationMs: 100 };
       }
       return json ? route.fulfill({ json }) : route.continue();
@@ -142,7 +143,7 @@ export async function accessibilityFixture() {
           await page.waitForFunction(id => document.querySelector(`[data-widget-id="${id}"]`)?.dataset.widgetState === 'ready', await widget.getAttribute('data-widget-id'));
         }
       }
-      await page.locator('.dashboard-heading').scrollIntoViewIfNeeded();
+      await page.locator('.dashboard-surface').evaluate(node => { node.scrollTop = 0; });
     }
   } };
   } catch (error) { await server.close(); throw error; }

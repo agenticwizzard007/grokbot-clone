@@ -81,6 +81,19 @@ async function showUsage(page, surface) {
     await page.getByRole('menuitem', { name: 'Usage', exact: true }).waitFor();
   }
 }
+async function showDashboardSidebar(page) {
+  if (!await page.locator('.sidebar').isVisible()) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  const group = page.locator('.sidebar__dashboards');
+  assert.equal(await group.getByRole('button').count(), 6, 'Five dashboards and the All dashboards entry');
+  assert.equal(await group.getByRole('button', { name: 'All dashboards', exact: true }).count(), 1);
+  assert.equal(await group.getByRole('button', { name: 'Operations', exact: true }).count(), 0, 'The remaining dashboards stay in the manager');
+  await group.scrollIntoViewIfNeeded();
+}
+async function checkDashboardHeader(page) {
+  const header = page.locator('.shell-header .dashboard-header-actions');
+  assert.equal(await header.getByRole('button', { name: 'Refresh dashboard', exact: true }).count(), 1);
+  assert.equal(await header.getByRole('button', { name: 'Edit dashboard', exact: true }).innerText(), 'Edit');
+}
 const routes = [...navigationRoutes.map(hash => ({ name: hash || 'home', hash })),
   ...[false, true].map(collapsed => ({ name: `usage-meter-${collapsed ? 'collapsed' : 'expanded'}`, hash: '#bots', action: page => openUsageMeter(page, collapsed) })),
   ...['sidebar', 'menu', 'rail'].flatMap(surface => ['normal', 'warning', 'critical', 'no-limit', 'cli-known', 'cli-unknown'].map(usage => ({
@@ -94,12 +107,34 @@ const routes = [...navigationRoutes.map(hash => ({ name: hash || 'home', hash })
   { name: 'layout-reset', hash: '#settings/appearance', action: async page => { await page.getByRole('button', { name: 'Manage layout', exact: true }).click(); await page.getByRole('menuitem', { name: 'Reset', exact: true }).click(); } },
   { name: 'chat-preview', hash: '#bot/coordinator', action: page => server.previewCard(page) },
   { name: 'dashboards-manager', hash: '#dashboards' },
-  { name: 'dashboard', hash: '#dash/d_a11y0001' },
+  { name: 'dashboard', hash: '#dash/d_a11y0001', action: checkDashboardHeader },
+  { name: 'dashboard-sidebar-capped', hash: '#dashboards', action: showDashboardSidebar, reflow: showDashboardSidebar },
+  { name: 'dashboard-refresh', hash: '#dash/d_a11y0001', action: async page => {
+    await checkDashboardHeader(page);
+    const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/ui/data' && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Refresh dashboard', exact: true }).click();
+    assert.equal((await refreshed).status(), 200);
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-widget-state]')].every(node => node.dataset.widgetState === 'ready'));
+  } },
+  { name: 'dashboard-view-all', hash: '#dash/d_a11y0001', action: async page => {
+    const link = page.locator('[data-widget-id="w_a11y0002"]').getByRole('link', { name: 'View all 12', exact: true });
+    assert.equal(await link.getAttribute('href'), '#tasks');
+    await link.focus();
+  } },
+  { name: 'agent-widget-actions', hash: '#dash/d_a11y0001', action: async page => {
+    const widget = page.locator('[data-widget-id="w_a11y0005"]');
+    for (const name of ['Open: Task 1', 'Send to agent: Task 2', 'Approve: Task 3']) {
+      const action = widget.getByRole('button', { name, exact: true });
+      await action.scrollIntoViewIfNeeded(); await action.focus();
+      assert.equal(await action.evaluate(node => node === document.activeElement), true);
+    }
+  } },
+  { name: 'agent-approve', hash: '#dash/d_a11y0001', action: async page => page.getByRole('button', { name: 'Approve: Task 3', exact: true }).click() },
   { name: 'dashboard-empty', hash: '#dash/d_a11y0002' },
-  { name: 'dashboard-edit', hash: '#dash/d_a11y0001', action: async page => page.getByRole('button', { name: 'Edit', exact: true }).click() },
-  { name: 'add-widget', hash: '#dash/d_a11y0001', action: async page => { await page.getByRole('button', { name: 'Edit', exact: true }).click(); await page.getByRole('button', { name: 'Add widget', exact: true }).click(); } },
-  { name: 'ask-agent', hash: '#dash/d_a11y0001', action: async page => { await page.getByRole('button', { name: 'Edit', exact: true }).click(); await openAgentSheet(page); } },
-  { name: 'widget-settings', hash: '#dash/d_a11y0001', action: async page => { await page.getByRole('button', { name: 'Edit', exact: true }).click(); await page.getByRole('button', { name: 'Settings: Task table', exact: true }).click(); } },
+  { name: 'dashboard-edit', hash: '#dash/d_a11y0001', action: async page => page.getByRole('button', { name: 'Edit dashboard', exact: true }).click() },
+  { name: 'add-widget', hash: '#dash/d_a11y0001', action: async page => { await page.getByRole('button', { name: 'Edit dashboard', exact: true }).click(); await page.getByRole('button', { name: 'Add widget', exact: true }).click(); } },
+  { name: 'ask-agent', hash: '#dash/d_a11y0001', action: async page => { await page.getByRole('button', { name: 'Edit dashboard', exact: true }).click(); await openAgentSheet(page); } },
+  { name: 'widget-settings', hash: '#dash/d_a11y0001', action: async page => { await page.getByRole('button', { name: 'Edit dashboard', exact: true }).click(); await page.getByRole('button', { name: 'Settings: Task table', exact: true }).click(); } },
   { name: 'dashboard-switcher', hash: '#dash/d_a11y0001', action: async page => page.getByRole('button', { name: 'Switch dashboard: My week', exact: true }).click() },
   { name: 'create-dashboard', hash: '#dashboards', action: async page => page.getByRole('button', { name: 'Create', exact: true }).click() },
   { name: 'confirm-dialog', hash: '#dashboards', action: async page => { await page.getByRole('button', { name: 'Manage My week', exact: true }).click(); await page.getByRole('menuitem', { name: 'Delete', exact: true }).click(); } },
@@ -190,7 +225,7 @@ try {
           const table = page.getByRole('region', { name: 'Task table rows', exact: true });
           if (await table.count()) {
             await table.focus(); await table.evaluate(node => { node.scrollTop = 0; });
-            await page.locator('.dashboard-heading').scrollIntoViewIfNeeded();
+            await page.locator('.dashboard-surface').evaluate(node => { node.scrollTop = 0; });
           }
         }
         if (['#tasks', 'dashboard', 'about-you'].includes(route.name)) await page.screenshot({ path: path.join(out, `${file}.png`) });
