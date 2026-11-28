@@ -97,6 +97,24 @@ try {
    assert.ok(clicks <= 3, `${target}: reachable in at most three clicks`);
   };
   const historyFlows = async () => {
+   for (const hash of ['#bots','#tasks','#team','#goals','#reports','#dashboards','#loops','#search','#settings']) {
+    await cold('#bot/coordinator');
+    await page.evaluate(hash => { location.hash = hash; }, hash); await hashIs(hash);
+    await page.evaluate(() => { location.hash = '#new-bot'; }); await hashIs('#new-bot');
+    await page.evaluate(() => {
+     window.historyWrites = [];
+     for (const method of ['pushState','replaceState']) {
+      const original = history[method];
+      history[method] = function(...args) { window.historyWrites.push(method); return original.apply(this,args); };
+     }
+    });
+    await page.goBack(); await hashIs(hash);
+    await page.goBack(); await hashIs(canonical('#bot/coordinator'));
+    await page.goForward(); await hashIs(hash);
+    await page.goForward(); await hashIs('#new-bot');
+    assert.deepEqual(await page.evaluate(() => window.historyWrites), [], `${hash}: browser traversal never writes history`);
+   }
+   console.log(`PASS ${width} ${theme}: Back and Forward on all 9 top-level routes without history writes`);
    await cold('#tasks');
    for (const [label, hash] of [['Team','#team'],['Goals','#goals'],['Files','#reports']]) {
     await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: label, exact: true }).click(); await hashIs(hash);

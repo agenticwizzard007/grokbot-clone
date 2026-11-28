@@ -111,6 +111,9 @@ test('dashboard preview remains a draft across navigation and cache until Apply'
   assert.equal(store.useCustomization.getState().effective.layout.home.kind,'default');
   assert.deepEqual(store.useCustomization.getState().saved.dashboards,[]);
   assert.deepEqual(store.readCachedConfig('QA-Temp-Alpha').doc.dashboards,[]);
+  globalThis.fetch=async()=>Response.json({...preview,patch:[{op:'replace',path:'',value:result}]});
+  await store.loadPreview(preview.id);
+  assert.deepEqual(store.useCustomization.getState().effective.dashboards,[],'whole-document imports also stay in their preview card');
   globalThis.fetch=async()=>Response.json({ok:true});
   await store.discardPreview();
   assert.deepEqual(store.useCustomization.getState().effective.dashboards,[]);

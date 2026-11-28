@@ -26,8 +26,10 @@ export async function runFixDash4({ before = false, output = path.resolve(`.cont
       replay.set({text:'Hello there, nice to meet you.',hold:true});
       page = await server.page(account,width);
       await page.emulateMedia({colorScheme:theme});
-      await page.evaluate(async theme => (await import('/src/configStore.ts')).useConfigUI.getState().setTheme(theme),theme);
-      await page.evaluate(async () => (await import('/src/customization/store.ts')).dismissUndo());
+      await page.evaluate(async theme => {
+        const { patchUiConfig, dismissUndo } = await import('/src/customization/store.ts');
+        await patchUiConfig([{ op: 'replace', path: '/theme/mode', value: theme }]); dismissUndo();
+      },theme);
       const capture = async (name, selector = '.dashboard-surface', requirePage = true) => {
         await page.evaluate(() => document.fonts.ready);
         const file = path.join(output,`${name}-${tag}.png`); await page.screenshot({path:file}); screenshots.push(file);

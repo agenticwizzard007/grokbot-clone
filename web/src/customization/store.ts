@@ -44,7 +44,7 @@ function update(partial: Partial<UiState>) {
   let doc = next.safe || next.status === 'disabled' ? DEFAULT_CONFIG : next.preview && !next.showBefore ? next.preview.result : next.saved;
   // Dashboard drafts belong to their preview card. Publishing their layout here
   // made unsaved dashboards appear in the sidebar, manager, switcher and tabs.
-  if (doc === next.preview?.result && next.preview.patch.some(op => op.path.startsWith('/dashboards'))) {
+  if (doc === next.preview?.result && JSON.stringify(doc.dashboards) !== JSON.stringify(next.saved.dashboards)) {
     doc = { ...doc, dashboards: next.saved.dashboards, layout: next.saved.layout };
   }
   const current = useCustomization.getState();
