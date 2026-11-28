@@ -51,9 +51,20 @@ export function inspectQuality({ selector, finished = false }) {
     if (el.matches('.ho-receipt') && el.closest('.transcript__col') && !el.closest('.ho-receipt-passes')) { const column = el.closest('.transcript__col').getBoundingClientRect(); check('d.receipt-column', close(r.width,column.width) && close(r.right,column.right),el); }
     if (el.matches('.ho-receipt')) {
       const meta = el.querySelector('.ho-receipt-meta');
-      if (meta && meta.getBoundingClientRect().height <= 21) check('f.receipt-height', r.height <= 80, el, `${r.height}px`);
+      const title = el.querySelector('.layout-row__title');
+      const titleLines = title ? title.getBoundingClientRect().height / parseFloat(getComputedStyle(title).lineHeight) : 1;
+      // Full loop and agent names grow by their extra title lines, not blank space.
+      const extraTitleHeight = title ? Math.max(0, titleLines - 1) * parseFloat(getComputedStyle(title).lineHeight) : 0;
+      if (meta && meta.getBoundingClientRect().height <= 21) check('f.receipt-height', r.height <= 80 + extraTitleHeight, el, `${r.height}px`);
       check('b.receipt-target', r.height >= 44, el);
       for (const action of el.querySelectorAll('a,button')) { const a = action.getBoundingClientRect(); check('b.receipt-target', a.height >= 44 && a.width >= 44, action); }
+    }
+    if (el.matches('.ho-receipt--loop')) {
+      const title = el.querySelector('.layout-row__title').textContent.trim();
+      check('k.loop-title', !!title && !/^(?:(?:agent|new|untitled) )?loop$/i.test(title), el);
+      check('k.loop-chip', /^(?:\d+ passes?|Pass \d+ of \d+)$/.test(el.querySelector('.ho-chip').textContent), el);
+      const toggle = el.querySelector('.ho-receipt-expand');
+      check('k.loop-toggle', toggle.getAttribute('aria-label') === `${toggle.getAttribute('aria-expanded') === 'true' ? 'Hide' : 'Show'} passes for ${title}`, toggle);
     }
     if (el.matches('[data-layout="row"]')) {
       const leading = el.querySelector(':scope > .layout-row__leading'), title = el.querySelector(':scope > .layout-row__text > .layout-row__title');
@@ -81,6 +92,20 @@ export function inspectQuality({ selector, finished = false }) {
     if (!visible(el)) continue;
     check('i.action-label', el.textContent.trim() === '' && el.getAttribute('aria-label') === 'Message actions', el);
     check('b.message-target', el.getBoundingClientRect().width >= 44 && el.getBoundingClientRect().height >= 44, el);
+    const footer = el.parentElement, bubble = footer.previousElementSibling;
+    if (bubble?.matches('.bubble-wrap')) {
+      const text = bubble.querySelector('.bubble').getBoundingClientRect(), action = el.getBoundingClientRect();
+      const copy = bubble.querySelector('.bubble__copy').getBoundingClientRect();
+      check('f.message-before', action.top - text.bottom >= 8 && action.top - text.bottom <= 16, el, `${action.top - text.bottom}px`);
+      check('f.message-inline', close(action.top, copy.top) && close(action.left - copy.right, 8), el);
+      const group = footer.closest('.group');
+      let next = footer.closest('.ho-finished-message')?.nextElementSibling ?? footer.nextElementSibling ?? group?.nextElementSibling;
+      while (next && !visible(next)) next = next.nextElementSibling;
+      if (next) {
+        const gap = next.getBoundingClientRect().top - action.bottom;
+        check('f.message-after', gap >= 8 && gap <= 16, el, `${gap}px`);
+      }
+    }
   }
   for (const el of document.querySelectorAll('.group button')) if (visible(el)) check('i.no-actions-copy', el.innerText.trim() !== 'Actions', el);
   check('e.document', document.documentElement.scrollWidth <= innerWidth + 1, document.documentElement);
@@ -103,13 +128,14 @@ export async function runQuality() {
           assert.equal(await state.page.locator('.transcript__col > .ho-receipt-wrap:not(.ho-loop-receipt)').count(), 1, 'one independent handoff');
           const expanded = name === 'receipt-expanded';
           const toggle = group.locator('.ho-receipt-expand');
-          assert.equal(await toggle.getAttribute('aria-label'), expanded ? 'Hide passes' : 'Show passes');
+          assert.equal(await group.locator('.ho-receipt--loop .layout-row__title').innerText(), state.receiptTitle);
+          assert.equal(await toggle.getAttribute('aria-label'), `${expanded ? 'Hide' : 'Show'} passes for ${state.receiptTitle}`);
           assert.equal(await toggle.getAttribute('aria-expanded'), String(expanded));
           assert.equal(await group.locator('.ho-receipt-passes .ho-receipt:visible').count(), expanded ? 6 : 0);
           await toggle.click();
           assert.equal(await toggle.getAttribute('aria-expanded'), String(!expanded));
           assert.equal(await group.locator('.ho-receipt-passes .ho-receipt:visible').count(), expanded ? 0 : 6);
-          assert.equal(await toggle.getAttribute('aria-label'), expanded ? 'Show passes' : 'Hide passes');
+          assert.equal(await toggle.getAttribute('aria-label'), `${expanded ? 'Show' : 'Hide'} passes for ${state.receiptTitle}`);
           if (!expanded) {
             const open = await state.page.evaluate(inspectQuality, { selector: state.selector, finished: true });
             result.issues.push(...open.issues);
@@ -118,15 +144,26 @@ export async function runQuality() {
           const href = await group.getByRole('link', {name:'View loop',exact:true}).getAttribute('href');
           assert.match(href, /^#loop\//);
           if (name === 'receipt-running') {
-            assert.equal(await group.locator('.ho-chip').innerText(), 'Loop, pass 2 of 4');
+            assert.equal(await group.locator('.ho-chip').innerText(), 'Pass 2 of 4');
             await state.advanceLoop();
-            await group.getByText('Loop, pass 3 of 4', {exact:true}).waitFor();
+            await group.getByText('Pass 3 of 4', {exact:true}).waitFor();
             assert.equal(await toggle.getAttribute('aria-expanded'), 'false', 'live updates preserve collapsed state');
           }
           await group.getByRole('link', {name:'View loop',exact:true}).click();
           await state.page.locator('[data-loop-revision]').waitFor();
           assert.equal(new URL(state.page.url()).hash, href);
           result.counts['k.loop-group'] = 1;
+        }
+        if (name === 'message-actions') {
+          const button = state.page.getByRole('button', { name: 'Message actions', exact: true }).first();
+          await button.focus(); await state.page.keyboard.press('Enter');
+          await state.page.getByRole('menuitem', { name: 'Send to agent', exact: true }).waitFor();
+          const menu = await state.page.evaluate(inspectQuality, { selector: '.ho-message-footer [role="menu"]' });
+          result.issues.push(...menu.issues);
+          await state.page.keyboard.press('Escape');
+          assert.equal(await button.getAttribute('aria-expanded'), 'false');
+          assert.equal(await button.evaluate(el => el === document.activeElement), true);
+          result.counts['i.message-menu'] = 1;
         }
         report.push({name,width,theme,...result});
         if (result.issues.length) await state.page.screenshot({path:path.join(out,`${name}-${width}-${theme}.png`),fullPage:true});
