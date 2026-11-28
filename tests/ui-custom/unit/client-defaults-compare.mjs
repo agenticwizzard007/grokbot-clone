@@ -43,7 +43,24 @@ function compareReviewedRectangles(key, actual, expected, review) {
     assert.notDeepEqual(after, before, `${key}: remove unchanged rectangle review`);
     original.rect = after;
   }
-  // Compare the entire snapshot after applying only the recorded rectangles.
+  // Content additions are full node records, anchored to the untouched pin.
+  // Indices refer to the original snapshot, just like rectangle reviews.
+  if (review.insertions !== undefined) {
+    assert.ok(Array.isArray(review.insertions) && review.insertions.length, `${key}: explicit insertions required`);
+    let previous = -1, offset = 0;
+    for (const { index, before, nodes } of review.insertions) {
+      assert.ok(Number.isInteger(index) && index > previous && index < expected.nodes.length, `${key}: ordered known insertion index`);
+      assert.deepEqual(expected.nodes[index], before, `${key}: pinned insertion anchor`);
+      assert.ok(Array.isArray(nodes) && nodes.length, `${key}: explicit inserted nodes required`);
+      for (const node of nodes) {
+        assert.ok(typeof node.tag === 'string' && typeof node.class === 'string', `${key}: inserted node identity`);
+        assert.ok(Array.isArray(node.rect) && node.rect.length === 4 && node.rect.every(Number.isFinite) && node.rect[2] >= 0 && node.rect[3] >= 0, `${key}: finite inserted rectangle`);
+      }
+      pinned.nodes.splice(index + offset, 0, ...structuredClone(nodes));
+      previous = index; offset += nodes.length;
+    }
+  }
+  // Compare every token, style and node after only the explicitly recorded edits.
   assert.deepEqual(actual, pinned, `${key}: exact reviewed geometry and unchanged content`);
   return 'reviewed';
 }

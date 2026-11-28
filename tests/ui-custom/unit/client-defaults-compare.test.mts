@@ -125,3 +125,55 @@ test('rectangle reviews reject stale entries even when other rectangles differ',
   assert.throws(() => compareDefaultView(settingsKey, settingsChanged(), settingsExpected, reviews), /remove unchanged rectangle review/);
   assert.throws(() => compareDefaultView(settingsKey, settingsExpected, settingsExpected, settingsReviewed), /remove the review/);
 });
+
+const insertedNodes = [
+  { tag: 'SECTION', class: 'layout-section', rect: [16, 182, 358, 180], font: '14px Inter', padding: '0px', gap: '8px', radius: '0px', background: 'transparent' },
+  { tag: 'H2', class: '', rect: [16, 185, 68, 18], font: '600 13px Inter', padding: '0px', gap: 'normal', radius: '0px', background: 'transparent' },
+  { tag: 'DIV', class: 'layout-card', rect: [16, 214, 358, 148], font: '14px Inter', padding: '16px', gap: '8px', radius: '12px', background: '#FFFFFF' },
+];
+const contentReviewed = structuredClone(settingsReviewed);
+contentReviewed[settingsKey].insertions = [{ index: 2, before: structuredClone(settingsExpected.nodes[2]), nodes: insertedNodes }];
+function contentChanged() {
+  const value = settingsChanged();
+  value.nodes.splice(2, 0, ...structuredClone(insertedNodes));
+  return value;
+}
+test('reviewed additions require exact full nodes and leave the pin untouched', () => {
+  const pin = structuredClone(settingsExpected), reviews = structuredClone(contentReviewed);
+  assert.equal(compareDefaultView(settingsKey, contentChanged(), pin, reviews), 'reviewed');
+  assert.deepEqual(pin, settingsExpected);
+  assert.deepEqual(reviews, contentReviewed);
+  assert.throws(() => compareDefaultView(settingsKey, contentChanged(), pin, settingsReviewed));
+});
+for (const [name, change] of [
+  ['tokens', value => { value.tokens['--color-bg-pane'] = '#000000'; }],
+  ['inserted geometry', value => { value.nodes[2].rect[3] += 1; }],
+  ['inserted styles', value => { value.nodes[4].padding = '24px'; }],
+  ['inserted identity', value => { value.nodes[3].tag = 'H1'; }],
+  ['inserted order', value => { [value.nodes[2], value.nodes[3]] = [value.nodes[3], value.nodes[2]]; }],
+  ['unlisted geometry', value => { value.nodes[0].rect[3] += 1; }],
+  ['existing styles', value => { value.nodes[1].padding = '24px'; }],
+  ['extra nodes', value => { value.nodes.push(structuredClone(insertedNodes[0])); }],
+  ['missing added nodes', value => { value.nodes.splice(2, 1); }],
+  ['missing existing nodes', value => { value.nodes.splice(5, 1); }],
+]) test(`reviewed additions reject changed ${name}`, () => {
+  const value = contentChanged(); change(value);
+  assert.throws(() => compareDefaultView(settingsKey, value, settingsExpected, contentReviewed));
+});
+test('insertions reject invalid anchors, indices, node records and stale reviews', () => {
+  for (const edit of [
+    review => { review.insertions[0].before.rect[3] += 1; },
+    review => { review.insertions[0].index = -1; },
+    review => { review.insertions[0].index = 99; },
+    review => { review.insertions.push(structuredClone(review.insertions[0])); },
+    review => { review.insertions[0].nodes = []; },
+    review => { review.insertions[0].nodes[0].tag = null; },
+    review => { review.insertions[0].nodes[0].rect = [0, 0, -1, 40]; },
+    review => { review.insertions[0].nodes[0].rect = [0, 0, 390, Infinity]; },
+    review => { review.insertions = []; },
+  ]) {
+    const reviews = structuredClone(contentReviewed); edit(reviews[settingsKey]);
+    assert.throws(() => compareDefaultView(settingsKey, contentChanged(), settingsExpected, reviews));
+  }
+  assert.throws(() => compareDefaultView(settingsKey, settingsExpected, settingsExpected, contentReviewed), /remove the review/);
+});
