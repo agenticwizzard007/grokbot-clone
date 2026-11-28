@@ -94,7 +94,7 @@ try {
       { name: 'warning', cents: 4000, limit: 5000, percent: 80, text: '80% used', level: 'warning' },
       { name: 'critical', cents: 6250, limit: 5000, percent: 125, text: '100% used', level: 'critical' },
       { name: 'no-limit', cents: 1234, limit: null, percent: null, text: 'No limit', level: 'normal' },
-      { name: 'cli-unknown', cents: 0, limit: null, percent: null, text: 'Quota unavailable', level: 'normal', cli: true },
+      { name: 'cli-unknown', cents: 0, limit: null, percent: null, text: 'Usage unavailable', level: 'normal', cli: true },
       { name: 'cli-known', cents: 0, limit: null, percent: 82.5, text: '82.5% used', level: 'warning', cli: true },
     ];
     for (const state of states) {
@@ -102,7 +102,8 @@ try {
         billing: state.cli ? 'plan' : 'api', unit: state.cli ? 'percent' : 'usd', usedCents: state.cents, limitCents: state.limit, percentUsed: state.percent };
       await refresh();
       await meter.getByText(state.text, { exact: true }).waitFor();
-      assert.equal(await meter.locator('.plan-usage').getAttribute('data-level'), state.level);
+      if (state.name !== 'cli-unknown') assert.equal(await meter.locator('.plan-usage').getAttribute('data-level'), state.level);
+      else assert.ok((await meter.boundingBox()).height <= 64);
       if (!state.cli) assert.equal(await meter.locator('.plan-usage__amount').innerText(), state.limit === null ? '$12.34' : `$${(state.cents / 100).toFixed(2)} of $50.00`);
       assert.equal(await meter.getByRole('progressbar').count(), state.percent === null ? 0 : 1);
       if (state.percent !== null) assert.equal(Number(await meter.getByRole('progressbar').getAttribute('value')), Math.min(100, state.percent));
@@ -131,13 +132,13 @@ try {
     snapshot.plan = { ...original.plan, usedCents: 1235 };
     await page.evaluate(botId => { window.emitUsage({ type: 'live', state: { botId, isRunning: true, revision: Date.now(), activity: '', pending: [], awaiting: null } }); window.emitUsage({ type: 'live', state: { botId, isRunning: false, revision: Date.now() + 1, activity: '', pending: [], awaiting: null } }); }, server.fixture.bot.id);
     await meter.getByText('$12.35', { exact: true }).waitFor();
-    // Keep the loaded values and height throughout slow and failed refreshes.
+    // Keep loaded values during slow refreshes; collapse failed reads to a single line.
     hold = true; const beforeHeight = (await meter.boundingBox()).height; await refresh();
     assert.equal((await meter.boundingBox()).height, beforeHeight);
     assert.equal(await meter.getByText('$12.35', { exact: true }).count(), 1);
     fail = true; hold = false; await Promise.all(pending.splice(0).map(fulfill));
-    await meter.getByText('Update unavailable').waitFor();
-    assert.equal((await meter.boundingBox()).height, beforeHeight);
+    await meter.getByText('Usage unavailable', { exact: true }).waitFor();
+    assert.ok((await meter.boundingBox()).height >= 44 && (await meter.boundingBox()).height <= 64);
     fail = false; snapshot.ownKeys = original.ownKeys; await refresh();
     await meter.getByText(/On your own keys \(does not count toward the plan\)/).waitFor();
     assert.match(await meter.innerText(), /\$2.37 On your own keys/);
@@ -156,7 +157,7 @@ try {
       assert.ok(hit, '44px hit area surrounds 40px rail control');
       await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click();
     }
-    // API billing opens Usage; CLI billing opens Models & access with the same figures.
+    // The meter always opens Usage, including a legacy CLI quota response.
     await meter.click();
     await page.waitForURL('**/#settings/usage');
     await page.goto(`${server.base}/#bots`);
@@ -165,7 +166,9 @@ try {
     await refresh();
     await meter.getByText('82.5% used', { exact: true }).waitFor();
     await meter.click();
-    await page.waitForURL('**/#settings/subscriptions');
+    await page.waitForURL('**/#settings/usage');
+    assert.equal(await page.locator('.phone-drawer').count(), 0);
+    await page.evaluate(async () => (await import('/src/configStore.ts')).useConfigUI.getState().openAppSettings('subscriptions'));
     const access = page.locator('.subscription-settings .plan-usage');
     await access.getByText('82.5% used', { exact: true }).waitFor();
     assert.match(await access.innerText(), /Claude Pro plan/);
