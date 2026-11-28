@@ -54,7 +54,7 @@ test('timeout aborts the run and late output cannot replace the error', async t=
 });
 test('invalid model output is never stored as a rendered result',async t=>{
   const f=fixture({run:async()=>({kind:'text',text:'<script>'})});t.after(()=>f.db.close());f.widgets.run('a',...f.ids);await f.widgets.idle('a');
-  assert.equal(f.widgets.result('a',...f.ids).error,'Could not read the answer. Try again.');assert.equal(f.widgets.result('a',...f.ids).doc,null);
+  assert.equal(f.widgets.result('a',...f.ids).error,'The answer format was invalid. Try again.');assert.equal(f.widgets.result('a',...f.ids).doc,null);
 });
 test('fake-clock scheduler runs due active users once and skips inactive, manual and disabled users',async t=>{
   const f=fixture();t.after(()=>f.db.close());const scheduler=new WidgetScheduler(f.widgets);

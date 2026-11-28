@@ -30,9 +30,9 @@ export function AgentWidget({ dashboardId, widget, toolbar }: { dashboardId: str
   return <Card className="dashboard-widget dashboard-widget--agent" data-empty={!state.loading && emptyAnswer(doc) || undefined} role="region" aria-labelledby={`title-${widget.id}`} aria-busy={state.running || state.loading || undefined}>
     <div className="dashboard-agent-header"><h2 id={`title-${widget.id}`} tabIndex={-1}>{title}</h2><button type="button" className="btn btn--secondary" aria-label={`Refresh ${title}`} title="Refresh" disabled={state.running || state.loading} onClick={() => void state.run()}><RefreshCw size={18} aria-hidden /></button>{toolbar}</div>
     {state.snapshot?.runAt != null && <p className="dashboard-caption">{updatedCaption(state.snapshot.runAt, now)}</p>}
-    {state.running && <p className="dashboard-agent-state" role="status"><LoaderCircle size={16} className="spin" aria-hidden />Working</p>}
+    {state.running && <p className="dashboard-agent-state" role="status"><LoaderCircle size={16} className="spin" aria-hidden />Running</p>}
     {state.loading && !doc && <p role="status">Loading answer...</p>}
-    {(state.error || state.snapshot?.state === 'error') && <div className="dashboard-empty-data"><p role="alert">{state.error || 'Could not read the answer. Try again.'}</p><button className="btn btn--secondary" disabled={state.running} onClick={() => void state.run()}>Try again</button></div>}
+    {!state.running && (state.error || state.snapshot?.state === 'error') && <div className="dashboard-empty-data"><p role="alert">{state.error || state.snapshot?.error || 'The answer format was invalid. Try again.'}</p><button className="btn btn--secondary" disabled={state.running} onClick={() => void state.run()}>Try again</button></div>}
     {!state.loading && !state.error && state.snapshot?.state !== 'error' && !state.running && emptyAnswer(doc) && <div className="dashboard-empty-data"><p>No answer yet</p><button className="btn btn--secondary" onClick={() => void state.run()}>Run</button></div>}
     {doc && <div className="dashboard-widget-body"><AgentAnswer doc={doc} action={rowAction} /></div>}
     {actionError && !confirm && <p role="alert">{actionError}</p>}

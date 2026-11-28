@@ -99,3 +99,20 @@ test('customization source contains no HTML evaluation or forbidden copy punctua
     const source=fs.readFileSync(`web/src/customization/${file}`,'utf8');assert.doesNotMatch(source,/dangerouslySetInnerHTML|\binnerHTML\b|insertAdjacentHTML|new Function|[\u2013\u2014]/,String(file));
   }
 });
+
+test('dashboard preview remains a draft across navigation and cache until Apply',async()=>{
+  await reset();
+  const result={...DEFAULT_CONFIG,dashboards:[{id:'d_00000001',name:'Daily summary',icon:'layout-dashboard',widgets:[]}],layout:{...DEFAULT_CONFIG.layout,home:{kind:'dashboard',dashboardId:'d_00000001'}}};
+  const preview={id:'local-preview',status:'pending',result,patch:[{op:'add',path:'/dashboards/-',value:result.dashboards[0]}],summary:[],warnings:[],idMap:{},intent:'Daily summary',actor:'agent:coordinator',baseRevision:0,createdAt:Date.now(),expiresAt:Date.now()+900000};
+  globalThis.fetch=async()=>Response.json(preview);
+  await store.loadPreview(preview.id);
+  assert.equal(store.useCustomization.getState().preview.id,preview.id);
+  assert.deepEqual(store.useCustomization.getState().effective.dashboards,[]);
+  assert.equal(store.useCustomization.getState().effective.layout.home.kind,'default');
+  assert.deepEqual(store.useCustomization.getState().saved.dashboards,[]);
+  assert.deepEqual(store.readCachedConfig('QA-Temp-Alpha').doc.dashboards,[]);
+  globalThis.fetch=async()=>Response.json({ok:true});
+  await store.discardPreview();
+  assert.deepEqual(store.useCustomization.getState().effective.dashboards,[]);
+  assert.equal(store.useCustomization.getState().previewDecisions[preview.id],'discarded');
+});

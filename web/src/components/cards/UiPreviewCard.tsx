@@ -4,7 +4,7 @@ import { widgetLabel } from '../../dashboards/model';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { UiPreviewCardBody, StoredPreview } from '@shared/ui-config/index';
 import { usePreview, useUiConfig } from '../../customization';
-import { setPreviewCardVisible } from '../../customization/store';
+import { setPreviewCardVisible, rememberPreviewStatus } from '../../customization/store';
 import { ButtonGroup, Card } from '../layout';
 import { appearanceRequest, readPreview } from '../config/appearance/api';
 import { compareAppliedAppearance, refreshAppearance } from '../config/appearance/runtime';
@@ -26,6 +26,7 @@ export function UiPreviewCard({ body }: { body: UiPreviewCardBody }) {
   const dashboard = createdDashboard(current);
   const title = dashboard ? `Create dashboard: ${dashboard.name}` : body.title;
   const status = stored?.status === 'expired' ? 'expired' : current?.status ?? body.status;
+  useEffect(() => { rememberPreviewStatus(body.previewId, status); }, [body.previewId, status]);
   useEffect(() => {
     const card = statusRef.current?.closest('.ui-preview-card');
     if (!card || status !== 'pending') return;

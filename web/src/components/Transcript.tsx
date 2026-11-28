@@ -1,4 +1,6 @@
 import { useComponentVisible } from '../customization';
+import { useCustomization } from '../customization/store';
+import { previewMessageRows } from '../lib/previewMessages';
 import type { ComponentVisibility } from '@shared/ui-config/registry-components';
 import { Page, Card, ButtonGroup } from './layout';
 import { prefillComposer } from './Composer';
@@ -234,9 +236,9 @@ const SystemRow = memo(function SystemRow({ row }: { row: Row }) {
     finally { setRetrying(false); }
   };
   if (receipt) return <div className="ho-receipt-wrap" data-row-seq={row.seq}><HandoffRow body={receipt} otherBotName={otherBotName} /></div>;
-  if (b.type === 'event') return <div className="system-event" data-row-seq={row.seq}>{clean(b.text)}{b.ref?.startsWith('#loop/') && <a href={b.ref.split('?')[0]}>View loop</a>}</div>;
+  if (b.type === 'event') return <div className="system-event" data-row-seq={row.seq}><Markdown text={clean(b.text)} />{b.ref?.startsWith('#loop/') && <a href={b.ref.split('?')[0]}>View loop</a>}</div>;
   if (b.type === 'notice') return <Card className={`notice is-${b.tone ?? 'info'}`} data-row-seq={row.seq} data-recovery-job={b.recovery?.jobId}>
-    <div>{b.text === 'Stopped.' ? 'Request interrupted. Send again to retry.' : clean(b.text)}</div>
+    <Markdown text={b.text === 'Stopped.' ? 'Request interrupted. Send again to retry.' : clean(b.text)} />
     {b.credits && <div className="credit-notice">
       <p><ProviderLabel provider={b.credits.provider}>{b.credits.provider}</ProviderLabel> could not fund this request. Check your API balance or wait for other requests to finish, then retry.</p>
       {b.credits.billingUrl && <a href={b.credits.billingUrl} target="_blank" rel="noopener noreferrer">Manage {b.credits.provider} credits</a>}
@@ -282,7 +284,8 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
   const [showJump, setShowJump] = useState(false);
   const connected = useStore(s => s.sseConnected);
   const exchanges = useAgentExchanges(bot.id, generation, loaded && bot.kind !== 'room', connected);
-  const visibleRows = useMemo(() => rows.filter(r => !isInternalRow(r)), [rows]);
+  const previewDecisions = useCustomization(s => s.previewDecisions);
+  const visibleRows = useMemo(() => previewMessageRows(rows.filter(r => !isInternalRow(r)), previewDecisions), [rows, previewDecisions]);
   const savedFileLinks = useMemo(() => savedFileLinksByMessage(visibleRows), [visibleRows]);
   const groups = useMemo(() => groupExchanges(exchanges.exchanges, visibleRows), [exchanges.exchanges, visibleRows]);
   live = userFacingLive(live);

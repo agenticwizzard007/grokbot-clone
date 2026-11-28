@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useConfigUI } from '../configStore';
 import { ButtonGroup } from '../components/layout';
 import { usePreview } from './hooks';
@@ -42,9 +43,9 @@ export function AppearanceUndo() {
   }, []);
   useEffect(() => { setError(''); }, [until]);
   if (!until) return null;
-  return <aside className="ui-runtime-banner" role="status" aria-label={message.replace(/\.$/, '')}>
+  return createPortal(<div className="ui-toast-overlay"><aside className="ui-undo-toast" role="status" aria-live="polite" aria-label={message.replace(/\.$/, '')}>
     <span>{message}</span>
-    <button onClick={() => { void recoverAppearance('undo').catch(error => setError(error.message)); }}>Undo</button>
+    <button className="btn btn--secondary" onClick={() => { void recoverAppearance('undo').catch(error => setError(error.message)); }}>Undo</button>
     {error && <p role="alert">{error}</p>}
-  </aside>;
+  </aside></div>, document.body);
 }
