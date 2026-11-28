@@ -135,6 +135,8 @@ export async function runDashboardLaunch({ output = path.resolve('.context/ui-cu
         assert.equal(await page.getByRole('button', { name: 'Create', exact: true }).count(), 0);
         if (width <= 760) { await page.getByRole('button', { name: 'Open navigation', exact: true }).click(); assert.equal(await page.locator('.sidebar__dashboards').count(), 0); await page.getByRole('dialog', { name: 'App navigation' }).press('Escape'); }
         else assert.equal(await page.locator('.sidebar__dashboards').count(), 0);
+        const gap = await page.locator('.dashboards-manager .layout-card').evaluate(card => card.querySelector('.layout-button-group').getBoundingClientRect().top - card.querySelector('p').getBoundingClientRect().bottom);
+        assert.ok(Math.abs(gap - 16) <= 1, 'Unavailable reason and Retry use the shared 16px stack gap');
         await capture(`config-${state}`);
         await page.unroute('**/api/ui/config', failure); await page.getByRole('button', { name: 'Retry', exact: true }).click();
         await page.getByRole('button', { name: 'Create', exact: true }).waitFor(); assert.equal(await page.getByRole('button', { name: 'Create', exact: true }).isEnabled(), true);
