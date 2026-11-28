@@ -29,3 +29,8 @@ xcuserdata/
 !docs/design/paper/
 !docs/design/paper/**
 docs/design/paper/**/__pycache__/
+
+# Docker platform local credentials and key material (generate outside git).
+deploy/docker/*.pem
+deploy/docker/kms-seed.yaml
+deploy/docker/secrets/

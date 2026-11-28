@@ -1,0 +1,9 @@
+{
+  "Rules": [{
+    "ID": "local-backup-retention",
+    "Status": "Enabled",
+    "Filter": {"Prefix": "swarm-backups/"},
+    "Expiration": {"Days": 8},
+    "NoncurrentVersionExpiration": {"NoncurrentDays": 7}
+  }]
+}

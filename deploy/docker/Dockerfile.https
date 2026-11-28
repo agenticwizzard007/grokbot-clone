@@ -1,0 +1,4 @@
+FROM caddy:2.10.2-alpine
+# Local HTTPS uses unprivileged ports. Remove the upstream binary's file
+# capability so it can execute with an empty capability bounding set.
+RUN setcap -r /usr/bin/caddy
