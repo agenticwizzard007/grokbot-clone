@@ -76,8 +76,13 @@ try {
       const { useConfigUI } = await import('/src/configStore.ts');
       useConfigUI.getState().openAppSettings(section);
     }, section);
+    const expandReport = async () => {
+      const disclosure = page.locator('.usage-page > .settings-disclosure');
+      if (!await disclosure.evaluate(node => node.open)) await disclosure.locator(':scope > summary').click();
+      await page.locator('.usage-report__summary strong').waitFor();
+    };
     await page.goto(`${origin}/#settings/usage`);
-    await page.locator('.usage-report__summary strong').waitFor();
+    await expandReport();
     // The sidebar reads the account summary independently of the model catalog.
     if (width === 390) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
     const footer = page.locator('.sidebar-usage');
@@ -85,7 +90,7 @@ try {
     assert.match(await footer.innerText(), /Codex plan/);
     assert.equal(await footer.and(page.getByRole('button', { name: /Quota unavailable/ })).count(), 1);
     if (width === 390) await page.getByRole('button', { name: 'Close navigation', exact: true }).click();
-    const rangeLabel = page.locator('.usage-head__span');
+    const rangeLabel = page.locator('.usage-page > .settings-disclosure > .settings-stack > p:first-child');
     assert.equal(await rangeLabel.innerText(), 'Nov 19 to Nov 25 · Asia/Dubai');
     assert.ok(await rangeLabel.isVisible());
     assert.equal(await page.locator('.usage-report__summary strong').innerText(), '565 requests');
@@ -146,7 +151,7 @@ try {
     await page.getByText('No Bot screens are open.', { exact: true }).waitFor();
     assert.doesNotMatch(await page.locator('.app-settings__page').innerText(), /No Bot has used the computer/);
     await open('usage');
-    await page.locator('.usage-report__summary strong').waitFor();
+    await expandReport();
     for (const [next, range] of [['cli', '30d'], ['api', 'today'], ['empty', 'month'], ['unknown', '7d']]) {
       mode = next; timezone = 'UTC'; limited = next === 'cli';
       await page.getByLabel('Report period').selectOption(range);
