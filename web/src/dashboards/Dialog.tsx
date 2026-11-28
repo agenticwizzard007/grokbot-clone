@@ -19,10 +19,13 @@ export function DashboardDialog({ title, children, close, fullScreen = false }: 
     if (event.key !== 'Tab' || event.defaultPrevented) return;
     const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea, [tabindex]')]
       .filter(node => node.tabIndex >= 0 && !node.matches(':disabled') && node.checkVisibility());
-    const first = controls[0], last = controls.at(-1);
+    const first = controls[0], last = controls.at(-1), active = document.activeElement;
+    // Roving controls and the heading can hold focus outside the Tab order.
+    const beforeFirst = first && active && (first.compareDocumentPosition(active) & Node.DOCUMENT_POSITION_PRECEDING);
+    const afterLast = last && active && (last.compareDocumentPosition(active) & Node.DOCUMENT_POSITION_FOLLOWING);
     if (!first) { event.preventDefault(); event.currentTarget.focus(); }
-    else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    else if (event.shiftKey && (active === first || beforeFirst)) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && (active === last || afterLast)) { event.preventDefault(); first.focus(); }
   }}>
     <div className="dashboard-dialog-back"><button type="button" onClick={close}><ChevronLeft size={20} aria-hidden="true" />Back</button></div>
     <Page><header className="dashboard-dialog-heading"><h1 ref={heading} tabIndex={-1}>{title}</h1><button type="button" className="cfg-btn cfg-btn--secondary" aria-label="Close" title="Close" onClick={close}><X size={20} aria-hidden="true" /></button></header>{children}</Page>
