@@ -1,3 +1,5 @@
+import type { RunOutput } from './api';
+
 /** Omit an automatic summary's repeated heading, retaining the actual preview. */
 export function outputPreview(title: string, summary: string): string {
   const text = summary.trim(), heading = title.trim();
@@ -18,4 +20,10 @@ export function handoffTurnFinished(rows: readonly { seq: number; kind: string; 
   const receipt = rows.findLast(row => row.kind === 'handoff' && row.seq > promptSeq);
   const status = (receipt?.body as { status?: string } | undefined)?.status;
   return !!status && ['completed', 'failed', 'declined', 'cancelled', 'expired'].includes(status);
+}
+
+/** Automatically saved conversation text is not an artifact. */
+export function isArtifactOutput(output: RunOutput | null | undefined): output is RunOutput {
+  return output?.status === 'final' && (output.provenance.declaredBy === 'agent'
+    || output.parts.some(part => part.kind === 'file' || part.kind === 'data' || part.kind === 'link' && part.relation === 'result'));
 }

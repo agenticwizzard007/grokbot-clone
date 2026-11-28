@@ -5,6 +5,7 @@ import type { HandoffLink, RunOutput } from './api';
 import { handoffText, outputHref } from './useHandoffs';
 import { outputPreview } from './presentation';
 import { HandoffState } from './HandoffRow';
+import { Markdown } from '../components/MarkdownRenderer';
 import './handoffs.css';
 
 export interface OutputCardProps {
@@ -16,7 +17,7 @@ export interface OutputCardProps {
 export function OutputCard({ output, loading, error, onRetry, onSend, openLabel = 'Open' }: OutputCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
-  const summary = useRef<HTMLParagraphElement>(null);
+  const summary = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const element = summary.current;
     if (!element) return;
@@ -24,13 +25,13 @@ export function OutputCard({ output, loading, error, onRetry, onSend, openLabel 
     measure(); const observer = new ResizeObserver(measure); observer.observe(element);
     return () => observer.disconnect();
   }, [output]);
-  const title = handoffText(output?.title ?? '');
+  const title = output?.provenance.declaredBy === 'auto' ? 'Output' : handoffText(output?.title ?? '');
   const content = outputPreview(title, handoffText(output?.summary ?? ''));
   return <Card className="ho ho-output-card">
     {!output || error ? <HandoffState loading={loading} error={error} retry={onRetry} empty="No output yet" /> : <>
-      <Row title={title} leading={<FileText size={20} aria-hidden="true" />}
+      <Row title={<div className="ho-output-title"><Markdown text={title} /></div>} leading={<FileText size={20} aria-hidden="true" />}
         subtitle={output.status === 'draft' ? 'Incomplete' : output.status === 'superseded' ? 'Earlier output' : 'Output'} />
-      {content && <p ref={summary} className={`ho-summary${expanded ? ' is-expanded' : ''}`}>{content}</p>}
+      {content && <div ref={summary} className={`ho-summary${expanded ? ' is-expanded' : ''}`}><Markdown text={content} /></div>}
       {overflows && <button className="ho-button ho-button--quiet" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? 'Show less' : 'Show more'}</button>}
       <div className="ho-chips" aria-label="Output parts">
         {(['file', 'link'] as const).map(kind => {

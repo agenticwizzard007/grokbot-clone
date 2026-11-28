@@ -198,7 +198,7 @@ function GeneralSection() {
   const shortcuts = SHORTCUTS.filter(s => !(s.web && isNativeApp));
   return <div className="settings-general">
     <Section className="settings-appearance" aria-label="Appearance" footer={<button type="button" className="link-btn settings-diagnostics" aria-expanded={diagnosticsOpen} onClick={() => setDiagnosticsOpen(!diagnosticsOpen)}>Diagnostics</button>}><Card variant="list" ><SettingRow icon={Settings2} title="Theme">
-          <Segmented label="Theme" value={theme} onChange={setTheme} options={(['light', 'dark', 'system'] as const).map(t => ({ value: t, label: t === 'system' ? 'Auto' : THEME_LABEL[t] }))} />
+          <Segmented label="Theme" value={theme} onChange={setTheme} options={(['light', 'dark', 'system'] as const).map(t => ({ value: t, label: THEME_LABEL[t] }))} />
         </SettingRow><SettingRow icon={PanelLeftOpen} title="Show details panel">
           <Switch label="Show details panel" on={detailsDefault} onChange={v => { writeDetailsDefault(accountId, v); setDetailsDefault(v); }} />
         </SettingRow><SettingRow icon={Clock3} title="Time zone" sub={(user as (User & { timezone?: string }) | null)?.timezone || browserTimeZone()}>

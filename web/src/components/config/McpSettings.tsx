@@ -253,7 +253,11 @@ function AccountMcpSettings({ accountId, accountEmail }: { accountId: string; ac
             throw err;
           } finally { action.current = false; if (current()) setBusy(null); }
         }} />}
-      {!locked && <Section className="access-mcp" >{!servers.length ? null : <Card variant="list" >{servers.map(s => <Row className="mcp-server" key={s.id} aria-label={s.name} leading={<SettingIcon icon={Server} />} title={<>{s.name}</>} subtitle={<>{s.enabled && s.error
+      {!locked && <Section className="access-mcp" >{!servers.length ? editing === undefined && <Card className="mcp-empty">
+        <h2>No MCP servers yet</h2>
+        <p>MCP servers provide tools for Bots. Add one to connect its tools.</p>
+        {canManage && <button className="cfg-btn cfg-btn--primary" type="button" disabled={!!busy} onClick={() => edit(null)} aria-label="Add MCP server">Add</button>}
+      </Card> : <Card variant="list" >{servers.map(s => <Row className="mcp-server" key={s.id} aria-label={s.name} leading={<SettingIcon icon={Server} />} title={<>{s.name}</>} subtitle={<>{s.enabled && s.error
                 ? <div className="cfg-row__sub is-error" role="alert">Connection failed: {s.error}</div>
                 : <div className="cfg-row__sub">{summary(s)}</div>}{!!s.tools.length && <details className="mcp-tools"><summary>Available tools ({s.tools.length})</summary>{s.tools.map(t => <div key={t.name}><strong>{t.name}</strong>{t.description && <p>{t.description}</p>}</div>)}</details>}{s.checkedAt && !s.error && !s.tools.length && <div className="cfg-row__sub">This server exposes no tools. MCP resources and prompt templates aren't supported yet.</div>}</>} trailing={<>{canManage && <div className="mcp-server__actions">
               <SettingsMenu ariaLabel={`Manage ${s.name}`} disabled={!!busy} items={[
@@ -262,7 +266,7 @@ function AccountMcpSettings({ accountId, accountEmail }: { accountId: string; ac
                 { label: 'Test connection', onSelect: () => void test(s) },
                 { label: 'Edit', disabled: editing !== undefined, onSelect: () => setEditing(s) },
               ]} />
-            </div>}</>} />)}</Card>}{canManage && editing === undefined && <button className="cfg-btn cfg-btn--primary" type="button" disabled={!!busy} onClick={() => edit(null)} aria-label="Add MCP server">Add</button>}</Section>}
+            </div>}</>} />)}</Card>}{!!servers.length && canManage && editing === undefined && <button className="cfg-btn cfg-btn--primary" type="button" disabled={!!busy} onClick={() => edit(null)} aria-label="Add MCP server">Add</button>}</Section>}
     </>}
   </>;
 }

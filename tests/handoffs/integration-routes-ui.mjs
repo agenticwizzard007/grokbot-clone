@@ -72,7 +72,9 @@ for (let i=0; i<40; i++) {
   requests.recordCoordinationJobOutcome(result); hooks.onJobFinished(result); requests.onInternalJobFinished(result);
 }
 const finished = loops.getLoop(userId, loop.id); if (finished.status !== 'succeeded') throw new Error('Seed loop did not converge: '+finished.status);
-const chatJob = jobs.acceptJob(maker, {type:'user',text:'Draft a release note.'}); jobs.beginJob(chatJob.id); jobs.finishJob(chatJob.id,true);
+const chatJob = jobs.acceptJob(maker, {type:'user',text:'Draft a release note.'}); jobs.beginJob(chatJob.id);
+outputs.submitOutput({userId,botId:maker,jobId:chatJob.id,toolCallId:'fixture-release-note'}, {title:'Release note draft',summary:'Version 2.0 improves search and simplifies setup. Try it in your next project.'});
+jobs.finishJob(chatJob.id,true);
 hooks.onJobFinished({userId,botId:maker,jobId:chatJob.id,status:'completed',finalText:'Release note draft\\nVersion 2.0 improves search and simplifies setup. Try it in your next project.'});
 appendRow(maker,'message',{type:'message',role:'assistant',jobId:chatJob.id,text:'Release note draft ready for review.'});
 const paused = loops.createLoop(userId, { spec: {...spec,name:'Follow-up review'}, idempotencyKey:'integration-paused', start:false } as any).loop;
@@ -111,7 +113,7 @@ export async function runIntegrationDemo({ settingsFlow, outputFlow } = {}) {
       const alignment = async () => {
         const selector = await page.locator('main.paper-shell').count() ? 'main.paper-shell' : '.shell-content > :not(.shell-header):not(.phone-tabs)';
         assert.deepEqual(await page.evaluate(inspectAlignment, { selector }), []);
-        if (width === 390) assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1);
+        if (width === 390) assert.equal(await page.getByRole('button', { name: /^Back(?: |$)/ }).count(), 1);
       };
       await page.goto(`${server.base}/#bot/${server.fixture.bot.id}`);
       await page.getByRole('button', { name: 'Message actions', exact: true }).first().click();
@@ -140,8 +142,8 @@ export async function runIntegrationDemo({ settingsFlow, outputFlow } = {}) {
       await openBot('Research');
       await page.locator('.ho-receipt').filter({ hasText: instruction }).getByText('Handed off from Coordinator', { exact: true }).waitFor();
       check('Receiver chat displays its handoff row');
-      await page.locator('.shell-back:visible').click();
-      await page.locator('.shell-back:visible').click();
+      await page.getByRole('button', { name: 'Back to Bots', exact: true }).click();
+      await page.waitForFunction(() => location.hash === '#bots');
       if (width === 390) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
       await page.locator('.sidebar').getByRole('button', { name: /Account & settings$/ }).click();
       await page.getByRole('menuitem', { name: 'Loops', exact: true }).click();
@@ -152,9 +154,7 @@ export async function runIntegrationDemo({ settingsFlow, outputFlow } = {}) {
       await page.getByRole('button', { name: 'Use this', exact: true }).click();
       await page.getByRole('heading', { name: /Version 3/ }).waitFor();
       await alignment(); check('Use this opens output viewer');
-      await page.locator('.shell-back:visible').click();
-      await page.locator('.shell-back:visible').click();
-      await page.locator('.shell-back:visible').click();
+      await openBot('Coordinator');
       await page.locator('.chat__bot-details').click();
       await page.locator('.pb-bot-tabs').getByRole('button', { name: 'Flow', exact: true }).click();
       await page.locator('.flow-chart').waitFor();

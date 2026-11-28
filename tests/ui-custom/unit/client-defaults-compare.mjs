@@ -49,8 +49,8 @@ function compareReviewedRectangles(key, actual, expected, review) {
     assert.ok(Array.isArray(review.insertions) && review.insertions.length, `${key}: explicit insertions required`);
     let previous = -1, offset = 0;
     for (const { index, before, nodes } of review.insertions) {
-      assert.ok(Number.isInteger(index) && index > previous && index < expected.nodes.length, `${key}: ordered known insertion index`);
-      assert.deepEqual(expected.nodes[index], before, `${key}: pinned insertion anchor`);
+      assert.ok(Number.isInteger(index) && index > previous && index <= expected.nodes.length, `${key}: ordered known insertion index`);
+      assert.deepEqual(index === expected.nodes.length ? null : expected.nodes[index], before, `${key}: pinned insertion anchor`);
       assert.ok(Array.isArray(nodes) && nodes.length, `${key}: explicit inserted nodes required`);
       for (const node of nodes) {
         assert.ok(typeof node.tag === 'string' && typeof node.class === 'string', `${key}: inserted node identity`);

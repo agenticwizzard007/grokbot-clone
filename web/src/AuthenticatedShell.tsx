@@ -91,9 +91,13 @@ function Shell() {
   const chatHeader = screen.kind === 'chat';
   const topLevel = isPhoneRoot(screen, phoneTabs);
   const hasBack = mobile ? !topLevel : screen.kind !== 'bots' || navigation.trail.length > 0;
-  const backTarget = parseScreen(navigation.trail.at(-1) ?? '') ?? parentScreen(screen) ?? { kind: 'bots' };
+  const backTarget = (screen.kind === 'chat' ? parentScreen(screen) : parseScreen(navigation.trail.at(-1) ?? '') ?? parentScreen(screen)) ?? { kind: 'bots' };
   const backText = mobile ? 'Back' : screen.kind === 'settings' ? 'Back to chat' : backTarget.kind === 'chat' ? 'Back to chat' : backLabel(backTarget, bots);
   const back = () => {
+    if (screen.kind === 'chat') {
+      navigation.backTo(backTarget);
+      return;
+    }
     if (!mobile && screen.kind === 'settings') {
       const bot = bots.find(bot => bot.id === selectedBotId) ?? bots.find(bot => bot.isPrimary);
       if (bot) openConversation(bot.id);
@@ -147,7 +151,7 @@ function Shell() {
       {!mobile && <Sidebar />}
       <div className="shell-content">
         <header className="shell-header" tabIndex={-1}>
-          {hasBack && <button type="button" className="shell-back" aria-label={mobile ? 'Back' : backText} onClick={back}><ChevronLeft size={mobile ? 20 : 16} aria-hidden /><span>{backText}</span></button>}
+          {hasBack && <button type="button" className="shell-back" aria-label={screen.kind === 'chat' ? backLabel(backTarget, bots) : mobile ? 'Back' : backText} onClick={back}><ChevronLeft size={mobile ? 20 : 16} aria-hidden /><span>{backText}</span></button>}
           <div id="shell-chat-header" hidden={!chatHeader} />
           {screen.kind === 'dash' ? <Suspense fallback={<strong className="shell-header__title">{headerTitle}</strong>}><DashboardSwitcher dashboardId={dashboard?.id ?? screen.dashboard} /></Suspense> : screen.kind === 'dashboards' ? <h1 className="shell-header__title">Dashboards</h1> : !chatHeader && (headerBot ? <><BotAvatarFor bot={headerBot} size={32} /><div className="shell-header__bot"><strong className="shell-header__title">{headerBot.name}</strong><span className="shell-header__subtitle">{botSubtitle}</span></div></> : <strong className="shell-header__title" role={titledInHeader ? 'heading' : undefined} aria-level={titledInHeader ? 1 : undefined}>{headerTitle}</strong>)}
           {screen.kind === 'dash' && <div id="dashboard-header-actions" />}

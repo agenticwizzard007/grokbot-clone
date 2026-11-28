@@ -26,6 +26,7 @@ import { useJobOutput } from '../handoffs/useJobOutput';
 import { api } from '../lib/api';
 import { toast } from '../lib/toast';
 import { CardRow } from './cards/Cards';
+import { isArtifactOutput } from '../handoffs/presentation';
 const SendSheet = lazy(() => import('../handoffs/SendSheet').then(m => ({ default: m.SendSheet })));
 
 function MessageHandoff({ row, final, onSend }: { row: Row; final: boolean; onSend: (output: RunOutput, targetId?: string) => void }) {
@@ -33,6 +34,7 @@ function MessageHandoff({ row, final, onSend }: { row: Row; final: boolean; onSe
   const trigger = useRef<HTMLButtonElement>(null);
   const jobId = row.body.jobId;
   const output = useJobOutput(jobId, final);
+  const artifact = final && isArtifactOutput(output) ? output : null;
   const send = async () => {
     if (busy) return;
     if (output) { onSend(output); return; }
@@ -44,10 +46,10 @@ function MessageHandoff({ row, final, onSend }: { row: Row; final: boolean; onSe
     } catch { toast('Could not prepare this message. Try again.', { tone: 'error' }); }
     finally { setBusy(false); }
   };
-  return <div className={`ho ho-message-handoff${output?.status !== 'final' ? ' ho-message-footer' : ''}`}>
-    {output?.status !== 'final' && <button ref={trigger} type="button" className="ho-button ho-button--quiet ho-message-actions" aria-label="Message actions" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}><MoreHorizontal size={20} aria-hidden="true" /></button>}
+  return <div className={`ho ho-message-handoff${artifact ? '' : ' ho-message-footer'}`}>
+    {!artifact && <button ref={trigger} type="button" className="ho-button ho-button--quiet ho-message-actions" aria-label="Message actions" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}><MoreHorizontal size={20} aria-hidden="true" /></button>}
     {open && <Menu triggerRef={trigger} onClose={() => setOpen(false)} items={[{ label: 'Send to agent', icon: Send, onSelect: () => void send() }]} />}
-    {output?.status === 'final' && <CardRow row={row} output={output} onSend={onSend} />}
+    {artifact && <CardRow row={row} output={artifact} onSend={onSend} />}
   </div>;
 }
 
