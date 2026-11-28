@@ -75,6 +75,22 @@ export async function auditSidebarPolish(routes, output = path.resolve('.context
             await page.waitForTimeout(50);
             issues.push(...await page.evaluate(inspectSidebarRows));
             if (route === views[0]) await page.screenshot({ path: path.join(output, `${shape}-${width}x${height}-${state ?? 'default'}-${theme}.png`) });
+            if (route === views[0]) {
+              // D7 collapses failed reads to one line; resizing the pinned footer
+              // must preserve whole rows and the same exact 8px gaps.
+              await page.route('**/api/usage/summary', request => request.fulfill({ status: 503, json: { error: 'Temporarily unavailable.' } }));
+              await page.evaluate(async () => (await import('/src/lib/planUsage.ts')).refreshPlanUsage());
+              const meter = page.locator('.sidebar:visible .sidebar-usage');
+              await meter.and(page.getByRole('button', { name: 'Usage unavailable', exact: true })).waitFor();
+              assert.ok((await meter.boundingBox()).height <= 64, 'D7 unavailable meter remains compact');
+              for (const position of [0, .5, 1]) {
+                await scroll.evaluate((el, position) => { el.scrollTop = el.scrollHeight * position; }, position);
+                await page.waitForTimeout(50);
+                issues.push(...await page.evaluate(inspectSidebarRows), ...await page.evaluate(inspectAlignment, { sidebarOnly: true }));
+              }
+              await page.unroute('**/api/usage/summary');
+              await page.evaluate(async () => (await import('/src/lib/planUsage.ts')).refreshPlanUsage());
+            }
             if (width <= 760) await page.getByRole('button', { name: 'Close navigation', exact: true }).click();
           } catch (error) { issues.push(error.message); }
           report.push({ name: `${shape}/${route.name}/${state ?? 'default'}`, width, height, theme, owner: 'FIX-DASH-3', enforce: true, issues });
