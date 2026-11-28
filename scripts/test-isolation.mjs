@@ -7,12 +7,14 @@ if (!process.env.TEST_DATABASE_URL) {
 }
 const files = [
   'isolation-security', 'gateway-isolation', 'platform-directory', 'platform-lifecycle', 'tenant-capacity', 'host-usage', 'platform-tunnel', 'host-preflight', 'containment-qualification', 'runtime-refresh', 'runtime-operations', 'operations-metrics', 'migration-inventory', 'release-gates',
-  'platform-messaging', 'platform-messaging-dispatch', 'platform-signup', 'platform-native-auth', 'tenant-sessions', 'tenant-desktop', 'session-notifications',
+  'platform-onboarding', 'platform-onboarding-auth', 'platform-messaging', 'platform-messaging-dispatch', 'platform-signup', 'platform-native-auth', 'tenant-sessions', 'tenant-desktop', 'session-notifications',
   'backup-lifecycle', 'backup-storage', 'backup-upload', 'storage-recovery', 'host-installation', 'host-checkpoint', 'environment-operations', 'legacy-database-fence', 'legacy-background', 'migration-package', 'migration-destination', 'migration-transfer', 'migration-target', 'migration-coordinator', 'migration-import', 'runtime-event-delivery',
   'google-auth', 'google-composio-auth', 'apple-auth', 'openrouter', 'native-auth', 'native-computer', 'rename-compat',
   'mcp', 'mcp-capacity', 'mcp-folders', 'composio', 'app-suggestions', 'voice-connection-state', 'connection-state-tenant',
   'expired-connections', 'connection-cards', 'voice-coordinator', 'messaging',
 ];
-const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', ...files.map(name => `tests/${name}.test.mts`)], { stdio: 'inherit' });
+// Existing infrastructure fixtures create tenants directly. Admission tests explicitly
+// select invite/closed policy and verify the production default independently.
+const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', ...files.map(name => `tests/${name}.test.mts`)], { stdio: 'inherit', env: { ...process.env, MESSAGING_SIGNUP_MODE: process.env.MESSAGING_SIGNUP_MODE ?? 'open' } });
 if (result.error) console.error(result.error.message);
 process.exit(result.status ?? 1);

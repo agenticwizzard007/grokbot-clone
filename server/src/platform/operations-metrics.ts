@@ -1,3 +1,4 @@
+import { tenantLimit } from './onboarding.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -61,6 +62,8 @@ function loadTokenDigest(file: string) {
 // provider, path, payload, error text or arbitrary database values as labels.
 const gauges: Record<string, string> = {
   active_tenants: 'Number of active tenants.',
+  current_tenants: 'Tenants counted toward the signup cap.',
+  tenant_limit: 'Configured maximum tenants for new signups.',
   unready_hosts: 'Active tenants without current acknowledged running host readiness.',
   stale_backup_reporters: 'Active tenants without a current-generation backup report within three minutes.',
   overdue_database_backups: 'Active tenants without both a recent host snapshot timestamp and complete current-volume database or environment backup within five minutes.',
@@ -102,6 +105,8 @@ export async function collectOperationsMetrics(directory: Directory): Promise<Re
       " AND b.scope='environment' AND b.created_at>now()-interval '24 hours') AS environment_confirmed" +
       " FROM active t LEFT JOIN backup_status s ON s.tenant_id=t.id AND s.generation=t.generation)" +
       " SELECT (SELECT count(*) FROM active) AS active_tenants," +
+      " (SELECT count(*) FROM tenants WHERE state NOT IN ('deleting','deleted','failed')) AS current_tenants," +
+      " $1::integer AS tenant_limit," +
       " (SELECT count(*) FROM active t WHERE NOT EXISTS(SELECT 1 FROM host_policies p WHERE p.tenant_id=t.id" +
       " AND p.generation=t.generation AND p.machine_id=t.machine_id AND p.desired='run' AND p.observed='running'" +
       " AND p.acknowledged_revision=p.revision AND p.error_code IS NULL AND p.reported_at>now()-interval '4 minutes')) AS unready_hosts," +
@@ -128,7 +133,7 @@ export async function collectOperationsMetrics(directory: Directory): Promise<Re
       " AND t.state!='deleted' AND a.created_at<now()-interval '10 minutes') AS uncertain_infrastructure_actions," +
       " (SELECT count(*) FROM host_checkpoints q JOIN tenants t ON t.id=q.tenant_id WHERE t.state!='deleted'" +
       " AND q.state IN ('pending','uploading') AND q.created_at<now()-interval '30 minutes') AS overdue_host_checkpoints," +
-      " (SELECT count(*) FROM dispatches WHERE state='uncertain') AS uncertain_provider_dispatches");
+      " (SELECT count(*) FROM dispatches WHERE state='uncertain') AS uncertain_provider_dispatches", [tenantLimit()]);
     const result: Record<string, number> = {};
     for (const field of Object.keys(gauges)) {
       const value = Number(rows[0]?.[field]);

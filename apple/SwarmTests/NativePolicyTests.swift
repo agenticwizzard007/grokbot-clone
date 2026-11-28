@@ -60,6 +60,19 @@ final class NativePolicyTests: XCTestCase {
         XCTAssertEqual(ServerAddress.defaultURL(configuration: [:]).absoluteString, "https://swarm-team.fly.dev")
     }
 
+    func testNativeInvitePreservesPKCEAndDefaultSignInURL() throws {
+        let attempt = try SignInAttempt()
+        let server = URL(string: "https://platform.example.test")!
+        for provider in ["google", "openrouter"] {
+            let ordinary = URLComponents(url: attempt.startURL(server: server, provider: provider), resolvingAgainstBaseURL: false)!
+            XCTAssertFalse(ordinary.queryItems!.contains(where: { $0.name == "invite" }))
+            let invited = URLComponents(url: attempt.startURL(server: server, provider: provider, invite: "ABC123"), resolvingAgainstBaseURL: false)!
+            XCTAssertEqual(invited.queryItems!.first(where: { $0.name == "invite" })?.value, "ABC123")
+            XCTAssertEqual(invited.queryItems!.filter { $0.name != "invite" }, ordinary.queryItems!)
+            XCTAssertFalse(invited.queryItems!.contains(where: { $0.value == attempt.verifier }))
+        }
+    }
+
     func testSignInRejectsUnsolicitedAndAmbiguousCallbacks() throws {
         let attempt = try SignInAttempt()
         let other = try SignInAttempt()

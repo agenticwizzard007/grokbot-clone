@@ -20,9 +20,10 @@ struct SignInAttempt {
         state = try random()
     }
 
-    func startURL(server: URL, provider: String = "google", ticket: String? = nil) -> URL {
+    func startURL(server: URL, provider: String = "google", ticket: String? = nil, invite: String? = nil) -> URL {
         var parts = URLComponents(url: server.appendingPathComponent("api/auth/native/start"), resolvingAgainstBaseURL: false)!
         parts.queryItems = [URLQueryItem(name: "challenge", value: challenge), URLQueryItem(name: "state", value: state), URLQueryItem(name: "provider", value: provider)]
+        if let invite { parts.queryItems?.append(URLQueryItem(name: "invite", value: invite)) }
         if let ticket { parts.queryItems?.append(URLQueryItem(name: "ticket", value: ticket)) }
         return parts.url!
     }

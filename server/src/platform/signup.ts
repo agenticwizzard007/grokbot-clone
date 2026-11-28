@@ -10,8 +10,9 @@ export async function signupPolicy(client: Query): Promise<SignupPolicy & { revi
   const row = (await client.query('SELECT config,revision FROM signup_policy WHERE singleton')).rows[0];
   let config = row?.config;
   if (!config) {
-    const { env } = await import('../env.js');
-    config = { mode: env.messagingSignupMode, signupsPerDay: Number(env.messagingSignupsPerDay || 50), memberInvites: Number(env.messagingMemberInvites || 5) };
+    // The trusted CLI needs only PostgreSQL, not application session/provider secrets.
+    // Platform defaults come from deployment environment; live changes use signup_policy.
+    config = { mode: process.env.MESSAGING_SIGNUP_MODE || 'invite', signupsPerDay: Number(process.env.MESSAGING_SIGNUPS_PER_DAY || 50), memberInvites: Number(process.env.MESSAGING_MEMBER_INVITES || 5) };
   }
   if (!['invite', 'open', 'closed'].includes(config.mode) || !integer(config.signupsPerDay, 100000) || !integer(config.memberInvites, 1000)) throw new Error('Invalid platform signup policy.');
   return { mode: config.mode, signupsPerDay: config.signupsPerDay, memberInvites: config.memberInvites, revision: String(row?.revision ?? 0) };
@@ -122,6 +123,7 @@ export async function pruneSignupMetadata(directory: Directory) {
   await directory.transaction(async c => {
     await c.query("SELECT pg_advisory_xact_lock(hashtext('swarm-phone-signups'))");
     await c.query("DELETE FROM signup_waitlist WHERE verified_at<clock_timestamp()-interval '30 days'");
+    await c.query("DELETE FROM web_waitlist WHERE created_at<clock_timestamp()-interval '30 days'");
     await c.query('DELETE FROM messaging_claims WHERE expires_at<=clock_timestamp()');
     await c.query('DELETE FROM phone_attempts WHERE hash IN (SELECT hash FROM phone_attempts WHERE expires_at<=clock_timestamp() FOR UPDATE SKIP LOCKED)');
   });

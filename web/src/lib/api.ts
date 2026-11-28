@@ -44,7 +44,7 @@ interface RowPage { generation: number; rows: Row[]; revision?: number; olderCur
 
 export const api = {
   usageSummary: (signal?: AbortSignal) => req<PlanUsageSummary>('GET', '/usage/summary', undefined, signal),
-  me: (signal?: AbortSignal) => req<{ user: User | null; devLogin: boolean; googleLogin?: boolean; googleLinked?: boolean; appleLogin?: boolean; appleLinked?: boolean }>('GET', '/auth/me', undefined, signal),
+  me: (signal?: AbortSignal) => req<{ user: User | null; devLogin: boolean; platform?: boolean; googleLogin?: boolean; googleLinked?: boolean; appleLogin?: boolean; appleLinked?: boolean }>('GET', '/auth/me', undefined, signal),
   devLogin: (email: string, name?: string) => req<{ ok: true }>('POST', '/auth/dev', { email, name }),
   logout: () => req<{ ok: true }>('POST', '/auth/logout'),
   deleteAccount: (expectedUserId: string) => req<{ ok: true }>('DELETE', '/account', { confirmation: 'DELETE', expectedUserId }),

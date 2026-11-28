@@ -17,7 +17,7 @@ const smsLink = (n: string, body: string) => `sms:${n}?&body=${encodeURIComponen
  * the one Swarm's contact card arrived in (Inkbox names that number when it refuses), never the router number.
  * mode 'signin': verifying signs in, or creates the account. mode 'attach': connects the number to this account.
  */
-export function PhoneAuth({ mode, onAttached, reauth = false, onCodeStep }: { onCodeStep?: (active: boolean) => void; mode: 'signin' | 'attach'; onAttached?: (s: MessagingStatus) => void; reauth?: boolean }) {
+export function PhoneAuth({ mode, onAttached, reauth = false, onCodeStep, inviteCode, onOnboarding }: { inviteCode?: string; onOnboarding?: (state: string) => void; onCodeStep?: (active: boolean) => void; mode: 'signin' | 'attach'; onAttached?: (s: MessagingStatus) => void; reauth?: boolean }) {
   const phoneHint = useId();
   const [phone, setPhone] = useState('');
   const [start, setStart] = useState<PhoneStart | null>(null);
@@ -36,7 +36,7 @@ export function PhoneAuth({ mode, onAttached, reauth = false, onCodeStep }: { on
     e.preventDefault();
     if (phone.replace(/\D/g, '').length < 8) { setError('Enter your full number with country code, like +1 415 555 0123.'); return; }
     setBusy(true); setError(null); setExisting(false);
-    try { setStart(await (mode === 'signin' ? configApi.phoneStart(phone.trim()) : configApi.phoneAttachStart(phone.trim()))); setCode(''); setResendIn(30); }
+    try { setStart(await (mode === 'signin' ? configApi.phoneStart(phone.trim(), inviteCode) : configApi.phoneAttachStart(phone.trim()))); setCode(''); setResendIn(30); }
     catch (err) {
       setStart(null);
       setError((err as Error).message);
@@ -58,7 +58,7 @@ export function PhoneAuth({ mode, onAttached, reauth = false, onCodeStep }: { on
     setBusy(true); setError(null);
     try {
       if (mode === 'signin') {
-        const result = await configApi.phoneVerify(start.id, code, needInvite ? invite.trim() : undefined);
+        const result = await configApi.phoneVerify(start.id, code, needInvite ? invite.trim() : inviteCode);
         window.location.href = !reauth && result.created ? '/#first-run' : '/';
         return;
       }
@@ -67,6 +67,7 @@ export function PhoneAuth({ mode, onAttached, reauth = false, onCodeStep }: { on
     } catch (err) {
       const msg = (err as Error).message;
       if (err instanceof ApiError && err.status === 403 && /invite/i.test(msg)) setNeedInvite(true);
+      if (err instanceof ApiError && err.code?.startsWith('onboarding:')) onOnboarding?.(err.code.slice(11));
       setError(msg);
     } finally { setBusy(false); }
   };

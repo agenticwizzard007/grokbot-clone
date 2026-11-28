@@ -5,8 +5,8 @@ import type { McpServerInput, McpServerView } from '@shared/types';
 import { parsePhoneStart, PHONE_START_UNAVAILABLE, type PhoneStart } from '../../../server/src/messaging/phone-start';
 export type { PhoneStart } from '../../../server/src/messaging/phone-start';
 
-async function phoneStart(path: string, phone: string): Promise<PhoneStart> {
-  const response = parsePhoneStart(await req<unknown>('POST', path, { phone }));
+async function phoneStart(path: string, phone: string, inviteCode?: string): Promise<PhoneStart> {
+  const response = parsePhoneStart(await req<unknown>('POST', path, { phone, ...(inviteCode ? { inviteCode } : {}) }));
   if (!response) throw new ApiError(503, PHONE_START_UNAVAILABLE);
   return response;
 }
@@ -24,9 +24,9 @@ async function req<T>(method: string, path: string, body?: unknown, signal?: Abo
 
 async function readResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    let msg = res.statusText;
-    try { msg = ((await res.json()) as { error?: string }).error ?? msg; } catch { /* not json */ }
-    throw new ApiError(res.status, msg);
+    let msg = res.statusText, code: string | undefined;
+    try { const body = await res.json(); msg = body.error ?? msg; if (body.platform === true && typeof body.onboarding === 'string') code = `onboarding:${body.onboarding}`; } catch { /* not json */ }
+    throw new ApiError(res.status, msg, code);
   }
   return res.json() as Promise<T>;
 }
@@ -299,7 +299,7 @@ export const configApi = {
     return j as InkboxProfile;
   },
   inkboxDeleteAvatar: () => req<InkboxProfile>('DELETE', '/messaging/inkbox/avatar'),
-  phoneStart: (phone: string) => phoneStart('/auth/phone/start', phone),
+  phoneStart: (phone: string, inviteCode?: string) => phoneStart('/auth/phone/start', phone, inviteCode),
   phoneVerify: (id: string, code: string, inviteCode?: string) => req<{ ok: true; created: boolean }>('POST', '/auth/phone/verify', { id, code, inviteCode }),
   /** Connect your phone (signed in): the same code flow, attaching the number to this account. */
   phoneAttachStart: (phone: string) => phoneStart('/messaging/phone/start', phone),
