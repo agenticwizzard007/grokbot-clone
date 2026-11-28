@@ -232,8 +232,15 @@ try {
           assert.ok(destination, `Known Flow kind: ${node.kind}`);
           assert.equal(node.target.hash.split('?')[0], destination, `Spec 16.5 destination for ${node.kind}`);
           const button = page.locator(`[data-flow-node="${node.id}"]`);
-          await button.focus(); await page.keyboard.press('Enter');
-          await page.waitForURL(url => parseScreen(url.hash) && JSON.stringify(resolveScreen(parseScreen(url.hash), roster, true)) === JSON.stringify(resolveScreen(parseScreen(node.target.hash), roster, true)));
+          // Focus and activate one locator action so a pending return-focus
+          // callback cannot redirect a separate page-level keyboard action.
+          await button.press('Enter');
+          try {
+            await page.waitForURL(url => parseScreen(url.hash) && JSON.stringify(resolveScreen(parseScreen(url.hash), roster, true)) === JSON.stringify(resolveScreen(parseScreen(node.target.hash), roster, true)));
+          } catch (error) {
+            error.message = `Flow ${node.kind} ${node.id}: expected ${node.target.hash}, got ${new URL(page.url()).hash}. ${error.message}`;
+            throw error;
+          }
           if (node.target.focus && !node.target.focus.startsWith('link-source:')) { const focused = page.locator(`[data-flow-focus="${node.target.focus}"]`); await focused.waitFor(); assert.equal(await focused.evaluate(el => el === document.activeElement), true); }
           if (node.target.hash.includes('?link=')) await page.keyboard.press('Escape'); else await page.goBack();
           await page.locator('.flow-chart').waitFor();
