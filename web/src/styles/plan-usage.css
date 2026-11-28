@@ -13,7 +13,7 @@
 .plan-usage[data-level='critical'] { --usage-color: var(--color-danger-text); }
 .plan-usage[data-level='warning'] .plan-usage__status, .plan-usage[data-level='critical'] .plan-usage__status { color: var(--usage-color); }
 .paper-shell .sidebar-usage { min-height: 164px; padding: 16px; }
-.paper-shell .sidebar-usage.is-unavailable { min-height: 48px; padding: 8px 16px; margin-top: 8px; justify-content: center; gap: 0; }
+.paper-shell .sidebar:not(.is-collapsed) .sidebar-usage.is-unavailable { min-height: 48px; padding: 8px 16px; margin-top: 0; justify-content: center; gap: 0; }
 .sidebar-usage__unavailable { font-size: 13px; line-height: 20px; color: var(--color-text-secondary); }
 .paper-shell .sidebar-usage strong { font-size: 14px; line-height: 20px; }
 .paper-shell .sidebar-usage progress { height: 6px; }
