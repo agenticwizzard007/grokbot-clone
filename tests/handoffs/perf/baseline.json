@@ -1,0 +1,162 @@
+{
+  "measuredAt": "2026-11-27T22:20:30.872Z",
+  "environment": "linux x64 v24.22.1",
+  "metrics": {
+    "outputCreation": {
+      "p95": 2.6257949999999255,
+      "budget": 20,
+      "unit": "ms",
+      "samples": 50,
+      "pass": true
+    },
+    "handoffPost": {
+      "p95": 20.80120799999986,
+      "budget": 80,
+      "unit": "ms",
+      "samples": 50,
+      "pass": true
+    },
+    "flowCold": {
+      "p95": 2.92383400000017,
+      "budget": 150,
+      "unit": "ms",
+      "samples": 50,
+      "pass": true
+    },
+    "flowWarm": {
+      "p95": 1.6856460000001334,
+      "budget": 15,
+      "unit": "ms",
+      "samples": 50,
+      "pass": true
+    }
+  },
+  "flowFixture": {
+    "bot": "flow-many",
+    "routines": 30,
+    "apps": 40
+  },
+  "bundle": {
+    "entry": "assets/index-ncTs02o6.js",
+    "entryGzipBytes": 119881,
+    "baseRevision": "bfe30f869b0e052d47dd28b97471164741901505",
+    "comparison": "Verified unchanged web source and lockfile versus main after HO integration. This measures HO-H additions, not the total historical HO feature cost.",
+    "addedEntryGzipBytes": 0,
+    "budgetBytes": 40960,
+    "pass": true,
+    "lazyRoutes": [
+      {
+        "name": "_flow-DiZWIlWP.js",
+        "file": "assets/flow-DiZWIlWP.js",
+        "gzipBytes": 800
+      },
+      {
+        "name": "_flow-d4LykZt3.css",
+        "file": "assets/flow-d4LykZt3.css",
+        "gzipBytes": 1675
+      },
+      {
+        "name": "src/flow/FlowCompact.tsx",
+        "file": "assets/FlowCompact-cInZXZKz.js",
+        "gzipBytes": 405
+      },
+      {
+        "name": "src/flow/FlowTab.tsx",
+        "file": "assets/FlowTab-Bt9GpJXu.js",
+        "gzipBytes": 4054
+      },
+      {
+        "name": "src/handoffs/HandoffDetail.tsx",
+        "file": "assets/HandoffDetail-BA_RPSU0.js",
+        "gzipBytes": 1569
+      },
+      {
+        "name": "src/handoffs/OutputCard.tsx",
+        "file": "assets/OutputCard-RhCd1eaY.js",
+        "gzipBytes": 66
+      },
+      {
+        "name": "src/handoffs/OutputViewer.tsx",
+        "file": "assets/OutputViewer-DJpVIxdq.js",
+        "gzipBytes": 68
+      },
+      {
+        "name": "src/handoffs/SendSheet.tsx",
+        "file": "assets/SendSheet-BciaiFkG.js",
+        "gzipBytes": 3514
+      },
+      {
+        "name": "src/handoffs/api.ts",
+        "file": "assets/api-D5-7dyCd.js",
+        "gzipBytes": 67
+      },
+      {
+        "name": "src/handoffs/loops/LoopRun.tsx",
+        "file": "assets/LoopRun-CBMf18FF.js",
+        "gzipBytes": 5979
+      },
+      {
+        "name": "src/handoffs/loops/LoopSheet.tsx",
+        "file": "assets/LoopSheet-Dc6ccJKu.js",
+        "gzipBytes": 109
+      },
+      {
+        "name": "src/handoffs/loops/LoopsPage.tsx",
+        "file": "assets/LoopsPage-CSmplgN5.js",
+        "gzipBytes": 1515
+      }
+    ]
+  },
+  "browser": {
+    "measuredAt": "2026-11-27T22:20:45.751Z",
+    "metrics": {
+      "loopRender12Steps-390": {
+        "p95": 39.5,
+        "budget": 300,
+        "samples": 11,
+        "unit": "ms",
+        "pass": true
+      },
+      "flowPaint-390": {
+        "p95": 29.399999999441206,
+        "budget": 50,
+        "samples": 11,
+        "unit": "ms",
+        "pass": true
+      },
+      "timelineSse-390": {
+        "p95": 42.200000000186265,
+        "budget": 100,
+        "samples": 6,
+        "unit": "ms",
+        "pass": true
+      },
+      "loopRender12Steps-1280": {
+        "p95": 36,
+        "budget": 300,
+        "samples": 11,
+        "unit": "ms",
+        "pass": true
+      },
+      "flowPaint-1280": {
+        "p95": 25.5,
+        "budget": 50,
+        "samples": 11,
+        "unit": "ms",
+        "pass": true
+      },
+      "timelineSse-1280": {
+        "p95": 42.5,
+        "budget": 100,
+        "samples": 6,
+        "unit": "ms",
+        "pass": true
+      }
+    },
+    "notes": [
+      "Local seeded app; rendering fixture has 4 iterations and 12 completed steps.",
+      "Browser timings run from API response or SSE event to the second animation frame after the matching DOM appears.",
+      "One cold development module transform is excluded. No API responses are replaced."
+    ]
+  }
+}
