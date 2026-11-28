@@ -84,7 +84,7 @@ export async function runDashboards({ demo = false } = {}) {
     await page.goto(`${server.base}/#dash/${sales.id}`);
     const agentCard = page.getByRole('region', { name: 'Next steps', exact: true });
     await agentCard.getByRole('button', { name: 'Run', exact: true }).click();
-    await agentCard.getByText('Working', { exact: true }).waitFor();
+    await agentCard.getByRole('status').filter({ hasText: /^Running$/ }).waitFor();
     await agentCard.getByRole('button', { name: /^Open:/ }).waitFor();
     assert.match(await agentCard.innerText(), /Updated just now/); pass('agent run reads live seeded tasks and shows running and update states');
     // The next answer must reflect a changed database row, not literal provider text.

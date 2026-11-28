@@ -11,8 +11,10 @@ import { readableWords } from './paper-label-geometry.mjs';
 import { runDashboardPolish } from './ui-custom/demo-dash.mjs';
 import { auditSidebarPolish } from './ui-custom/sidebar-polish-ui.mjs';
 import { runDashboardLaunch } from './ui-custom/demo-fix-dash-3-launch.mjs';
+import { runFixDash4 } from './ui-custom/demo-fix-dash-4.mjs';
 
 export const DASHBOARD_POLISH_ROUTES = ['sales-pipeline', 'operations', 'manager', 'create', 'sidebar', 'empty', 'empty-widget', 'edit', 'widget-settings', 'add-widget', 'ask-agent', 'approve-confirm', 'send-prefill'].map(name => ({ name: `dashboard-${name}`, owner: 'FIX-DASH', enforce: true }));
+export const FIX_DASH_4_ROUTES = ['prompt-running', 'prompt-answer', 'prompt-failure', 'toast', 'preview-pending', 'preview-applied', 'preview-discarded', 'declined-skill'].map(name => ({ name, owner: 'FIX-DASH-4', enforce: true }));
 
 export { DASHBOARD_ROUTES } from './ui-custom/e2e/layout-x2.mjs';
 
@@ -245,6 +247,8 @@ async function main() {
     report.push(...await auditSidebarPolish(ROUTES, path.join(evidence, 'sidebar-polish')));
     const launch = await runDashboardLaunch({ output: path.join(evidence, 'dashboard-launch') });
     report.push(...launch.checks.map(name => ({ name, owner: 'FIX-DASH-3', enforce: true, issues: [] })));
+    const fixes = await runFixDash4({ output: path.join(evidence, 'fix-dash-4') });
+    report.push(...fixes.map(check => ({ name: check.name, owner: 'FIX-DASH-4', enforce: true, issues: check.passed ? [] : [check.detail ?? check.name] })));
   }
   fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   assert.equal(report.filter(r => r.enforce && r.issues.length).length, 0, 'Enforced routes follow the shared layout system');

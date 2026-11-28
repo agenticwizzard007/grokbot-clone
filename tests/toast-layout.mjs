@@ -115,8 +115,7 @@ try {
     });
     assert.equal(login.status(), 200, 'temporary DEV_LOGIN session created');
     await fs.access(path.join(root, 'test.db'));
-    await page.goto(origin);
-    if (width <= 760) await page.locator('.pinned__tile').click();
+    await page.goto(`${origin}/#bot/${bot.id}`);
     const composer = page.locator('.composer__input');
     await composer.waitFor({ state: 'visible' });
     await page.getByText(rows[0].body.text, { exact: true }).waitFor();

@@ -14,8 +14,9 @@ interface UiState {
   preview: StoredPreview | null; showBefore: boolean; safe: boolean; phone: boolean; invalidStored: boolean;
   errors: Violation[]; undoUntil: number; undoMessage: string; undoLocation: string;
   visiblePreviewCards: Record<string, string>;
+  previewDecisions: Record<string, StoredPreview['status']>;
 }
-const initial: UiState = { userId: null, saved: DEFAULT_CONFIG, effective: DEFAULT_CONFIG, revision: 0, status: 'loading', suggestionsAvailable: false, preview: null, showBefore: false, safe: false, phone: false, invalidStored: false, errors: [], undoUntil: 0, undoMessage: '', undoLocation: '', visiblePreviewCards: {} };
+const initial: UiState = { userId: null, saved: DEFAULT_CONFIG, effective: DEFAULT_CONFIG, revision: 0, status: 'loading', suggestionsAvailable: false, preview: null, showBefore: false, safe: false, phone: false, invalidStored: false, errors: [], undoUntil: 0, undoMessage: '', undoLocation: '', visiblePreviewCards: {}, previewDecisions: {} };
 export const useCustomization = create<UiState>(() => initial);
 let generation = 0;
 let previewRequest = 0;
@@ -40,11 +41,20 @@ export function setPreviewCardVisible(key: string, previewId: string | null) {
 
 function update(partial: Partial<UiState>) {
   const next = { ...useCustomization.getState(), ...partial };
-  const doc = next.safe || next.status === 'disabled' ? DEFAULT_CONFIG : next.preview && !next.showBefore ? next.preview.result : next.saved;
+  let doc = next.safe || next.status === 'disabled' ? DEFAULT_CONFIG : next.preview && !next.showBefore ? next.preview.result : next.saved;
+  // Dashboard drafts belong to their preview card. Publishing their layout here
+  // made unsaved dashboards appear in the sidebar, manager, switcher and tabs.
+  if (doc === next.preview?.result && JSON.stringify(doc.dashboards) !== JSON.stringify(next.saved.dashboards)) {
+    doc = { ...doc, dashboards: next.saved.dashboards, layout: next.saved.layout };
+  }
   const current = useCustomization.getState();
-  const before = current.safe || current.status === 'disabled' ? DEFAULT_CONFIG : current.preview && !current.showBefore ? current.preview.result : current.saved;
-  next.effective = doc === before && next.phone === current.phone ? current.effective : effectiveConfig(doc, next.phone);
+  next.effective = next.saved === current.saved && next.preview === current.preview && next.showBefore === current.showBefore && next.safe === current.safe && next.status === current.status && next.phone === current.phone ? current.effective : effectiveConfig(doc, next.phone);
   useCustomization.setState(next);
+}
+export function rememberPreviewStatus(id: string, status: StoredPreview['status']) {
+  const decisions = useCustomization.getState().previewDecisions;
+  if (status === 'pending' && decisions[id] && decisions[id] !== 'pending') return;
+  if (decisions[id] !== status) update({ previewDecisions: { ...decisions, [id]: status } });
 }
 function storage(action: (store: Storage) => void) { try { action(localStorage); } catch { /* Private browsing can disable storage. */ } }
 export function readCachedConfig(userId: string): { doc: UiConfig; revision: number } | null {
@@ -139,12 +149,16 @@ export async function applyPreview() {
   if (!preview) return;
   const result = await uiRequest<ApplyResult>(`/previews/${encodeURIComponent(preview.id)}/apply`, { method: 'POST', body: {}, revision });
   if (epoch !== generation) return;
-  if (result?.ok) { clearPreview(); accept(result); offerUndo(saved, result.doc); }
+  if (result?.ok) { rememberPreviewStatus(preview.id, 'applied'); clearPreview(); accept(result); offerUndo(saved, result.doc); }
 }
 export async function discardPreview() {
-  const { preview, revision } = useCustomization.getState();
-  clearPreview();
-  if (preview) await uiRequest(`/previews/${encodeURIComponent(preview.id)}/discard`, { method: 'POST', body: {}, revision });
+  const { preview, revision } = useCustomization.getState(), epoch = generation;
+  if (preview) {
+    await uiRequest(`/previews/${encodeURIComponent(preview.id)}/discard`, { method: 'POST', body: {}, revision });
+    if (epoch !== generation) return;
+    rememberPreviewStatus(preview.id, 'discarded');
+    if (useCustomization.getState().preview?.id === preview.id) clearPreview();
+  }
 }
 export const setShowBefore = (showBefore: boolean) => update({ showBefore });
 export const setUiPhone = (phone: boolean) => update({ phone });
@@ -152,6 +166,7 @@ export const setUiSafe = (safe: boolean) => { clearPreview(); update({ safe }); 
 export async function handleUiEvent(event: ServerEvent, conversationBotId: string | null) {
   if (event.type === 'ui_config') { if (event.revision > useCustomization.getState().revision) await refreshUiConfig(); }
   if (event.type === 'ui_preview') {
+    rememberPreviewStatus(event.previewId, event.state);
     if (event.state === 'pending' && event.botId === conversationBotId) await loadPreview(event.previewId);
     else if (event.state !== 'pending' && event.previewId === useCustomization.getState().preview?.id) clearPreview();
     if (event.state === 'applied') await refreshUiConfig();

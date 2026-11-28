@@ -248,3 +248,27 @@ test('structural labels ignore restored origins while surface Close resolves del
   assert.equal(useConfigUI.getState().view, 'tasks', 'unresolved origins retain their loading surface');
   assert.equal(f.location.hash, '#settings/general');
 });
+
+test('chat parent Back reuses an older Bots entry and preserves Files and chat Forward entries', () => {
+  const f = fixture('#bots');
+  f.history.navigate({ kind: 'work', route: { tab: 'Reports' } });
+  f.history.navigate(chat);
+  const before = { pushes: f.pushes, replaces: f.replaces, entries: f.entries.length };
+  f.history.backTo({ kind: 'bots' });
+  assert.equal(f.browser.location.hash, '#bots');
+  assert.deepEqual({ pushes: f.pushes, replaces: f.replaces, entries: f.entries.length }, before);
+  f.browser.history.go(1); assert.equal(f.browser.location.hash, '#reports');
+  f.browser.history.go(1); assert.equal(f.browser.location.hash, screenHash(chat));
+});
+
+for (const hash of ['#bots', '#tasks', '#team', '#goals', '#reports', '#dashboards', '#loops', '#search', '#settings']) test(`browser Back and Forward on top-level route ${hash} never write history`, () => {
+  const f = fixture('#bot/quinn');
+  f.history.navigate(parseScreen(hash)!);
+  f.history.navigate({ kind: 'create' });
+  const before = { pushes: f.pushes, replaces: f.replaces };
+  f.browser.history.go(-1); assert.equal(f.browser.location.hash, hash);
+  f.browser.history.go(-1); assert.equal(f.browser.location.hash, '#bot/quinn');
+  f.browser.history.go(1); assert.equal(f.browser.location.hash, hash);
+  f.browser.history.go(1); assert.equal(f.browser.location.hash, '#new-bot');
+  assert.deepEqual({ pushes: f.pushes, replaces: f.replaces }, before);
+});

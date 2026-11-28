@@ -97,6 +97,24 @@ try {
    assert.ok(clicks <= 3, `${target}: reachable in at most three clicks`);
   };
   const historyFlows = async () => {
+   for (const hash of ['#bots','#tasks','#team','#goals','#reports','#dashboards','#loops','#search','#settings']) {
+    await cold('#bot/coordinator');
+    await page.evaluate(hash => { location.hash = hash; }, hash); await hashIs(hash);
+    await page.evaluate(() => { location.hash = '#new-bot'; }); await hashIs('#new-bot');
+    await page.evaluate(() => {
+     window.historyWrites = [];
+     for (const method of ['pushState','replaceState']) {
+      const original = history[method];
+      history[method] = function(...args) { window.historyWrites.push(method); return original.apply(this,args); };
+     }
+    });
+    await page.goBack(); await hashIs(hash);
+    await page.goBack(); await hashIs(canonical('#bot/coordinator'));
+    await page.goForward(); await hashIs(hash);
+    await page.goForward(); await hashIs('#new-bot');
+    assert.deepEqual(await page.evaluate(() => window.historyWrites), [], `${hash}: browser traversal never writes history`);
+   }
+   console.log(`PASS ${width} ${theme}: Back and Forward on all 9 top-level routes without history writes`);
    await cold('#tasks');
    for (const [label, hash] of [['Team','#team'],['Goals','#goals'],['Files','#reports']]) {
     await page.getByRole('navigation', { name: 'Work sections' }).getByRole('button', { name: label, exact: true }).click(); await hashIs(hash);
@@ -243,14 +261,18 @@ try {
    }
    const taps = await home() + Number(current.kind !== 'bots');
    assert.ok(taps <= 3, 'Home remains within three taps including Back');
-   // An unrelated previous screen takes precedence over the structural parent.
+   // Browser history follows the previous entry. In-app chat Back follows its
+   // parent, as separately asserted above and in livewalk-b-ui (#294).
    if (parseScreen(hash) && hash !== '#bot/missing') {
     const from = hash === '#reports' ? '#bot/research-bot' : '#reports';
     await page.evaluate(hash => { location.hash = hash; }, from); await hashIs(canonical(from));
     await page.evaluate(hash => { location.hash = hash; }, hash); await hashIs(canonical(hash));
-    if (phoneRoot) { await phoneTabsWithoutBack(hash); await page.goBack(); }
-    else { await back.waitFor(); await back.click(); }
-    await hashIs(width > 760 && current.kind === 'settings' ? canonical('#bot/coordinator') : canonical(from));
+    if (phoneRoot) await phoneTabsWithoutBack(hash);
+    await page.goBack(); await hashIs(canonical(from));
+    await page.goForward(); await hashIs(canonical(hash));
+    if (parentScreen(current) && current.kind !== 'settings') {
+      await back.click(); await hashIs(canonical(screenHash(parentScreen(current))));
+    }
    }
    assert.deepEqual(errors, [], `${hash}: no page errors`);
    results.push({ route: hash || '/', width, theme, back: 'pass', homeTaps: taps });
@@ -272,7 +294,7 @@ try {
   for (const title of ['Review the launch plan', 'Review the draft email']) {
    await page.locator('.task-card').filter({ hasText: title }).click();
    await hashIs(canonical('#bot/coordinator'));
-   await page.locator('.shell-back').click();
+   await page.goBack();
    await hashIs('#tasks');
   }
   fixture.respond = originalRespond;

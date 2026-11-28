@@ -24,6 +24,10 @@ export function widgetRuntime(config: SqliteUiConfigService) {
   void import('../agent/loop.js').then(m => { approval = m.resolveApproval; });
   void import('../messaging/signup.js').then(m => { dailyUsage = m.dailyUsage; });
   const widgets = new WidgetService(db, config, {
+    provider: userId => withUsage({ userId, kind: 'other' }, llmProvider),
+    // CLI plans can cold start a local process. The same bounded deadline covers
+    // the service, bridge and adapter; API runs retain their 30 second budget.
+    timeoutMs: userId => withUsage({ userId, kind: 'other' }, () => llmProvider().endsWith('-cli') ? 120_000 : 30_000),
     accountAllowed: userId => !!dailyUsage && !dailyUsage(userId).over,
     accountCost: (userId, since) => (db.prepare('SELECT COALESCE(SUM(COALESCE(cost_usd,(input_tokens*10.0+output_tokens*30.0)/1000000)),0) cost FROM usage_events WHERE user_id=? AND created_at>=?').get(userId,since) as any).cost,
     validateResult: (userId, result) => actions.validateResult(userId,result),
@@ -33,7 +37,7 @@ export function widgetRuntime(config: SqliteUiConfigService) {
       const bot = db.prepare('SELECT model FROM bots WHERE user_id=? AND id=?').get(ctx.userId,ctx.botId) as any;
       const model = modelFor(bot.model);
       return runAgentWidget({ ...ctx,
-        model: async (input, tools, signal) => await llmClient(30_000).responses.create(widgetModelRequest(model,input,tools,llmProvider().endsWith('-cli')), { signal }) as any,
+        model: async (input, tools, signal) => await llmClient(30_000, { subscriptionTimeoutMs: 120_000 }).responses.create(widgetModelRequest(model,input,tools,llmProvider().endsWith('-cli')), { signal }) as any,
         read: (source, params) => data.execute(ctx.userId, { key: source, source, params }, !['email.recent','calendar.upcoming','crm.deals'].includes(source)),
         record: async response => {
           await recordModelUsage({ userId: ctx.userId, botId: ctx.botId, model, response });

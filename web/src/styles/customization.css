@@ -26,6 +26,11 @@
 .ui-runtime-banner button:hover, .ui-runtime-banner button[aria-pressed='true'] { background: #EDEFFA; }
 .ui-runtime-banner button:focus-visible { outline: 2px solid #3043AB; outline-offset: 2px; }
 .ui-runtime-banner p { margin: 0; }
+.ui-toast-overlay { position: fixed; inset: auto 16px calc(16px + var(--safe-bottom, 0px)); z-index: 1000; display: flex; justify-content: center; pointer-events: none; }
+.ui-undo-toast { pointer-events: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 16px; max-width: 100%; padding: 16px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-bg-elevated); color: var(--color-text-primary); box-shadow: var(--shadow-pill); font-size: 14px; line-height: 20px; }
+.ui-undo-toast p { margin: 0; }
+.ui-undo-toast button { min-height: 44px; }
+@media (max-width: 760px) { .ui-toast-overlay { bottom: calc(80px + var(--safe-bottom, 0px)); } }
 :root[data-contrast='high'] a { text-decoration: underline; }
 :root[data-contrast='high'] :focus-visible { outline-width: 3px; }
 :root[data-motion='reduced'] *, :root[data-motion='reduced'] *::before, :root[data-motion='reduced'] *::after {
