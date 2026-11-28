@@ -146,6 +146,7 @@ try {
     assert.match(await meter.innerText(), /\$2.37 On your own keys/);
     if (width <= 760) assert.ok((await meter.boundingBox()).height <= 73, 'Own-key detail stays compact on phone');
     await readableWords(meter);
+    if ([390, 1280].includes(width)) await page.screenshot({ path: `${evidence}/${width}-${theme}-own-keys.png` });
     // Short viewports retain the amount and quota state.
     await page.setViewportSize({ width, height: 500 });
     await meter.getByText('$12.35', { exact: true }).waitFor();
