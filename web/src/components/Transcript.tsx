@@ -9,7 +9,7 @@ import { MessageSkeleton } from './ChatSkeleton';
 import { useDisplayText } from '../lib/useDisplayText';
 import { isInternalRow, userFacingLive } from '../lib/audience';
 import { CoworkerSetupCards } from './CoworkerSetupCards';
-import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Bot, LiveState, MessageBody, Row, ToolCallBody } from '@shared/types';
 import { BotAvatar, BotAvatarFor } from '../avatar/BotAvatar';
 import { clock, dividerLabel } from '../lib/time';
@@ -468,7 +468,9 @@ export const Transcript = memo(function Transcript({ bot, generation, rows, live
                   {it.runRows && <Steps rows={it.runRows} visibility={runLog} />}
                   {it.from && it.from.kind !== 'bot' && <SenderLabel from={it.from} />}
                   {it.rows.map((r, i) => (
-                    <Fragment key={r.seq}><Bubble row={r} side={it.side} botName={bot.name} pos={cornerClass(i, it.rows.length)} savedFileLinks={savedFileLinks.get(r.seq)} />{r.body.type === 'message' && r.body.role === 'assistant' && !r.body.streaming && messageActions?.(r)}</Fragment>
+                    r.body.type === 'message' && r.body.role === 'assistant' && !r.body.streaming && messageActions
+                      ? <div className="ho-finished-message" key={r.seq}><Bubble row={r} side={it.side} botName={bot.name} pos={cornerClass(i, it.rows.length)} savedFileLinks={savedFileLinks.get(r.seq)} />{messageActions(r)}</div>
+                      : <Bubble key={r.seq} row={r} side={it.side} botName={bot.name} pos={cornerClass(i, it.rows.length)} savedFileLinks={savedFileLinks.get(r.seq)} />
                   ))}
                 </div>
               );

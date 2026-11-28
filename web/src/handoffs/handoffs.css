@@ -60,7 +60,15 @@
 .ho-chip-link { display: inline-flex; align-items: center; min-height: var(--control-h); text-decoration: none; }
 .ho .ho-status { font: 500 var(--text-xs)/var(--line-caption) var(--font-stack); }
 .ho-part-text { font-size: var(--text-base); }
-.ho-message-actions { display: flex; margin-left: auto; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; }
+.ho-message-actions { display: flex; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; }
+/* Share the existing copy footer, with 8px between the two 44px targets. */
+.ho-finished-message { position: relative; display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.ho-message-handoff { position: relative; }
+.app.paper-shell .ho-finished-message:has(> .ho-message-footer) > .bubble-wrap { width: 100%; }
+.app.paper-shell .ho-finished-message:has(> .ho-message-footer) .bubble__copy { position: static; margin-top: 0; opacity: 1; }
+.app.paper-shell .ho-finished-message > .ho-message-footer { position: absolute; bottom: 0; left: 52px; width: 44px; }
+.ho-message-footer .menu { left: -52px; }
+.app.paper-shell .transcript__col > .group:has(> .ho-finished-message:last-child > .ho-message-footer) + * { margin-top: calc(8px - var(--space-4)); }
 .ho-more summary { min-height: var(--control-h); padding-block: var(--space-2); color: var(--color-primary); cursor: pointer; }
 .ho-receipt-wrap { width: 100%; }
 /* Preserve Paper output styling when mounted through the shared Cards entry. */
