@@ -187,7 +187,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     createBot: <>        <button type="button" className="sidebar__create" onClick={createBot} aria-label="Create a Bot" title={`Create a Bot (${shortcutLabel('new-bot')})`}>
           <Icon name="plus" size={20} opacity={0.66} />{!collapsed && <span>Create a Bot</span>}
         </button></>,
-    usage: usageVisibility !== 'hide' ? <div data-ui-id="sidebar.usage" className="sidebar__usage"><SidebarUsage collapsed={collapsed} /></div> : null,
+    usage: usageVisibility !== 'hide' ? <div data-ui-id="sidebar.usage" className="sidebar__usage"><SidebarUsage collapsed={collapsed} onNavigate={onClose} /></div> : null,
     settings: <>      <div className={`sidebar__footer${settingsOpen ? ' is-active' : ''}`}>
         <div className="account" ref={accountRef}>
             <button ref={accountTrigger} type="button" className="account__btn" aria-label={`${accountVisibility === 'hide' ? '' : `${initials(user?.name ?? user?.email ?? '')} `}Settings. Account & settings`} onClick={() => setAccountMenu(open => !open)} aria-haspopup="menu" aria-expanded={accountMenu} title={accountVisibility === 'hide' ? 'Settings' : user?.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user?.email}>

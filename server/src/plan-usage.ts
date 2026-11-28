@@ -66,7 +66,7 @@ function subscriptionName(provider: 'claude' | 'codex', plan?: string | null) {
 }
 
 /** Read-only account summary. No provider discovery or key-wide billing requests. */
-export function planUsageSummary(userId: string, at = Date.now()): PlanUsageSummary {
+export function planUsageSummary(userId: string, at = Date.now(), basis: 'connection' | 'account' = 'connection'): PlanUsageSummary {
   const timezone = usageTimezone(userId);
   const month = `${reportDay(at, timezone).slice(0, 7)}-01`;
   const nextMonth = new Date(`${month}T00:00:00Z`);
@@ -75,7 +75,8 @@ export function planUsageSummary(userId: string, at = Date.now()): PlanUsageSumm
   const periodEnd = reportDayStart(nextMonth.toISOString().slice(0, 10), timezone);
   const period = ledgerPeriod(userId, periodStart, periodEnd, at, timezone);
   const week = planUsageRange(userId, '7d', at);
-  const cli = selectedCli(userId);
+  // The account allowance does not change when the user selects a model connection.
+  const cli = basis === 'account' ? null : selectedCli(userId);
   const catalog = cli ? cachedCliCatalog(userId, cli) : null;
   // A subscription never inherits the configured API dollar allowance.
   const limitCents = cli ? null : configuredLimit();
