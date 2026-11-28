@@ -120,7 +120,7 @@
 .dashboard-widget-header h2 { flex: 1 1 120px; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--color-text-primary); min-height: 24px; }
 .dashboard-toolbar .cfg-btn { width: 44px; padding: 0; }
 .dashboard-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 192px; text-align: center; }
-.dashboard-empty .layout-button-group { max-width: 400px; }
+.dashboard-empty .layout-button-group { max-width: 768px; }
 .dashboard-widget-body:has(.dashboard-empty-data) { display: flex; justify-content: center; }
 .dashboard-widget--list .dashboard-widget-body { margin-inline: calc(-1 * var(--card-pad)); scrollbar-gutter: auto; }
 .dashboard-widget--list .dashboard-widget-body > :is(.dashboard-empty-data, .dashboard-widget-error, .dashboard-skeleton) { margin-inline: var(--card-pad); }

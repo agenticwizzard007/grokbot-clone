@@ -24,7 +24,7 @@ export function inspectDashboardPolish() {
     const next = slot.nextElementSibling, grid = slot.parentElement.getBoundingClientRect(), s = slot.getBoundingClientRect();
     if (next && next.dataset.widgetKind !== 'stat' && near(next.getBoundingClientRect().width, grid.width) && !near(s.right, grid.right)) issues.push('G5a orphan stat leaves an unfinished row');
   }
-  for (const group of document.querySelectorAll('.dashboard-manager-actions')) {
+  for (const group of document.querySelectorAll('.dashboard-manager-actions, .dashboard-empty > .layout-button-group')) {
     const buttons = [...group.querySelectorAll('button')], boxes = buttons.map(el => el.getBoundingClientRect());
     if (boxes.some(r => !near(r.width, boxes[0].width) || !near(r.height, boxes[0].height))) issues.push('G5b manager actions have unequal sizes');
     if (buttons.some(button => textBox(button).height > parseFloat(getComputedStyle(button).lineHeight) + 1)) issues.push('G5b manager action label wraps');
