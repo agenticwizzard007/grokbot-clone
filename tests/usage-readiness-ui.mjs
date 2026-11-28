@@ -27,7 +27,10 @@ try {
   browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox'] });
   for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     const { page, fixture, errors } = await fixturePage(browser, { width, height: 900 });
-    await page.addInitScript(theme => localStorage.setItem('swarm.theme', theme), theme);
+    await page.addInitScript(theme => {
+      localStorage.setItem('swarm.theme', theme);
+      localStorage.setItem('swarm.sidebarCollapsed', '0');
+    }, theme);
     let mode = 'mixed', timezone = 'Asia/Dubai', limited = false;
     const report = range => {
       const api = ['mixed', 'api', 'unknown'].includes(mode), cli = ['mixed', 'cli'].includes(mode);
@@ -79,21 +82,24 @@ try {
       useConfigUI.getState().openAppSettings(section);
     }, section);
     await page.goto(`${origin}/#settings/usage`);
+    await page.locator('.usage-page').getByText('Learn more', { exact: true }).click();
     await page.locator('.usage-report__summary strong').waitFor();
     // Settings can be the first catalog consumer on a cold link.
     await page.evaluate(async () => (await import('/src/lib/models.ts')).useModels.getState().load());
-    const footer = page.locator('.sidebar-usage');
+    if (width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    const footer = page.locator('.sidebar-usage:visible');
     await page.waitForFunction(() => document.querySelector('.sidebar-usage')?.textContent.includes('Quota unavailable'));
     assert.match(await footer.innerText(), /Codex plan/);
     assert.equal(await footer.and(page.getByRole('button', { name: /Quota unavailable/ })).count(), 1);
-    const rangeLabel = page.locator('.usage-head__span');
+    if (width <= 760) await page.getByRole('button', { name: 'Close navigation', exact: true }).click();
+    const rangeLabel = page.locator('.usage-page .settings-disclosure > .settings-stack > p').first();
     assert.equal(await rangeLabel.innerText(), 'Nov 19 to Nov 25 · Asia/Dubai');
     assert.ok(await rangeLabel.isVisible());
     assert.equal(await page.locator('.usage-report__summary strong').innerText(), '565 requests');
     assert.equal(await page.locator('.usage-report__summary [role=status]').innerText(), 'Token counts are incomplete for 1 request; totals include only reported tokens.');
     const billing = page.locator('.usage-billing');
-    assert.match(await billing.innerText(), /API provider usage · OpenRouter\s+\$42.99/);
-    assert.match(await billing.innerText(), /CLI plan usage · ChatGPT\s+560 requests/);
+    assert.match(await billing.innerText(), /API provider usage ·\s+OpenRouter\s+\$42\.99/);
+    assert.match(await billing.innerText(), /CLI plan usage ·\s+ChatGPT\s+560 requests/);
     assert.match(await billing.innerText(), /no Swarm API charge/);
     assert.match(await page.locator('.usage-billing__note').innerText(), /API requests are billed per request/);
     assert.doesNotMatch(await page.locator('.usage-page').innerText(), /zero API charges|Provider usage unavailable|0 requests with|Recorded spend/);
@@ -121,9 +127,10 @@ try {
     await page.screenshot({ path: `${evidence}/chart-${width}-${theme}.png` });
     for (const title of ['Breakdown', 'Plan limits', 'Provider account']) {
       const row = page.locator('.access-row').filter({ has: page.getByText(title, { exact: true }) });
-      assert.equal(await row.locator(':scope > .settings-row__icon').count(), 1);
+      assert.equal(await row.locator(':scope > .layout-row__leading > .settings-row__icon').count(), 1);
     }
-    const xs = await page.locator('.access-row .cfg-row__title').evaluateAll(rows => rows.filter(row => ['Breakdown', 'Plan limits', 'Provider account'].includes(row.textContent)).map(row => row.getBoundingClientRect().left));
+    const xs = await page.locator('.access-row .layout-row__title').evaluateAll(rows => rows.filter(row => ['Breakdown', 'Plan limits', 'Provider account'].includes(row.textContent)).map(row => row.getBoundingClientRect().left));
+    assert.equal(xs.length, 3);
     assert.ok(Math.max(...xs) - Math.min(...xs) < 1, JSON.stringify(xs));
     const csv = page.getByRole('link', { name: 'Download CSV' });
     await csv.scrollIntoViewIfNeeded();
@@ -141,12 +148,15 @@ try {
     await page.screenshot({ path: `${evidence}/usage-${width}-${theme}.png` });
     const usageRange = await rangeLabel.innerText();
     await page.evaluate(async () => (await import('/src/configStore.ts')).useConfigUI.getState().openBotSettings('coordinator', 'analytics'));
+    await page.locator('.an-page').getByText('Details', { exact: true }).click();
     await page.locator('.an-range__span').waitFor();
     assert.equal(await page.locator('.an-range__span').innerText(), usageRange, 'Usage and Analytics share the same range label');
     await open('computer');
+    await page.locator('.app-settings__page').getByText('Learn more', { exact: true }).click();
     await page.getByText('No Bot screens are open.', { exact: true }).waitFor();
     assert.doesNotMatch(await page.locator('.app-settings__page').innerText(), /No Bot has used the computer/);
     await open('usage');
+    await page.locator('.usage-page').getByText('Learn more', { exact: true }).click();
     await page.locator('.usage-report__summary strong').waitFor();
     for (const [next, range] of [['cli', '30d'], ['api', 'today'], ['empty', 'month'], ['unknown', '7d']]) {
       mode = next; timezone = 'UTC'; limited = next === 'cli';
