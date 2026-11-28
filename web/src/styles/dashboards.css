@@ -102,6 +102,11 @@
   .dashboard-chart svg { height: 112px; }
   .dashboard-library { grid-template-columns: minmax(0,1fr); }
 }
+/* Keep every grid breakpoint together so lazy sheet imports cannot reorder them. */
+@media (min-width: 360px) and (max-width: 480px) {
+  .dashboard-grid { grid-template-columns: repeat(6,minmax(0,1fr)); }
+  .dashboard-grid-slot { grid-column: span var(--widget-small-span); }
+}
 @media (forced-colors: active) { .dashboard-chart-series { fill: Highlight; stroke: Highlight; } .dashboard-chart-series-1 { fill: CanvasText; stroke: CanvasText; } .dashboard-bot-avatar { border: 1px solid CanvasText; } }
 
 .dashboard-empty-data { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 16px; height: 100%; }
@@ -120,7 +125,7 @@
 .dashboard-widget-header h2 { flex: 1 1 120px; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--color-text-primary); min-height: 24px; }
 .dashboard-toolbar .cfg-btn { width: 44px; padding: 0; }
 .dashboard-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 192px; text-align: center; }
-.dashboard-empty .layout-button-group { max-width: 400px; }
+.dashboard-empty .layout-button-group { max-width: 768px; }
 .dashboard-widget-body:has(.dashboard-empty-data) { display: flex; justify-content: center; }
 .dashboard-widget--list .dashboard-widget-body { margin-inline: calc(-1 * var(--card-pad)); scrollbar-gutter: auto; }
 .dashboard-widget--list .dashboard-widget-body > :is(.dashboard-empty-data, .dashboard-widget-error, .dashboard-skeleton) { margin-inline: var(--card-pad); }
@@ -150,11 +155,11 @@
   .dashboard-actions { width: 100%; max-width: none; flex: 1; }
   .dashboard-dialog { box-sizing: border-box; width: 100%; max-height: calc(100dvh - 16px); margin: auto 0 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .dashboard-task-board { grid-template-columns: minmax(0,1fr); }
+  .dashboard-empty .layout-button-group { flex-direction: column; }
 }
 @media (max-width: 480px) {
-  .dashboard-grid--editing .dashboard-grid-slot { grid-column: span 2; }
+  .dashboard-grid--editing .dashboard-grid-slot { grid-column: 1 / -1; }
   .dashboard-settings .cfg-seg { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .dashboard-empty .layout-button-group { flex-direction: column; }
 }
 
 .dashboard-table .dashboard-status > span { display: none; }

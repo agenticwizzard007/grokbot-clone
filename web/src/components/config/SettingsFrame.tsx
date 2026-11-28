@@ -82,7 +82,7 @@ export function AppSettings() {
 
   const sectionLabel = aboutUse ? 'About you' : NAV.flatMap(group => group.items).find(item => item.id === section)?.label ?? (section ? SETTINGS_LABELS[section] : 'Settings');
   if (!section) return null;
-  const pick = (id: AppSection | 'dashboards') => { if (id === 'dashboards') { navigation.navigate({ kind: 'dashboards' }); return; } open(id); setQuery(''); };
+  const pick = (id: AppSection | 'dashboards') => { if (id === 'dashboards') { navigation.navigate({ kind: 'settings', section: 'appearance', dashboards: true }); return; } open(id); setQuery(''); };
   const q = query.trim();
   const groups = q ? availableNav.map((g) => ({ ...g, items: g.items.filter((it) => matches(it, q)) })).filter((g) => g.items.length) : availableNav;
   // Up/Down move between sections, like a native sidebar.
@@ -113,7 +113,7 @@ export function AppSettings() {
       {groups.map((g) => (
         <Section key={g.group} className="settings-nav__group" title={g.group} aria-label={g.group}>
           <Card variant="list" className="settings-nav__items">
-            {g.items.map(it => <SettingsNavButton key={it.id} item={it} compact={compact} active={section === it.id && !(compact && listView)} onSelect={pick} />)}
+            {g.items.map(it => <SettingsNavButton key={it.id} item={it} compact={compact} active={!(compact && listView) && (currentScreen?.kind === 'settings' && currentScreen.dashboards ? it.id === 'dashboards' : section === it.id)} onSelect={pick} />)}
           </Card>
         </Section>
       ))}

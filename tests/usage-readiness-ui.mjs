@@ -88,9 +88,10 @@ try {
     await page.evaluate(async () => (await import('/src/lib/models.ts')).useModels.getState().load());
     if (width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
     const footer = page.locator('.sidebar-usage:visible');
-    await page.waitForFunction(() => document.querySelector('.sidebar-usage')?.textContent.includes('Quota unavailable'));
-    assert.match(await footer.innerText(), /Codex plan/);
-    assert.equal(await footer.and(page.getByRole('button', { name: /Quota unavailable/ })).count(), 1);
+    await footer.getByText('Usage unavailable', { exact: true }).waitFor();
+    assert.equal(await footer.innerText(), 'Usage unavailable');
+    assert.equal(await footer.and(page.getByRole('button', { name: 'Usage unavailable', exact: true })).count(), 1);
+    assert.ok((await footer.boundingBox()).height >= 44 && (await footer.boundingBox()).height <= 64);
     if (width <= 760) await page.getByRole('button', { name: 'Close navigation', exact: true }).click();
     const rangeLabel = page.locator('.usage-page .settings-disclosure > .settings-stack > p').first();
     assert.equal(await rangeLabel.innerText(), 'Nov 19 to Nov 25 · Asia/Dubai');

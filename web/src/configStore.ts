@@ -5,7 +5,7 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 import type { ServerEvent } from '@shared/types';
 import { useStore } from './store';
-import { APP_SECTIONS, parentLabel, parentScreen, backTarget, outsideSurface, navigationActions, parseScreen, resolveScreen, screenHash, screenTitle, ScreenHistory, type Screen, type DetailTab, type SetupTab } from './lib/navigation';
+import { APP_SECTIONS, settingsLocationHash, parentLabel, parentScreen, backTarget, outsideSurface, navigationActions, parseScreen, resolveScreen, screenHash, screenTitle, ScreenHistory, type Screen, type DetailTab, type SetupTab } from './lib/navigation';
 import { readDetailsDefault } from './lib/detailsDefault';
 import { botSlug, routeBot, linkedWork, type WorkRoute } from './lib/userRoutes';
 
@@ -72,6 +72,9 @@ const LS_THEME = 'swarm.theme';
 const readTheme = (): Theme => {
   try { const t = localStorage.getItem(LS_THEME); return t === 'light' || t === 'dark' ? t : 'system'; } catch { return 'system'; }
 };
+
+const settingsHash = settingsLocationHash(window.location);
+if (settingsHash !== window.location.hash) window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + settingsHash);
 
 /** Deep link: /#settings/<section> (e.g. #settings/messaging, or just #messaging) opens Settings there. */
 const SECTIONS_LINKABLE = [...APP_SECTIONS];

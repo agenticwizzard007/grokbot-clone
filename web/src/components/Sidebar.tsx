@@ -1,11 +1,11 @@
-import { useComponentVisible } from '../customization';
+import { useComponentVisible, useUiConfig } from '../customization';
 import { useSidebarItems } from '../customization/layout/useSidebarItems';
 import { dashboardScreen } from '../customization/layout/usePhoneTabs';
 import { Fragment } from 'react';
 import { RosterFeedback } from './LoadFeedback';
 import { userFacingLive } from '../lib/audience';
 import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { Blocks, Folder, Gauge, GitBranch, House, LayoutDashboard, LogOut, Settings, Terminal, X, Repeat } from 'lucide-react';
+import { Blocks, ChevronDown, ChevronRight, Folder, Gauge, GitBranch, House, LayoutDashboard, LogOut, Settings, Terminal, X, Repeat } from 'lucide-react';
 import { navigation, openConversation, useConfigUI } from '../configStore';
 import { TasksIsland } from './config/TasksIsland';
 import type { Bot } from '@shared/types';
@@ -18,6 +18,9 @@ import { SidebarUsage } from './SidebarUsage';
 import { shortcutLabel } from '../lib/shortcuts';
 import { toast } from '../lib/toast';
 import './sidebar-labels.css';
+import { useDashboardDisclosure } from '../lib/sidebarDisclosure';
+import { useSidebarRows } from '../lib/useSidebarRows';
+import { routeDashboard } from '../lib/navigation';
 
 /** MF-027: a Bot is highlighted only while its chat is the visible page. */
 export function sidebarHighlightsBot(ui: { view: string; appSettings: unknown; botSettings: unknown }, modal: string | null): boolean {
@@ -65,6 +68,8 @@ const BotRow = memo(function BotRow({ bot, selected, running, awaiting, onSelect
 
 export function Sidebar({ onClose }: { onClose?: () => void }) {
   const layout = useSidebarItems();
+  const { status: dashboardStatus } = useUiConfig();
+  const scrollRef = useSidebarRows();
   const searchVisibility = useComponentVisible('sidebar.search');
   const usageVisibility = useComponentVisible('sidebar.usage');
   const accountVisibility = useComponentVisible('sidebar.account');
@@ -77,8 +82,12 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const storeSelectedBotId = useStore((s) => s.selectedBotId);
   const modal = useStore((s) => s.modal);
   const chatVisible = useConfigUI((s) => sidebarHighlightsBot(s, modal));
-  const selectedBotId = chatVisible ? storeSelectedBotId : null; // nothing highlighted on Tasks, Settings, Bot settings or create pages
+  const screen = navigation.screen;
+  const selectedBotId = chatVisible && (screen?.kind === 'chat' || screen?.kind === 'details') ? storeSelectedBotId : null;
   const user = useStore((s) => s.user);
+  const dashboards = useDashboardDisclosure(user?.id);
+  const currentDashboard = !settingsOpen && !modal && screen?.kind === 'dash' ? routeDashboard(screen.dashboard, layout.dashboards)?.id : undefined;
+  const managingDashboards = !settingsOpen && !modal && screen?.kind === 'dashboards';
   // The phone drawer always shows the full sidebar.
   const collapsed = useStore((s) => s.sidebarCollapsed && !s.mobile);
   const set = useStore((s) => s.set);
@@ -204,11 +213,13 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
           </div>
 
       </div></>,
-    dashboards: <section className="sidebar__dashboards" aria-label="Dashboards">
-      {!collapsed && !!layout.dashboards.length && <h2 className="sidebar__section-label">Dashboards</h2>}
-      {layout.dashboards.slice(0, 5).map(dashboard => <button type="button" key={dashboard.id} className="sidebar-island" aria-label={dashboard.name} title={dashboard.name} onClick={() => { navigation.navigate(dashboardScreen(dashboard.id)); onClose?.(); }}><LayoutDashboard size={18} aria-hidden />{!collapsed && <span>{dashboard.name}</span>}</button>)}
-      <button type="button" className="sidebar-island" aria-label={layout.dashboards.length ? 'All dashboards' : 'Dashboards'} onClick={() => { navigation.navigate({ kind: 'dashboards' }); onClose?.(); }}><LayoutDashboard size={18} aria-hidden />{!collapsed && <span>{layout.dashboards.length ? 'All dashboards' : 'Dashboards'}</span>}</button>
-    </section>,
+    dashboards: dashboardStatus === 'ready' ? <section className="sidebar__dashboards" aria-label="Dashboards">
+      {!collapsed && <button type="button" className="sidebar__section-label sidebar__disclosure" aria-expanded={dashboards.expanded} aria-label="Dashboards" onClick={() => dashboards.setExpanded(!dashboards.expanded)}><span>Dashboards</span>{dashboards.expanded ? <ChevronDown size={18} aria-hidden /> : <ChevronRight size={18} aria-hidden />}</button>}
+      {(collapsed || dashboards.expanded) && <>
+        {layout.dashboards.slice(0, mobile || dashboards.short ? 3 : 5).map(dashboard => <button type="button" key={dashboard.id} className={`sidebar-island${currentDashboard === dashboard.id ? ' is-active' : ''}`} aria-current={currentDashboard === dashboard.id ? 'page' : undefined} aria-label={dashboard.name} title={dashboard.name} onClick={() => { navigation.navigate(dashboardScreen(dashboard.id)); onClose?.(); }}><LayoutDashboard size={18} aria-hidden />{!collapsed && <span>{dashboard.name}</span>}</button>)}
+        <button type="button" className={`sidebar-island${managingDashboards ? ' is-active' : ''}`} aria-current={managingDashboards ? 'page' : undefined} aria-label="All dashboards" onClick={() => { navigation.navigate({ kind: 'dashboards' }); onClose?.(); }}><LayoutDashboard size={18} aria-hidden />{!collapsed && <span>All dashboards</span>}</button>
+      </>}
+    </section> : null,
     search: null,
   };
   const section = (id: keyof typeof sections) => layout.items.includes(id) ? sections[id] : null;
@@ -239,8 +250,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
 
       {layout.standardOrder ? <>
         <nav className="sidebar__nav" aria-label="Main navigation" onClick={onClose}>{section('allBots')}{section('tasks')}{section('files')}</nav>
-        <div className="sidebar__scroll">{mobile && <RosterFeedback />}{section('dashboards')}{section('yourBots')}{section('createBot')}</div>
-      </> : <div className="sidebar__custom-scroll">
+        <div ref={scrollRef} className="sidebar__scroll"><div className="sidebar__scroll-content">{mobile && <RosterFeedback />}{section('dashboards')}{section('yourBots')}{section('createBot')}</div></div>
+      </> : <div ref={scrollRef} className="sidebar__custom-scroll"><div className="sidebar__scroll-content">
         {mobile && <RosterFeedback />}
         {layout.pinned.length > 0 && <section aria-label="Pinned" className="sidebar__pins">
           {!collapsed && <div className="sidebar__section-label">Pinned</div>}
@@ -249,7 +260,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
           </button>)}
         </section>}
         {layout.items.filter(id => id !== 'usage' && id !== 'settings').map(id => <Fragment key={id}>{section(id)}</Fragment>)}
-      </div>}
+      </div></div>}
       {section('usage')}{section('settings')}
 
     </aside>

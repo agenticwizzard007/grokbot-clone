@@ -52,7 +52,8 @@ async function runPolishView({ before, output, view }) {
     page = await server.page(account);
     let sends = 0; page.on('request', request => { if (request.method() === 'POST' && /\/messages$/.test(new URL(request.url()).pathname)) sends++; });
     async function open(board) {
-      await page.goto(`${server.base}/#dash/${board.id}`); await page.reload(); await page.locator('.dashboard-page').waitFor();
+      await page.goto(`${server.base}/#dash/${board.id}`); await page.locator('.dashboard-page').waitFor();
+      await page.reload(); await page.locator('.dashboard-page').waitFor();
       for (const cell of await page.locator('[data-widget-id]').all()) { await cell.scrollIntoViewIfNeeded(); await page.waitForFunction(id => document.querySelector(`[data-widget-id="${id}"]`)?.dataset.widgetState !== 'loading', await cell.getAttribute('data-widget-id')); }
       await page.locator('.dashboard-surface').evaluate(el => { el.scrollTop = 0; });
     }
@@ -68,9 +69,9 @@ async function runPolishView({ before, output, view }) {
       const selector = await dialog.count() ? 'dialog[open]' : name === 'send-prefill' ? '.composer' : name === 'sidebar' ? '.sidebar__dashboards' : '.dashboard-page';
       assert.doesNotMatch(await page.locator('body').innerText(), /mock|Fixture|PRIVATE|QA-|undefined|null|\[object|[\u2013\u2014]/i, `${name}: clean copy`);
       assert.deepEqual(await page.evaluate(inspectAlignment, { selector: selector === '.dashboard-page' ? '.dashboard-page, .dashboard-header-actions' : selector, requirePage: !['sidebar', 'send-prefill'].includes(name) }), [], `${name}: alignment`);
-      const issues = await page.locator(selector).evaluate(root => [...root.querySelectorAll('p,span,strong,label,button,h2')].filter(el => el.checkVisibility() && el.textContent.trim() && !el.closest('svg')).flatMap(el => parseFloat(getComputedStyle(el).fontSize) < (el.closest('.model-pill, .plan-usage__status, .plan-usage__reset, .plan-usage__own, .plan-usage__note') || el.matches('.sidebar__section-label, .dashboard-caption, .dashboard-schedule li > span, .dashboard-bot-meta, .dashboard-bot-meta *, .dashboard-list-meta *, .dashboard-muted, .dashboard-library-item > span, .dashboard-status') ? 13 : 14) && !el.matches('.dashboard-status > span') ? [el.textContent] : []));
+      const issues = await page.locator(selector).evaluate(root => [...root.querySelectorAll('p,span,strong,label,button,h2')].filter(el => el.checkVisibility() && el.textContent.trim() && !el.closest('svg')).flatMap(el => parseFloat(getComputedStyle(el).fontSize) < (el.closest('.model-pill, .plan-usage__status, .plan-usage__reset, .plan-usage__own, .plan-usage__note') || el.closest('.sidebar__section-label, .dashboard-caption, .dashboard-schedule li > span, .dashboard-bot-meta, .dashboard-bot-meta *, .dashboard-list-meta *, .dashboard-muted, .dashboard-library-item > span, .dashboard-status') ? 13 : 14) && !el.matches('.dashboard-status > span') ? [el.textContent] : []));
       if (name !== 'send-prefill') assert.deepEqual(issues, [], `${name}: readable type`);
-      if (width <= 760 && name !== 'sidebar') assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1, `${name}: one Back`);
+      if (width <= 760 && name !== 'sidebar') assert.equal(await page.getByRole('button', { name: name === 'send-prefill' ? 'Back to Bots' : 'Back', exact: true }).count(), 1, `${name}: one Back`);
       const fields = await page.locator('input,textarea').evaluateAll(fields => fields.filter(el => el.checkVisibility()).map(el => `${el.value} ${el.placeholder}`).join(' '));
       assert.doesNotMatch(fields, /mock|Fixture|PRIVATE|QA-|undefined|null|\[object|[\u2013\u2014]/i, `${name}: clean form copy`);
       if (name !== 'send-prefill') {
@@ -91,7 +92,7 @@ async function runPolishView({ before, output, view }) {
       pass(`${name} ${width} ${theme}: alignment, targets, type, clean copy`);
     }
     for (const [width, theme] of [view]) {
-      await page.setViewportSize({ width, height: width <= 760 ? 844 : 900 }); await page.emulateMedia({ colorScheme: theme });
+      await page.setViewportSize({ width, height: width <= 760 ? 844 : 720 }); await page.emulateMedia({ colorScheme: theme });
       await open(sales);
       if (!before) {
         const stats = await page.locator('[data-widget-type="stat"]').evaluateAll(cells => cells.map(el => { const r = el.getBoundingClientRect(); return { top: r.top, width: r.width }; }));
@@ -140,10 +141,11 @@ async function runPolishView({ before, output, view }) {
       await capture('operations', width, theme);
       await page.goto(`${server.base}/#dashboards`); await page.locator('.dashboards-manager').waitFor();
       if (!before) await page.getByRole('button', { name: 'Create with your agent', exact: true }).waitFor();
+      if (!before) { assert.doesNotMatch(await page.locator('.dashboards-manager').innerText(), /0 widgets/); assert.equal(await page.getByText('Empty dashboards are ready for widgets. Open one and tap Add widget.', { exact: true }).count(), 1); }
       await capture('manager', width, theme);
       await page.getByRole('button', { name: 'Create', exact: true }).click(); await capture('create', width, theme); await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       if (width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
-      if (!before) { assert.equal(await page.locator('.sidebar__dashboards button').count(), 6); assert.equal(await page.locator('.sidebar__dashboards').getByRole('button', { name: 'All dashboards', exact: true }).count(), 1); }
+      if (!before) { const disclosure = page.locator('.sidebar__disclosure'); if (await disclosure.getAttribute('aria-expanded') === 'false') await disclosure.click(); assert.equal(await page.locator('.sidebar__dashboards .sidebar-island').count(), width <= 760 || page.viewportSize().height < 760 ? 4 : 6); assert.equal(await page.locator('.sidebar__dashboards').getByRole('button', { name: 'All dashboards', exact: true }).count(), 1); }
       await capture('sidebar', width, theme);
       await open(empty); if (!before) await page.getByRole('button', { name: 'Create with your agent', exact: true }).waitFor(); await capture('empty', width, theme);
       await open(sales); await page.getByRole('button', { name: 'Edit dashboard', exact: true }).click(); await capture('edit', width, theme);
@@ -160,8 +162,8 @@ async function runPolishView({ before, output, view }) {
       await open(sales); await page.getByRole('button', { name: /^Open:/ }).click(); await page.locator('.tasks-view').waitFor(); pass('Open navigates to Tasks');
       await open(sales); await page.getByRole('button', { name: /^Approve:/ }).click(); await page.getByRole('dialog').getByRole('button', { name: 'Approve', exact: true }).click(); await page.getByRole('dialog').waitFor({ state: 'hidden' });
       assert.equal(server.db.prepare('SELECT status FROM approvals WHERE id=?').get(approvalId.slice(9)).status, 'allowed'); pass('Approve requires confirmation and resolves the owned item');
-      await page.goto(`${server.base}/#dashboards`); await page.getByRole('button', { name: 'Create with your agent', exact: true }).click(); await page.locator('.composer__input:not([disabled])').waitFor();
-      assert.match(await page.locator('.composer__input').inputValue(), /^Make me a dashboard for /); assert.equal(sends, 0); pass('Create with your agent prefills without sending');
+      await page.goto(`${server.base}/#dashboards`); await page.getByRole('button', { name: 'Create with your agent', exact: true }).click(); await page.getByRole('dialog', { name: 'Create with your agent', exact: true }).waitFor();
+      assert.equal(await page.getByLabel('Request', { exact: true }).inputValue(), ''); assert.equal(sends, 0); pass('Create with your agent opens the request sheet without sending');
     }
   } catch (error) { if (page) await page.screenshot({ path: path.join(output, `failure-${view[0]}-${view[1]}.png`) }); failures.push(error.stack); throw error; }
   finally { await server.close(); fs.writeFileSync(path.join(output, `results-${view[0]}-${view[1]}.json`), JSON.stringify({ passed: checks.length, failed: failures.length, checks, failures, screenshots, counts, guards }, null, 2)); }

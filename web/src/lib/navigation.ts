@@ -21,9 +21,17 @@ export type Screen =
   | { kind: 'chat'; bot: string }
   | { kind: 'details'; bot: string; tab: DetailTab; setup?: SetupTab; reports?: boolean; flow?: boolean; link?: string }
   | { kind: 'bot-settings'; bot: string; tab: BotSettingsTab }
-  | { kind: 'settings'; section?: AppSection; use?: true }
+  | { kind: 'settings'; section?: AppSection; use?: true; dashboards?: true }
   | { kind: 'work'; route: WorkRoute }
   | { kind: 'create' | 'group' | 'search' | 'apps' | 'first-run' };
+
+/** Legacy Settings links use the same section parser as hash navigation. */
+export function settingsLocationHash(location: { pathname: string; search: string; hash: string }): string {
+  if (location.hash || location.pathname.replace(/\/$/, '') !== '/settings') return location.hash;
+  const section = new URLSearchParams(location.search).get('section');
+  const screen = parseScreen(section ? `#settings/${section}` : '#settings');
+  return screen ? screenHash(screen) : '#settings';
+}
 
 export function parseScreen(hash: string): Screen | null {
   if (!hash.startsWith('#')) return null;
@@ -45,6 +53,7 @@ export function parseScreen(hash: string): Screen | null {
   if (hash === '#new-bot/group') return { kind: 'group' };
   if (hash === '#search' || hash === '#apps/connect') return { kind: hash === '#search' ? 'search' : 'apps' };
   if (hash === '#settings/appearance/use') return { kind: 'settings', section: 'appearance', use: true };
+  if (hash === '#settings/dashboards' || hash === '#settings/appearance/dashboards') return { kind: 'settings', section: 'appearance', dashboards: true };
   if (/^#settings\/?$/.test(hash)) return { kind: 'settings' };
   const section = hash.replace(/^#(?:settings\/)?/, '').replace(/^whatsapp$/, 'messaging').replace(/^api-keys$/, 'keys');
   if (APP_SECTIONS.includes(section as AppSection)) return { kind: 'settings', section: section as AppSection };
@@ -98,7 +107,7 @@ export function screenHash(screen: Screen): string {
     case 'chat': return `#bot/${encodeURIComponent(screen.bot)}`;
     case 'details': return `#bot/${encodeURIComponent(screen.bot)}/details/${screen.flow ? `flow${screen.link ? `?link=${encodeURIComponent(screen.link)}` : ''}` : ({ activity: 'activity', tasks: 'tasks', library: 'files', configuration: 'setup' })[screen.tab]}${screen.setup ? `/${screen.setup}` : screen.reports ? '/reports' : ''}`;
     case 'bot-settings': return `#bot/${encodeURIComponent(screen.bot)}/settings/${screen.tab}`;
-    case 'settings': return `#settings${screen.section ? `/${screen.section}` : ''}${screen.use ? '/use' : ''}`;
+    case 'settings': return `#settings${screen.section ? `/${screen.section}` : ''}${screen.use ? '/use' : screen.dashboards ? '/dashboards' : ''}`;
     case 'work': return workHash(screen.route);
     case 'create': return '#new-bot';
     case 'group': return '#new-bot/group';

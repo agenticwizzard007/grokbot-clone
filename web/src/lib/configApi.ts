@@ -100,7 +100,10 @@ async function platformSignup(): Promise<{ admin: boolean; settings?: PlatformSi
   const res = await fetch('/api/platform/signup', { method: 'GET', credentials: 'include' });
   // Standalone servers have no platform admin route and may serve the SPA fallback.
   const contentType = res.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase();
-  if (res.status === 404 || (res.ok && contentType === 'text/html')) return { admin: false };
+  if (res.status === 404 || (res.ok && contentType === 'text/html')) {
+    await res.text();
+    return { admin: false };
+  }
   return readResponse(res);
 }
 

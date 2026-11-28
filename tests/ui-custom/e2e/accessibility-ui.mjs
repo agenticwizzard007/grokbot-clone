@@ -68,7 +68,12 @@ async function showUsage(page, surface) {
   }
   const meter = sidebar.locator('.sidebar-usage');
   await meter.waitFor();
-  if (await sidebar.evaluate(node => node.classList.contains('is-collapsed'))) {
+  const collapsed = await sidebar.evaluate(node => node.classList.contains('is-collapsed'));
+  if (await meter.evaluate(node => node.classList.contains('is-unavailable'))) {
+    assert.equal(await meter.and(page.getByRole('button', { name: 'Usage unavailable', exact: true })).count(), 1);
+    assert.equal(await meter.getAttribute('aria-label') !== null, collapsed, 'Unavailable usage keeps collapsed-only aria-label behavior');
+    if (!collapsed) { const { height } = await meter.boundingBox(); assert.ok(height >= 44 && height <= 64); }
+  } else if (collapsed) {
     assert.equal(await meter.and(page.getByRole('button', { name: /^Usage: (API credits|Claude Pro plan)\./ })).count(), 1, 'Collapsed usage has a descriptive accessible name');
   } else {
     await meter.locator('.plan-usage__name').getByText(/^(API credits|Claude Pro plan)$/).waitFor();
@@ -84,7 +89,10 @@ async function showUsage(page, surface) {
 async function showDashboardSidebar(page) {
   if (!await page.locator('.sidebar').isVisible()) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
   const group = page.locator('.sidebar__dashboards');
-  assert.equal(await group.getByRole('button').count(), 6, 'Five dashboards and the All dashboards entry');
+  const disclosure = group.getByRole('button', { name: 'Dashboards', exact: true });
+  if (await disclosure.getAttribute('aria-expanded') === 'false') await disclosure.click();
+  const { width, height } = page.viewportSize();
+  assert.equal(await group.locator('.sidebar-island').count(), width <= 760 || height < 760 ? 4 : 6, 'Viewport dashboard cap and the All dashboards entry');
   assert.equal(await group.getByRole('button', { name: 'All dashboards', exact: true }).count(), 1);
   assert.equal(await group.getByRole('button', { name: 'Operations', exact: true }).count(), 0, 'The remaining dashboards stay in the manager');
   await group.scrollIntoViewIfNeeded();
@@ -107,6 +115,16 @@ const routes = [...navigationRoutes.map(hash => ({ name: hash || 'home', hash })
   { name: 'layout-reset', hash: '#settings/appearance', action: async page => { await page.getByRole('button', { name: 'Manage layout', exact: true }).click(); await page.getByRole('menuitem', { name: 'Reset', exact: true }).click(); } },
   { name: 'chat-preview', hash: '#bot/coordinator', action: page => server.previewCard(page) },
   { name: 'dashboards-manager', hash: '#dashboards' },
+  { name: 'dashboard-agent-sheet', hash: '#dashboards', action: async page => {
+    await page.getByRole('button', { name: 'Create with your agent', exact: true }).click();
+    await page.getByRole('radiogroup', { name: 'Bot', exact: true }).waitFor();
+    await assertSingleDialog(page, 'Create with your agent');
+  } },
+  { name: 'dashboard-suggestion-sheet', hash: '#dashboards', action: async page => {
+    await page.getByRole('button', { name: 'Suggest a dashboard for me', exact: true }).click();
+    await page.getByLabel('Role', { exact: true }).waitFor();
+    await assertSingleDialog(page, 'Suggest a dashboard');
+  } },
   { name: 'dashboard', hash: '#dash/d_a11y0001', action: checkDashboardHeader },
   { name: 'dashboard-sidebar-capped', hash: '#dashboards', action: showDashboardSidebar, reflow: showDashboardSidebar },
   { name: 'dashboard-refresh', hash: '#dash/d_a11y0001', action: async page => {

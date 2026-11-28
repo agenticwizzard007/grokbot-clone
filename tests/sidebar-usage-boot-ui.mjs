@@ -110,11 +110,14 @@ try {
       if (state.cli) assert.doesNotMatch(await meter.innerText(), /No limit|\$/);
       if (state.level !== 'normal') assert.match(await meter.innerText(), state.level === 'critical' ? /Limit reached/ : /Near limit/);
       assert.equal(await meter.locator('.plan-usage__own').count(), 0);
+      assert.equal(await meter.and(page.getByRole('button', { name: new RegExp(state.name === 'cli-unknown' ? '^Usage unavailable$' : snapshot.plan.name) })).count(), 1, 'Available meters retain the plan name; unavailable meters announce their state');
       await readableWords(meter);
+      if (width <= 760) assert.ok((await meter.boundingBox()).height <= 73, 'Phone quota states fit the compact meter');
       const issues = await meter.evaluate(el => {
         const r = el.getBoundingClientRect(), issues = [];
         if (r.left < 0 || r.right > innerWidth || r.bottom > innerHeight) issues.push('Outside viewport');
         for (const child of el.querySelectorAll('.plan-usage *')) {
+          if (child.closest('.sr-only')) continue;
           const s = getComputedStyle(child);
           if (s.textOverflow === 'ellipsis') issues.push('Ellipsis');
           if (child.scrollWidth > child.clientWidth + 1 && child.clientWidth > 0) issues.push(`Overflow ${child.className}`);
@@ -142,7 +145,9 @@ try {
     fail = false; snapshot.ownKeys = original.ownKeys; await refresh();
     await meter.getByText(/On your own keys \(does not count toward the plan\)/).waitFor();
     assert.match(await meter.innerText(), /\$2.37 On your own keys/);
+    if (width <= 760) assert.ok((await meter.boundingBox()).height <= 73, 'Own-key detail stays compact on phone');
     await readableWords(meter);
+    if ([390, 1280].includes(width)) await page.screenshot({ path: `${evidence}/${width}-${theme}-own-keys.png` });
     // Short viewports retain the amount and quota state.
     await page.setViewportSize({ width, height: 500 });
     await meter.getByText('$12.35', { exact: true }).waitFor();

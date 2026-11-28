@@ -57,3 +57,14 @@
 .paper-shell .sidebar-status { align-self: flex-start; border-radius: 999px; padding: 0 6px; background: var(--color-bg-tertiary); font-size: 11px; line-height: 16px; }
 .paper-shell .sidebar.is-collapsed .bot-avatar { border-radius: 11px; }
 .paper-shell .sidebar .provider-icon[data-provider='claude'] { color: #D97757; }
+/* Whole rows at the scroll edges stay keyboard reachable and reveal on focus. */
+/* Contain translated edge rows without adding phantom scroll height. */
+.paper-shell .sidebar .sidebar__scroll-content { display: flow-root; overflow: clip; }
+.sidebar [data-sidebar-clipped='start'] { transform: translateY(-100%); }
+.sidebar [data-sidebar-clipped='end'] { transform: translateY(100%); }
+.paper-shell .sidebar__usage { margin-block: -4px; }
+.paper-shell .sidebar-usage { margin: 0; }
+.paper-shell .sidebar .sidebar__disclosure { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; margin: 0; padding: 8px 16px; font: 600 13px/18px var(--font-stack); color: var(--color-text-secondary); border-radius: 8px; }
+.paper-shell .sidebar__disclosure:hover { background: var(--color-bg-hover); }
+.paper-shell .sidebar__disclosure svg { flex-shrink: 0; }
+.paper-shell .sidebar__disclosure:focus-visible { outline-offset: -2px; }
