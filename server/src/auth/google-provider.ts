@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
 const jwks = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
 export interface GoogleIdentity { subject: string; email: string; name?: string }
-export const googleAvailable = () => !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_CLIENT_SECRET;
+export const googleAvailable = () => !!process.env.GOOGLE_CLIENT_ID?.trim() && !!process.env.GOOGLE_CLIENT_SECRET?.trim();
 export const randomProof = () => crypto.randomBytes(32).toString('base64url');
 export const challengeFor = (v: string) => crypto.createHash('sha256').update(v).digest('base64url');
 export function googleAuthorization(redirectUri: string, state: string, nonce: string, verifier: string) {

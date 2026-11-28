@@ -404,8 +404,17 @@ export async function removeExpiredConnection(userId: string, id: string): Promi
   finally { if (expiredConnectionRemovals.get(lock) === removal) expiredConnectionRemovals.delete(lock); }
 }
 
-// Legacy Google login callbacks still need identity verification and cleanup.
-// New sign-ins use direct OIDC; only connect-apps creates Gmail authorizations.
+// ---------- Google sign-in through a Composio-managed Gmail authorization ----------
+// Composio's Gmail authorization carries Google's openid/userinfo scopes, so the token yields Google's immutable
+// account subject (the same `sub` OIDC returns). Identity is bound to that subject, never to an email address.
+
+export async function startGoogleLogin(provisionalUserId: string, callbackUrl: string) {
+  if (isTenant || !env.composioEnabled) throw new Error(APPS_OFF);
+  const session = await composio().create(provisionalUserId, { manageConnections: false });
+  const req = await session.authorize('gmail', { callbackUrl });
+  if (!req.redirectUrl || !req.id) throw new Error('Google sign-in did not return a connection link.');
+  return { redirectUrl: req.redirectUrl, connectedAccountId: req.id };
+}
 
 export class GoogleLoginError extends Error {
   constructor(public readonly code: 'google_denied' | 'google_pending' | 'google_permissions' | 'google_unavailable' | 'google_expired') { super(code); }

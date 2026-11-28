@@ -10,7 +10,8 @@ import { finishNativeLogin } from '../native-auth.js';
 import { sealSecret, unsealSecret } from '../settings.js';
 import { exchangeGoogleCode, googleAuthorization, googleAvailable, googleCallbackError, randomProof, type GoogleIdentity } from './google-provider.js';
 import { isTenant } from '../deployment.js';
-import { deleteProvisionalAuthorizations, GoogleLoginError, googleIdentityFor, googleLoginStatus, ownGoogleSubjects } from '../composio.js';
+import { newId } from '../lib/ids.js';
+import { deleteProvisionalAuthorizations, GoogleLoginError, googleIdentityFor, googleLoginStatus, ownGoogleSubjects, startGoogleLogin } from '../composio.js';
 const COOKIE = 'swarm_google_attempt';
 const TTL = 10 * 60_000;
 // Composio-managed consent is slower (Google consent plus the Composio hop), so it gets a longer window.
@@ -32,7 +33,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS google_identities(subject TEXT PRIMARY KEY,u
  link_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,link_session TEXT REFERENCES auth_sessions(token) ON DELETE CASCADE,expires_at INTEGER NOT NULL);`);
 interface Attempt { id: string; nonce: string; verifier: string; link_user_id: string | null; link_session: string | null; expires_at: number }
 /**
- * Legacy sign-in attempts used a Composio-managed Gmail authorization. Its token yields Google's
+ * Without a Google OAuth client, sign-in uses a Composio-managed Gmail authorization. Its token yields Google's
  * immutable subject, bound exactly like OIDC (google_identities.subject). Each attempt also leaves a durable,
  * browser-unusable cleanup record naming its throwaway Composio user, so abandoned, failed, expired or
  * session-revoked attempts never strand a Gmail authorization.
@@ -113,8 +114,8 @@ export async function sweepGoogleLoginAuthorizations(options: { keep?: readonly 
     }
   } finally { sweeping = false; }
 }
-// Login never falls back to an app connection with Gmail permissions.
-export const googleSignInAvailable = googleAvailable;
+const composioGoogle = () => !googleAvailable() && env.composioEnabled && !isTenant;
+export const googleSignInAvailable = () => googleAvailable() || composioGoogle();
 export const googleLinked = (userId: string) => !!db.prepare('SELECT 1 FROM google_identities WHERE user_id=?').get(userId);
 export function resolveGoogleAccount(identity: GoogleIdentity, linking?: { userId: string; sessionHash: string }, preferId?: string) {
   return db.transaction(() => {
@@ -129,23 +130,23 @@ export function resolveGoogleAccount(identity: GoogleIdentity, linking?: { userI
   })();
 }
 /**
- * Resolve a Composio-attested Google identity exactly like OIDC (by immutable subject). An account created by the
+ * Resolve either verified Google identity by immutable subject. An account created by the
  * earlier Google sign-in (before bindings existed) is adopted only when that same account still holds its own ACTIVE
  * Gmail authorization for this same Google subject; any other existing email fails closed (link required).
  */
-export async function resolveComposioGoogle(identity: GoogleIdentity, provisionalId: string, attemptId: string, linking?: { userId: string; sessionHash: string }) {
+async function resolveVerifiedGoogle(identity: GoogleIdentity, linking?: { userId: string; sessionHash: string }, provisionalId?: string, finish: (resolve: () => string) => string = resolve => db.transaction(resolve).immediate()) {
   const bound = db.prepare('SELECT 1 FROM google_identities WHERE subject=?').get(identity.subject);
   if (!bound && !linking) {
-    const legacy = db.prepare('SELECT id FROM users WHERE lower(email)=? AND id<>? AND NOT EXISTS (SELECT 1 FROM google_identities g WHERE g.user_id=users.id)').get(identity.email, provisionalId) as { id: string } | undefined;
-    if (legacy && (await ownGoogleSubjects(legacy.id)).has(identity.subject)) {
-      return finishComposioResolution(attemptId, provisionalId, () => {
+    const legacy = db.prepare('SELECT id FROM users WHERE lower(email)=? AND id<>? AND NOT EXISTS (SELECT 1 FROM google_identities g WHERE g.user_id=users.id)').get(identity.email, provisionalId ?? '') as { id: string } | undefined;
+    if (legacy && env.composioEnabled && !isTenant && (await ownGoogleSubjects(legacy.id)).has(identity.subject)) {
+      return finish(() => {
         if (db.prepare('SELECT 1 FROM google_identities WHERE subject=? OR user_id=?').get(identity.subject, legacy.id)) throw new Error('google_already_linked');
         db.prepare('INSERT INTO google_identities VALUES (?,?)').run(identity.subject, legacy.id);
         return legacy.id;
       });
     }
   }
-  return finishComposioResolution(attemptId, provisionalId, () => resolveGoogleAccount(identity, linking, provisionalId));
+  return finish(() => resolveGoogleAccount(identity, linking, provisionalId));
 }
 // Outstanding fallback authorizations still need cleanup after OIDC is enabled, including on restart.
 // Install regardless of current credentials so later Settings changes can also enable cleanup.
@@ -166,6 +167,30 @@ googleAuth.get('/start', authBoundary('google', 'legacy', async c => {
   const earlier = held.filter(v => db.prepare('SELECT 1 FROM google_oidc_attempts WHERE id=? AND expires_at>?').get(v, now()));
   if ((db.prepare('SELECT count(*) n FROM google_oidc_attempts').get() as { n: number }).n >= 2000) return fail(c, 'google_busy');
   const id = randomProof(), nonce = randomProof(), verifier = randomProof();
+  if (composioGoogle()) {
+    const provisional = newId('usr'), created = now();
+    // Recorded before any authorization exists, so a crash or failure after creation is still cleaned up.
+    db.prepare('INSERT INTO google_oidc_attempts VALUES (?,?,?,?,?,?)').run(cleanupId(id), CLEANUP_NONCE, sealSecret(JSON.stringify({ provisional, pending: true, created })), null, null, now() + COMPOSIO_TTL + 60_000);
+    try {
+      authStage(c, 'provider');
+      const { redirectUrl, connectedAccountId } = await startGoogleLogin(provisional, `${callback()}?state=${id}`);
+      authStage(c, 'attempt');
+      db.prepare('UPDATE google_oidc_attempts SET verifier=? WHERE id=? AND nonce IN (?,?)').run(sealSecret(JSON.stringify({ provisional, account: connectedAccountId, created })), cleanupId(id), CLEANUP_NONCE, CLEANING_NONCE);
+      db.transaction(() => {
+        // A slow authorize response must not reopen an attempt already claimed by cleanup.
+        if (!db.prepare('SELECT 1 FROM google_oidc_attempts WHERE id=? AND nonce=?').get(cleanupId(id), CLEANUP_NONCE)) throw new Error('google_session');
+        db.prepare('UPDATE google_oidc_attempts SET expires_at=? WHERE id=?').run(now() + COMPOSIO_TTL + 60_000, cleanupId(id));
+        db.prepare('INSERT INTO google_oidc_attempts VALUES (?,?,?,?,?,?)').run(id, COMPOSIO_NONCE, sealSecret(JSON.stringify({ provisional, account: connectedAccountId })), linking ? user!.id : null, linking ? sessionHash(getCookie(c, 'swarm_session')!) : null, now() + COMPOSIO_TTL);
+      }).immediate();
+      writeAttempts(c, [...earlier, id]);
+      return c.redirect(redirectUrl);
+    } catch (error) {
+      authFailure(c, error);
+      db.prepare('UPDATE google_oidc_attempts SET verifier=? WHERE id=? AND nonce IN (?,?)').run(sealSecret(JSON.stringify({ provisional, created })), cleanupId(id), CLEANUP_NONCE, CLEANING_NONCE);
+      await releaseProvisional(cleanupId(id), provisional).catch(() => {});
+      return fail(c, 'google_unavailable');
+    }
+  }
   try {
     authStage(c, 'provider');
     const url = googleAuthorization(callback(), id, nonce, verifier);
@@ -203,7 +228,7 @@ googleAuth.get('/callback', authBoundary('google', 'legacy', async c => {
       authStage(c, 'provider');
       const identity = await googleIdentityFor(sealed.account, sealed.provisional);
       authStage(c, 'account');
-      userId = await resolveComposioGoogle(identity, sealed.provisional, a.id, a.link_user_id ? { userId: a.link_user_id, sessionHash: a.link_session! } : undefined);
+      userId = await resolveVerifiedGoogle(identity, a.link_user_id ? { userId: a.link_user_id, sessionHash: a.link_session! } : undefined, sealed.provisional, resolve => finishComposioResolution(a.id, sealed.provisional, resolve));
       authStage(c, 'session');
       createSession(c, userId);
     } catch (error) {
@@ -227,7 +252,7 @@ googleAuth.get('/callback', authBoundary('google', 'legacy', async c => {
     if (!verifier) throw new Error('google_invalid');
     const identity = await exchangeGoogleCode(c.req.query('code') ?? '', verifier, a.nonce, callback(), stage => authStage(c, stage));
     authStage(c, 'account');
-    const userId = resolveGoogleAccount(identity, a.link_user_id ? { userId: a.link_user_id, sessionHash: a.link_session! } : undefined);
+    const userId = await resolveVerifiedGoogle(identity, a.link_user_id ? { userId: a.link_user_id, sessionHash: a.link_session! } : undefined);
     authStage(c, 'session');
     createSession(c, userId);
     return c.redirect(finishNativeLogin(c, userId) ?? signedIn());
