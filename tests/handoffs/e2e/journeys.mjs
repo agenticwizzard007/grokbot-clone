@@ -246,18 +246,25 @@ try {
           }
           if (node.target.focus && !node.target.focus.startsWith('link-source:')) { const focused = page.locator(`[data-flow-focus="${node.target.focus}"]`); await focused.waitFor(); assert.equal(await focused.evaluate(el => el === document.activeElement), true); }
           if (node.target.hash.includes('?link=')) await page.keyboard.press('Escape'); else await page.goBack();
+          // A Flow chart can remain mounted behind the destination. Wait for
+          // history to return before checking restoration or pressing a key.
+          await page.waitForURL(url => parseScreen(url.hash) && JSON.stringify(resolveScreen(parseScreen(url.hash), roster, true)) === JSON.stringify(resolveScreen(parseScreen(`${base}/details/flow`), roster, true)));
           await page.locator('.flow-chart').waitFor();
-          await page.waitForFunction(async nodeId => {
+          // Poll the resolved boolean: this Playwright version treats an
+          // async waitForFunction predicate's Promise as immediately truthy.
+          await poll(() => page.evaluate(async nodeId => {
             const source = [...document.querySelectorAll('[data-flow-node]')].find(el => el.dataset.flowNode === nodeId);
             if (!source || source !== document.activeElement) return false;
-            // Browser history can restore focus before the app's queued
-            // restoration callbacks. Require stable focus across those frames.
-            for (let frame = 0; frame < 3; frame++) {
+            // Browser history may restore focus before Flow's 100 ms SSE
+            // refresh and its restoration frames. Observe a quiet interval
+            // beyond that debounce before activating the next node.
+            const started = performance.now();
+            while (performance.now() - started < 250) {
               await new Promise(resolve => requestAnimationFrame(resolve));
               if (!source.isConnected || source !== document.activeElement) return false;
             }
             return true;
-          }, node.id, { timeout: 3000 });
+          }, node.id), Boolean, `Flow returns stable focus to ${node.id}`, 3000);
           kinds.add(node.kind);
         }
       }
