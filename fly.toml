@@ -8,6 +8,9 @@ primary_region = "iad"
 
 [env]
   NODE_ENV = "production"
+  # Stage 2 first users: enable dashboards and suggestions. Rollback: set both to off.
+  UI_CUSTOMIZATION = "on"
+  UI_ADAPT = "on"
   # One shared server for all accounts (the isolated per-user platform uses the other roles). Required in production.
   SWARM_ROLE = "standalone"
   PORT = "8787"
