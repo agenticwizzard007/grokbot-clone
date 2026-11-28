@@ -10,6 +10,7 @@ import { layoutServer } from './layout-fixture.mjs';
 import { readableWords } from './paper-label-geometry.mjs';
 import { runDashboardPolish } from './ui-custom/demo-dash.mjs';
 import { auditSidebarPolish } from './ui-custom/sidebar-polish-ui.mjs';
+import { runDashboardLaunch } from './ui-custom/demo-fix-dash-3-launch.mjs';
 
 export const DASHBOARD_POLISH_ROUTES = ['sales-pipeline', 'operations', 'manager', 'create', 'sidebar', 'empty', 'empty-widget', 'edit', 'widget-settings', 'add-widget', 'ask-agent', 'approve-confirm', 'send-prefill'].map(name => ({ name: `dashboard-${name}`, owner: 'FIX-DASH', enforce: true }));
 
@@ -242,7 +243,6 @@ async function main() {
     const polish = await runDashboardPolish({ output: path.join(evidence, 'dashboard-polish') });
     report.push(...polish.checks.map(name => ({ name, owner: 'FIX-DASH', enforce: true, issues: [] })));
     report.push(...await auditSidebarPolish(ROUTES, path.join(evidence, 'sidebar-polish')));
-    const { runDashboardLaunch } = await import('./ui-custom/demo-fix-dash-3-launch.mjs');
     const launch = await runDashboardLaunch({ output: path.join(evidence, 'dashboard-launch') });
     report.push(...launch.checks.map(name => ({ name, owner: 'FIX-DASH-3', enforce: true, issues: [] })));
   }
