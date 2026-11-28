@@ -8,6 +8,8 @@ The owner's verification against main `a9b3e990` passes 23 of 24 journeys. At 39
 
 Journey 8 now waits for the rendered Saved status before running the unchanged accessibility audit, so a completed API save cannot race its confirmation. The earlier local run had no axe installation and used the shared helper's permitted lightweight fallback. Its accessibility result does not establish contrast compliance. A standalone axe file supplied through the helper's existing local-file option enables contrast verification without changing repository dependencies.
 
+The focused rerun with axe 4.10.3 reproduces the same serious `color-contrast` violation on `.cfg-chip.agents-saved` at 390. Journey 8 passes at 1280: one pass, one failure. The mandatory merged UI quality checker passes all 592 views. Command: `HANDOFFS_JOURNEYS=8 HANDOFFS_EVIDENCE=.context/handoffs/saved-chip-check node tests/handoffs/e2e/journeys.mjs`. Report: `.context/handoffs/saved-chip-check/report.json`. No accessibility rule or threshold was changed.
+
 The passing counts below are historical results from main `6af24740`, pending a complete journey rerun after FIX-6 lands.
 
 ## Resolved integration requests
