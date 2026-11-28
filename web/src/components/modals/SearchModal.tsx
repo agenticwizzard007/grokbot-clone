@@ -213,11 +213,11 @@ export function SearchModal({ inline = false }: { inline?: boolean }) {
             </button>
           );
         })}
-        {work.length > 0 && <div className="search-modal__section">Files and tasks</div>}
+        {work.length > 0 && <div className="search-modal__section">Artifacts and tasks</div>}
         {work.map((item, j) => {
           const index = botResults + messageItems.length + j;
           return <button key={`${item.kind}:${item.id}`} type="button" className={`search-row${index === active ? ' is-active' : ''}`} role="option" aria-selected={index === active} data-idx={index} onMouseMove={() => setActive(index)} onClick={() => void choose(item)}>
-            {item.kind === 'file' ? <FileText size={20} aria-hidden /> : <ListTodo size={20} aria-hidden />}<span className="search-row__text"><SearchText className="search-row__name" text={item.title} fallback={item.kind === 'file' ? 'Saved file' : 'Task details'} /><SearchText className="search-row__sub" text={bots.find(bot => bot.id === item.botId)?.name ?? 'Bot'} fallback="Bot" /></span>
+            {item.kind === 'file' ? <FileText size={20} aria-hidden /> : <ListTodo size={20} aria-hidden />}<span className="search-row__text"><SearchText className="search-row__name" text={item.title} fallback={item.kind === 'file' ? 'Artifact' : 'Task details'} /><SearchText className="search-row__sub" text={bots.find(bot => bot.id === item.botId)?.name ?? 'Bot'} fallback="Bot" /></span>
           </button>;
         })}
         {items.at(-1)?.kind === 'dashboards' && <button type="button" role="option" aria-selected={active === items.length - 1} data-idx={items.length - 1} className={`search-row${active === items.length - 1 ? ' is-active' : ''}`} onMouseMove={() => setActive(items.length - 1)} onClick={() => void choose({ kind: 'dashboards' })}><LayoutDashboard size={20} aria-hidden /><span className="search-row__name">Dashboards</span></button>}

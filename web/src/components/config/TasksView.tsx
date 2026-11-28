@@ -73,9 +73,9 @@ function WorkWorkspace() {
   useLayoutEffect(() => { if (heading?.detail) pageHeading.current?.focus({ preventScroll: true }); }, [heading?.detail]);
 
   return (
-    <main className="chat tasks-view" aria-labelledby="tasks-heading">
+    <main className={`chat tasks-view${tab === 'Reports' ? ' tasks-view--artifacts' : ''}`} aria-labelledby="tasks-heading">
       <div className="tasks-view__scroll" ref={scroll} tabIndex={0} role="region" aria-labelledby="tasks-heading">
-        <Page type="list" className="tasks-view__inner work-ui">
+        <Page type={tab === 'Reports' ? 'wide' : 'list'} className="tasks-view__inner work-ui">
           <div className="work-heading"><h1 id="tasks-heading" ref={pageHeading} tabIndex={-1}>{title === workTabLabel(tab) ? `${scope}${title}` : title}</h1>
             {tab === 'Tasks' && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)', justifyContent: 'flex-end' }}><TaskLoopsLink /><button type="button" className="btn btn--primary" onClick={() => { const bot = selectedBot ?? bots.find(b => b.isPrimary) ?? bots[0]; if (bot) { prefillComposer(bot.id, 'Create a task: '); openConversation(bot.id); } }} disabled={!bots.length}>Add task</button></div>}
           </div>

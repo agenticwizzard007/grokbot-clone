@@ -3,4 +3,4 @@ import type { WorkTab } from '../../../server/src/lib/user-routes';
 export { botSlug, routeBot, linkedWork, workHash } from '../../../server/src/lib/user-routes';
 export type { WorkTab, WorkRoute } from '../../../server/src/lib/user-routes';
 
-export const workTabLabel = (tab: WorkTab): string => tab === 'Reports' ? 'Files' : tab;
+export const workTabLabel = (tab: WorkTab): string => tab === 'Reports' ? 'Artifacts' : tab;

@@ -1,13 +1,13 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useLayoutEffect, useRef, useState, lazy, Suspense } from 'react';
-import { Settings, MessageSquare, ChartNoAxesColumn, ListTodo, Folder, SlidersHorizontal, GitBranch } from 'lucide-react';
+import { Settings, MessageSquare, ChartNoAxesColumn, ListTodo, Boxes, SlidersHorizontal, GitBranch } from 'lucide-react';
 import type { Bot } from '@shared/types';
 import { clearImportedSetup, hasImportedSetup } from '../lib/setupApi';
 import { useSelectedBot, useStore } from '../store';
 import { openConversation, detailsCaller, useConfigUI } from '../configStore';
 import { LibraryTab } from './config/LibraryTab';
 import { FilesSummary } from './config/FilesSummary';
-import { DeliverablesPanel } from './config/DeliverablesPanel';
+import { ArtifactLibrary } from '../artifacts/ArtifactLibrary';
 import { BotTasksPage } from './config/BotTasksPage';
 import { AgentConfiguration } from './config/AgentConfiguration';
 import { hasOpenModal } from './modals/Modal';
@@ -24,7 +24,7 @@ export { computerStatusText };
 
 const sections = [
   { id: 'flow', label: 'Flow', icon: GitBranch },
-  { id: 'activity', label: 'Activity', icon: ChartNoAxesColumn }, { id: 'tasks', label: 'Tasks', icon: ListTodo }, { id: 'library', label: 'Files', icon: Folder }, { id: 'configuration', label: 'Setup', icon: SlidersHorizontal },
+  { id: 'activity', label: 'Activity', icon: ChartNoAxesColumn }, { id: 'tasks', label: 'Tasks', icon: ListTodo }, { id: 'library', label: 'Artifacts', icon: Boxes }, { id: 'configuration', label: 'Setup', icon: SlidersHorizontal },
 ] as const;
 type DetailTab = typeof sections[number]['id'];
 
@@ -119,7 +119,7 @@ function ConversationDetails({ bot, userId }: { bot: Bot; userId?: string }) {
       {tab === 'activity' && <BotActivity bot={bot} />}
       {tab === 'tasks' && <BotTasksPage bot={bot} />}
       {tab === 'configuration' && <AgentConfiguration bot={bot} />}
-      {tab === 'library' && (reports ? <DeliverablesPanel botId={bot.id} /> : <>
+      {tab === 'library' && (reports ? <ArtifactLibrary botId={bot.id} /> : <>
         <FilesSummary bot={bot} onReports={() => setReports(true)} />
         <LibraryTab bot={bot} />
       </>)}

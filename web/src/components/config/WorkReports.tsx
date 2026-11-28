@@ -1,49 +1,28 @@
-import { Card } from '../layout';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
+import { ArrowUpRight, CalendarClock, FileClock } from 'lucide-react';
 import { useStore } from '../../store';
-import { useConfigUI } from '../../configStore';
-import { DeliverablesPanel, type DeliveryReviewHeading } from './DeliverablesPanel';
+import { ArtifactLibrary } from '../../artifacts/ArtifactLibrary';
 import { SynopsesPanel } from './SynopsesPanel';
 import { WorkRoutines } from './WorkRoutines';
 import { workBotKey } from './workScope';
 
 type ReportPage = 'reports' | 'synopses' | 'routines';
-/** `picked` is true once the user chose the Report Bot themselves (R2F-014 names a Bot only then). */
 export type ReportLocation = { botId: string; page: ReportPage; picked?: boolean };
-
 export function WorkReports({ botId, location, onLocation, onHeading }: { botId?: string; location?: ReportLocation; onLocation: (location: ReportLocation) => void; onHeading: (heading?: { title: string; subtitle: string; detail?: boolean }) => void }) {
-  const [review, setReview] = useState<DeliveryReviewHeading>();
   const bots = useStore(state => state.bots).filter(bot => bot.kind !== 'room');
-  const contextBotId = useConfigUI(state => state.workBotId);
-  const ownerId = botId ?? contextBotId ?? location?.botId ?? '';
-  const page = location?.botId === ownerId ? location.page : 'reports';
-  const picked = !!botId || (location?.botId === ownerId && !!location.picked);
-  const setPage = (next: ReportPage) => onLocation({ botId: ownerId, page: next, picked });
-  const bot = bots.find(item => item.id === ownerId);
-  const activePage = page === 'synopses' && !bot?.isPrimary ? 'reports' : page;
-  const name = bot?.name;
+  const ownerId = botId ?? location?.botId;
+  const bot = bots.find(item => item.id === ownerId) ?? bots.find(item => item.isPrimary) ?? bots[0];
+  const page = location?.page ?? 'reports';
+  const setPage = (next: ReportPage) => { if (bot) onLocation({ botId: bot.id, page: next, picked: !!botId }); };
   useEffect(() => {
-    if (!name) { onHeading(undefined); return; }
-    // R2F-014: fixed titles; the Bot is named only after the user picked it.
-    const scope = picked ? `${name} · ` : '';
-    if (activePage === 'reports') onHeading(review ?? { title: 'Files', subtitle: `${scope}View and download files saved by this Bot, or review where to send them.` });
-    else if (activePage === 'synopses') onHeading({ title: 'Daily synopses', subtitle: 'Scheduled summaries are saved in Files.' });
-    else onHeading({ title: 'Routines', subtitle: `${scope}See what runs automatically and what happened on earlier runs.` });
-  }, [name, activePage, onHeading, review, picked]);
+    onHeading({ title: page === 'synopses' ? 'Daily synopses' : page === 'routines' ? 'Routines' : 'Artifacts', subtitle: 'Create, share, and collaborate on your team’s work.' });
+  }, [page, onHeading]);
   return <>
-    {!review && (!botId || !bot) && <label className="work-field work-reports-owner">Bot<select value={ownerId} disabled={!!botId} onChange={event => {
-      useConfigUI.getState().rememberWorkBot(event.currentTarget.value);
-      onLocation({ botId: event.currentTarget.value, page: 'reports', picked: true });
-    }}><option value="" disabled>Choose a Bot</option>{ownerId && !bot && <option value={ownerId} disabled>Bot unavailable</option>}{bots.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-    {!bot && <p role="status">Choose a Bot.</p>}
-    {bot && activePage === 'reports' && <>
-      <DeliverablesPanel key={workBotKey(bot)} botId={bot.id} workspace onReview={setReview} onSynopses={bot.isPrimary ? () => setPage('synopses') : undefined} />
-      {!review && <>
-        {bot.isPrimary && <Card className="work-row"><div className="work-row__body"><div><h3>Daily synopses</h3></div><button className="work-button" type="button" onClick={() => setPage('synopses')}>Daily synopses</button></div></Card>}
-        <Card className="work-row"><div className="work-row__body"><div><h3>Routines</h3></div><button className="work-button" type="button" onClick={() => setPage('routines')}>Routines</button></div></Card>
-      </>}
+    {page === 'reports' && <>
+      <ArtifactLibrary botId={botId} />
+      {bot && <div className="artifact-related"><span>Keep the work flowing</span>{bot.isPrimary && <button type="button" onClick={() => setPage('synopses')}><FileClock size={15} aria-hidden />Daily synopses<ArrowUpRight size={13} aria-hidden /></button>}<button type="button" onClick={() => setPage('routines')}><CalendarClock size={15} aria-hidden />Routines<ArrowUpRight size={13} aria-hidden /></button></div>}
     </>}
-    {bot && activePage === 'synopses' && <SynopsesPanel key={workBotKey(bot)} workspace onReports={() => setPage('reports')} />}
-    {bot && activePage === 'routines' && <WorkRoutines key={workBotKey(bot)} bot={bot} onReports={() => setPage('reports')} />}
+    {bot && page === 'synopses' && <SynopsesPanel key={workBotKey(bot)} workspace onReports={() => setPage('reports')} />}
+    {bot && page === 'routines' && <WorkRoutines key={workBotKey(bot)} bot={bot} onReports={() => setPage('reports')} />}
   </>;
 }
