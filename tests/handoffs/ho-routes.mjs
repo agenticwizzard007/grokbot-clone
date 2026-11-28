@@ -12,7 +12,7 @@ export async function auditHandoffRoutes(inspectAlignment) {
     for (const width of [320,390,500,1280]) for (const theme of ['light','dark']) for (const name of HO_ROUTES) {
       const state = await fixture.open(name,width,theme);
       try {
-        const issues = await state.page.evaluate(inspectAlignment, { selector: state.selector, requirePage: !name.startsWith('settings-agents') && !['receipt','receipt-expanded','receipt-running','message-actions','output-card','output-linked','sidebar-loops','flow-tab','flow-compact','flow-suggestions','flow-long','flow-empty','flow-error','flow-loading'].includes(name) });
+        const issues = await state.page.evaluate(inspectAlignment, { selector: state.selector, requirePage: !name.startsWith('receipt') && !name.startsWith('settings-agents') && !['message-actions','output-card','output-linked','sidebar-loops','flow-tab','flow-compact','flow-suggestions','flow-long','flow-empty','flow-error','flow-loading'].includes(name) });
         report.push({name,width,theme,issues}); console.log(`${issues.length ? 'FAIL' : 'PASS'} HO-P ${name} ${width} ${theme}: ${issues.length} issues`);
       } finally { await state.close(); }
     }

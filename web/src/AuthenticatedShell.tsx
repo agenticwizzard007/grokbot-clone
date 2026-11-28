@@ -150,6 +150,7 @@ function Shell() {
           {hasBack && <button type="button" className="shell-back" aria-label={mobile ? 'Back' : backText} onClick={back}><ChevronLeft size={mobile ? 20 : 16} aria-hidden /><span>{backText}</span></button>}
           <div id="shell-chat-header" hidden={!chatHeader} />
           {screen.kind === 'dash' ? <Suspense fallback={<strong className="shell-header__title">{headerTitle}</strong>}><DashboardSwitcher dashboardId={dashboard?.id ?? screen.dashboard} /></Suspense> : screen.kind === 'dashboards' ? <h1 className="shell-header__title">Dashboards</h1> : !chatHeader && (headerBot ? <><BotAvatarFor bot={headerBot} size={32} /><div className="shell-header__bot"><strong className="shell-header__title">{headerBot.name}</strong><span className="shell-header__subtitle">{botSubtitle}</span></div></> : <strong className="shell-header__title" role={titledInHeader ? 'heading' : undefined} aria-level={titledInHeader ? 1 : undefined}>{headerTitle}</strong>)}
+          {screen.kind === 'dash' && <div id="dashboard-header-actions" />}
           {mobile && <button type="button" className="shell-menu" aria-label="Open navigation" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}><Menu size={22} aria-hidden /></button>}
         </header>
       <div className={`main-pane${detailsOpen && hasBot && view === 'chat' && !botSettings && modal !== 'create' && modal !== 'group' ? ' has-bot-details' : ''}`} hidden={settingsOpen || routeModal}>

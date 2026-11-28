@@ -19,8 +19,8 @@ export function AddWidgetSheet({ add, close, error }: { add(widget: Widget): Pro
   const save = async (widget: Widget) => { setBusy(true); try { if (await add(widget)) close(); } finally { setBusy(false); } };
   return <DashboardDialog title={agent ? 'Ask your agent' : 'Add widget'} close={close}>{agent
     ? <WidgetSettingsForm widget={agent} title="Ask your agent" submitLabel="Add widget" error={error} close={close} save={add} />
-    : <Section><div className="dashboard-library" tabIndex={0} role="region" aria-label="Widget library">{WIDGETS.map(widget => { const Icon = icons[widget.id]; return <button type="button" className="dashboard-library-item" key={widget.id} disabled={busy} onClick={() => {
-    if (widget.id === 'agent') setAgent({ ...defaultWidget('agent'), options: { prompt: '', display: 'text', schedule: 'manual' } }); else void save(defaultWidget(widget.id));
+    : <Section><div className="dashboard-library" tabIndex={0} role="region" aria-label="Widget library">{[...WIDGETS.filter(w => w.id === 'agent'), ...WIDGETS.filter(w => w.id !== 'agent')].map(widget => { const Icon = icons[widget.id]; return <button type="button" className="dashboard-library-item" key={widget.id} disabled={busy} onClick={() => {
+    if (widget.id === 'agent') setAgent({ ...defaultWidget('agent'), title: '', options: { prompt: '', display: 'text', schedule: 'manual' } }); else void save(defaultWidget(widget.id));
   }}><Icon size={20} aria-hidden="true" /><strong>{widget.id === 'agent' ? 'Ask your agent' : widget.label}</strong><span>{descriptions[widget.id]}</span></button>; })}
     {sources.map(([id, title, description, Icon]) => <button type="button" className="dashboard-library-item" key={id} disabled={busy} onClick={() => void save(sourceWidget(id, title))}><Icon size={20} aria-hidden /><strong>{title}</strong><span>{description}</span></button>)}
   </div>{error && <p role="alert">{error}</p>}<ButtonGroup><button className="btn btn--secondary" type="button" onClick={close}>Cancel</button></ButtonGroup></Section>}

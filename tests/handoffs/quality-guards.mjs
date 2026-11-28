@@ -53,5 +53,27 @@ export async function checkQualityGuards(fixture, inspect) {
       console.log(`PASS quality guard message-actions-${status}`);
     }
   } finally { await page.unrouteAll({ behavior: 'wait' }); await state.close(); }
-  return cases.length + 2;
+  const receipt = await fixture.open('receipt', 390, 'light');
+  const receiptCases = [
+    ['k.loop-title', '.ho-receipt--loop .layout-row__title', el => { el.textContent = 'Loop'; }],
+    ['k.loop-chip', '.ho-receipt--loop .ho-chip', el => { el.textContent = 'Loop, 3 passes'; }],
+    ['k.loop-toggle', '.ho-receipt-expand', el => { el.setAttribute('aria-label', 'Show passes'); }],
+    ['e.label', '.ho-receipt--loop .layout-row__title', el => { el.style.textOverflow = 'ellipsis'; el.style.overflow = 'hidden'; }],
+    ['f.receipt-height', '.ho-receipt--loop', el => { el.style.height = '500px'; }],
+    ['f.message-before', '.ho-message-actions', el => { el.style.transform = 'translateY(24px)'; }],
+    ['f.message-inline', '.ho-message-actions', el => { el.style.transform = 'translateX(24px)'; }],
+    ['f.message-after', '.ho-message-actions', el => { el.closest('.group').nextElementSibling.style.marginTop = '40px'; }],
+  ];
+  try {
+    for (const [rule, selector, mutate] of receiptCases) {
+      const root = receipt.page.locator('.transcript__col');
+      const original = await root.evaluate(el => el.innerHTML);
+      await receipt.page.locator(selector).first().evaluate(mutate);
+      const result = await receipt.page.evaluate(inspect, { selector: receipt.selector, finished: true });
+      assert.ok(result.issues.some(issue => issue.startsWith(`${rule}:`)), `Gate must reject ${rule}`);
+      await root.evaluate((el, html) => { el.innerHTML = html; }, original);
+      console.log(`PASS quality guard ${rule}`);
+    }
+  } finally { await receipt.close(); }
+  return cases.length + 2 + receiptCases.length;
 }

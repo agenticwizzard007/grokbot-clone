@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { groupReceipts, receiptLoopSummary } from '../../web/src/handoffs/groupReceipts.ts';
+import { groupReceipts, receiptLoopSummary, receiptLoopTitle } from '../../web/src/handoffs/groupReceipts.ts';
 import type { Loop } from '../../web/src/handoffs/loops/api.ts';
 
 type Item = { seq: number; kind: string; loopId?: string; iteration?: number };
@@ -29,18 +29,37 @@ test('empty input produces no groups', () => assert.deepEqual(group([]), []));
 test('running loop updates pass count live without changing the stable group start', () => {
   const rows = [receipt(1, 'a'), receipt(2, 'a')];
   const loop = { status: 'running', iteration: 1, spec: { limits: { maxIterations: 4 } } } as Loop;
-  assert.deepEqual(receiptLoopSummary(rows, loop), { chip: 'Loop, pass 1 of 4', status: 'Running' });
+  assert.deepEqual(receiptLoopSummary(rows, loop), { chip: 'Pass 1 of 4', status: 'Running' });
   const updated = [...rows, receipt(3, 'a', 2)];
   assert.equal(group(updated).length, 1);
-  assert.deepEqual(receiptLoopSummary(updated, { ...loop, iteration: 2 }), { chip: 'Loop, pass 2 of 4', status: 'Running' });
-  assert.deepEqual(receiptLoopSummary(updated, { ...loop, iteration: 3, status: 'succeeded' }), { chip: 'Loop, 3 passes', status: 'Completed' });
+  assert.deepEqual(receiptLoopSummary(updated, { ...loop, iteration: 2 }), { chip: 'Pass 2 of 4', status: 'Running' });
+  assert.deepEqual(receiptLoopSummary(updated, { ...loop, iteration: 3, status: 'succeeded' }), { chip: '3 passes', status: 'Completed' });
 });
 test('pass counts do not double-count sent and received rows or infer a terminal status', () => {
   const rows = [receipt(1, 'a', 1), receipt(2, 'a', 1)];
-  assert.deepEqual(receiptLoopSummary(rows), { chip: 'Loop, 1 pass', status: undefined });
+  assert.deepEqual(receiptLoopSummary(rows), { chip: '1 pass', status: undefined });
 });
 test('terminal group status comes from the loop, not a completed member', () => {
   for (const [status, label] of Object.entries({ succeeded: 'Completed', cancelled: 'Stopped', capped: 'Capped', stalled: 'Stopped', failed: 'Failed' })) {
     assert.equal(receiptLoopSummary([], { status, iteration: 3 } as Loop).status, label);
   }
+});
+
+const bots = [{ id: 'a', name: 'Coordinator' }, { id: 'b', name: 'Research' }];
+const steps = [{ id: 'check', role: 'checker' as const, botId: 'b', instruction: 'Review' }, { id: 'make', role: 'maker' as const, botId: 'a', instruction: 'Draft' }];
+test('empty and generic names use maker and checker names in role order', () => {
+  for (const name of ['', '  ', 'Loop', ' Agent loop ', 'NEW LOOP', 'Untitled loop']) {
+    assert.equal(receiptLoopTitle({ name, steps }, bots), 'Coordinator and Research loop');
+  }
+});
+test('task names remain complete, including long names and the word loop', () => {
+  for (const name of ['Release note review', 'Loop release checklist', 'Review the release notes and verify the accessibility improvements before publication']) {
+    assert.equal(receiptLoopTitle({ name: ` ${name} `, steps }, bots), name);
+  }
+});
+test('long agent names remain complete and unavailable agents use role labels', () => {
+  const name = 'Release research and accessibility coordinator';
+  assert.equal(receiptLoopTitle({ name: '', steps }, [{ id: 'a', name }]), `${name} and Checker loop`);
+  assert.equal(receiptLoopTitle({ name: '', steps }), 'Maker and Checker loop');
+  assert.equal(receiptLoopTitle(), 'Loop');
 });

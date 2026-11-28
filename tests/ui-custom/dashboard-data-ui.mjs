@@ -28,12 +28,12 @@ try {
   await working.scrollIntoViewIfNeeded(); await pause(200);
   let release; const held = new Promise(resolve => release = resolve); let intercepted = false;
   await page.route('**/api/ui/data', async route => { intercepted = true; await held; await route.continue(); });
-  await page.getByRole('button', {name:'Refresh',exact:true}).click();
+  await page.getByRole('button', {name:'Refresh dashboard',exact:true}).click();
   for(let n=0; !intercepted && n<50; n++) await pause(20);
   assert.equal(intercepted, true); assert.equal(await working.textContent(), '3'); assert.equal(await page.locator('[data-widget-type="stat"] [role="status"][aria-label^="Loading"]').count(), 0); passed++;
   release(); await pause(250); await page.unroute('**/api/ui/data');
   await page.route('**/api/ui/data', route => route.fulfill({status:503,body:'Fixture unavailable'}));
-  await page.getByRole('button', {name:'Refresh',exact:true}).click(); await page.getByRole('button',{name:'Retry Working now',exact:true}).waitFor(); assert.equal(await working.textContent(),'3'); passed++;
+  await page.getByRole('button', {name:'Refresh dashboard',exact:true}).click(); await page.getByRole('button',{name:'Retry Working now',exact:true}).waitFor(); assert.equal(await working.textContent(),'3'); passed++;
   await page.unroute('**/api/ui/data'); await page.getByRole('button',{name:'Retry Working now',exact:true}).click(); await page.getByRole('button',{name:'Retry Working now',exact:true}).waitFor({state:'detached'}); passed++;
   await page.clock.install();
   await page.evaluate(() => { Object.defineProperty(document,'visibilityState',{ configurable:true, value:'hidden' }); document.dispatchEvent(new Event('visibilitychange')); });

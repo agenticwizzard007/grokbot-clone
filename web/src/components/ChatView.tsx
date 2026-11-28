@@ -43,7 +43,7 @@ function MessageHandoff({ row, final, onSend }: { row: Row; final: boolean; onSe
     } catch { toast('Could not prepare this message. Try again.', { tone: 'error' }); }
     finally { setBusy(false); }
   };
-  return <div className="ho" style={{ position: 'relative' }}>
+  return <div className={`ho ho-message-handoff${output.data?.output?.status !== 'final' ? ' ho-message-footer' : ''}`}>
     {output.data?.output?.status !== 'final' && <button ref={trigger} type="button" className="ho-button ho-button--quiet ho-message-actions" aria-label="Message actions" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}><MoreHorizontal size={20} aria-hidden="true" /></button>}
     {open && <Menu triggerRef={trigger} onClose={() => setOpen(false)} items={[{ label: 'Send to agent', icon: Send, onSelect: () => void send() }]} />}
     {output.data?.output?.status === 'final' && <CardRow row={row} output={output.data.output} onSend={onSend} />}

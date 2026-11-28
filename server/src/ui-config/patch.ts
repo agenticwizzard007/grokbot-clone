@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { normalizeDashboardPresentation } from './presentation.js';
 import { uiConfigSchema, uiConfigShape, LIMITS, type UiConfig } from './schema.js';
 import { WIDGET_OPTIONS } from './registry-widgets.js';
 import { SOURCE_PARAMS } from './registry-sources.js';
@@ -142,6 +143,7 @@ export function previewPatch(current: UiConfig, ops: PatchOp[], opts: { autofix?
     const parsed = uiConfigSchema.safeParse(doc);
     if (!parsed.success) return fail(schemaErrors(parsed.error));
     doc = parsed.data;
+    normalizeDashboardPresentation(existing.data, doc);
     if (opts.ctx?.botIds) {
       const botIds = new Set(opts.ctx.botIds);
       doc.layout.pinned = doc.layout.pinned.filter(p => { if (p.type !== 'bot' || botIds.has(p.id)) return true; warnings.push(violation('/layout/pinned', 'not_found', 'Removed a pin for an unavailable Bot.')); return false; });

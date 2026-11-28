@@ -205,8 +205,9 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
 
       </div></>,
     dashboards: <section className="sidebar__dashboards" aria-label="Dashboards">
-      <button type="button" className="sidebar-island" aria-label="Dashboards" onClick={() => { navigation.navigate({ kind: 'dashboards' }); onClose?.(); }}><LayoutDashboard size={18} aria-hidden />{!collapsed && <span>Dashboards</span>}</button>
-      {layout.dashboards.map(dashboard => <button type="button" key={dashboard.id} className="sidebar-island" aria-label={dashboard.name} title={dashboard.name} onClick={() => { navigation.navigate(dashboardScreen(dashboard.id)); onClose?.(); }}><LayoutDashboard size={18} aria-hidden />{!collapsed && <span>{dashboard.name}</span>}</button>)}
+      {!collapsed && !!layout.dashboards.length && <h2 className="sidebar__section-label">Dashboards</h2>}
+      {layout.dashboards.slice(0, 5).map(dashboard => <button type="button" key={dashboard.id} className="sidebar-island" aria-label={dashboard.name} title={dashboard.name} onClick={() => { navigation.navigate(dashboardScreen(dashboard.id)); onClose?.(); }}><LayoutDashboard size={18} aria-hidden />{!collapsed && <span>{dashboard.name}</span>}</button>)}
+      <button type="button" className="sidebar-island" aria-label={layout.dashboards.length ? 'All dashboards' : 'Dashboards'} onClick={() => { navigation.navigate({ kind: 'dashboards' }); onClose?.(); }}><LayoutDashboard size={18} aria-hidden />{!collapsed && <span>{layout.dashboards.length ? 'All dashboards' : 'Dashboards'}</span>}</button>
     </section>,
     search: null,
   };

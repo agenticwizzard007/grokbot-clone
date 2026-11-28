@@ -17,7 +17,7 @@ export function WidgetFrame({ dashboardId, widget, state, observe, retry, toolba
   const attach = useCallback((node: HTMLDivElement | null) => observe?.(widget.id, node), [widget.id, observe]);
   const current = state ?? (widget.source ? { status: 'loading' as const } : { status: 'ready' as const });
   if (widget.type === 'agent') return <div ref={attach} className="dashboard-widget-cell" data-widget-id={widget.id} data-widget-type="agent"><AgentWidget dashboardId={dashboardId ?? ''} widget={widget} toolbar={toolbar} /></div>;
-  const title = widgetLabel(widget), Renderer = renderers[widget.type], scrollable = ['list', 'table'].includes(widget.type);
+  const title = widgetLabel(widget), Renderer = renderers[widget.type], scrollable = widget.type === 'table';
   return <div ref={attach} className="dashboard-widget-cell" data-widget-id={widget.id} data-widget-type={widget.type} data-widget-state={current.status}>
     <Card className={`dashboard-widget dashboard-widget--${widget.type}`} role="region" aria-labelledby={`title-${widget.id}`} aria-busy={current.status === 'loading' || current.refreshing || undefined}>
       <div className="dashboard-widget-header"><h2 id={`title-${widget.id}`} tabIndex={-1}>{title}</h2>{toolbar}</div>
