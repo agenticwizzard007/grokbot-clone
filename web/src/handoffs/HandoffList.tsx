@@ -10,7 +10,11 @@ export function HandoffList({ botId }: { botId: string }) {
   const [direction, setDirection] = useState<'all' | 'sent' | 'received'>('all');
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
   const after = cursors[cursors.length - 1];
-  const resource = useHandoffResource(`list:${botId}:${direction}:${after ?? ''}`, signal => handoffApi.list({ botId, direction: direction === 'all' ? undefined : direction, after, limit: 20 }, signal));
+  const resource = useHandoffResource(`list:${botId}:${direction}:${after ?? ''}`, async signal => {
+    const page = await handoffApi.list({ botId, direction: direction === 'all' ? undefined : direction, after, limit: 20 }, signal);
+    if (!Array.isArray(page?.handoffs)) throw new Error('Could not load handoffs. Try again.');
+    return page;
+  });
   const agents = useHandoffResource('list-agents', signal => handoffApi.agents(signal));
   const name = (id: string) => agents.data?.bots.find(bot => bot.id === id)?.name ?? 'Agent';
   return <Section className="ho" title="Handoffs">
