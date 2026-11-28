@@ -66,18 +66,19 @@ try {
       await page.waitForFunction(async () => !!(await import('/src/store.ts')).useStore.getState().user);
       await page.evaluate(async () => (await import('/src/configStore.ts')).useConfigUI.getState().openAppSettings('apps'));
       const settings = page.locator('.access-apps-settings');
-      await settings.getByText(scenario === 'zero' ? 'No apps connected yet' : '1 app connected', { exact: true }).waitFor();
+      // The current Settings layout uses connection rows instead of a count heading.
+      await settings.getByText(scenario === 'zero' ? 'No connections' : 'Connected', { exact: true }).waitFor();
       const snapshot = await (await context.request.get(`${origin}/api/apps/connections`)).json();
       assert.equal(snapshot.connectedCount, scenario === 'zero' ? 0 : 1);
       assert.equal(snapshot.connections.length, scenario === 'zero' ? 0 : scenario === 'expired' ? 2 : 1);
       if (scenario === 'expired') {
-        await settings.getByText('Expired connections (1)', { exact: true }).click();
-        await settings.getByText('Needs reconnecting', { exact: true }).waitFor();
-      } else assert.equal(await settings.getByText('Needs reconnecting', { exact: true }).count(), 0);
+        await settings.getByText('Sign in needed', { exact: true }).waitFor();
+      } else assert.equal(await settings.getByText('Sign in needed', { exact: true }).count(), 0);
+      assert.equal(await settings.locator('.settings-provider').count(), snapshot.connections.length);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.screenshot({ path: path.join(evidence, `settings-${scenario}-${width}-${theme}.png`), fullPage: true });
       if (scenario === 'expired') {
-        await settings.getByText('Needs reconnecting', { exact: true }).scrollIntoViewIfNeeded();
+        await settings.getByText('Sign in needed', { exact: true }).scrollIntoViewIfNeeded();
         await page.screenshot({ path: path.join(evidence, `settings-expired-status-${width}-${theme}.png`), fullPage: true });
       }
     }

@@ -22,6 +22,7 @@ import { RosterFeedback } from './LoadFeedback';
 import { SetupBanner } from './SetupBanner';
 import { handoffApi, type RunOutput } from '../handoffs/api';
 import { useHandoffResource } from '../handoffs/useHandoffs';
+import { useJobOutput } from '../handoffs/useJobOutput';
 import { api } from '../lib/api';
 import { toast } from '../lib/toast';
 import { CardRow } from './cards/Cards';
@@ -31,10 +32,10 @@ function MessageHandoff({ row, final, onSend }: { row: Row; final: boolean; onSe
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const jobId = row.body.jobId;
-  const output = useHandoffResource(`message-output:${jobId}`, signal => handoffApi.outputByJob(jobId!, signal), !!jobId && final);
+  const output = useJobOutput(jobId, final);
   const send = async () => {
     if (busy) return;
-    if (output.data?.output) { onSend(output.data.output); return; }
+    if (output) { onSend(output); return; }
     setBusy(true);
     try {
       const response = await fetch('/api/outputs/from-message', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ botId: row.botId, generation: row.generation, seq: row.seq }) });
@@ -43,10 +44,10 @@ function MessageHandoff({ row, final, onSend }: { row: Row; final: boolean; onSe
     } catch { toast('Could not prepare this message. Try again.', { tone: 'error' }); }
     finally { setBusy(false); }
   };
-  return <div className={`ho ho-message-handoff${output.data?.output?.status !== 'final' ? ' ho-message-footer' : ''}`}>
-    {output.data?.output?.status !== 'final' && <button ref={trigger} type="button" className="ho-button ho-button--quiet ho-message-actions" aria-label="Message actions" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}><MoreHorizontal size={20} aria-hidden="true" /></button>}
+  return <div className={`ho ho-message-handoff${output?.status !== 'final' ? ' ho-message-footer' : ''}`}>
+    {output?.status !== 'final' && <button ref={trigger} type="button" className="ho-button ho-button--quiet ho-message-actions" aria-label="Message actions" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}><MoreHorizontal size={20} aria-hidden="true" /></button>}
     {open && <Menu triggerRef={trigger} onClose={() => setOpen(false)} items={[{ label: 'Send to agent', icon: Send, onSelect: () => void send() }]} />}
-    {output.data?.output?.status === 'final' && <CardRow row={row} output={output.data.output} onSend={onSend} />}
+    {output?.status === 'final' && <CardRow row={row} output={output} onSend={onSend} />}
   </div>;
 }
 
