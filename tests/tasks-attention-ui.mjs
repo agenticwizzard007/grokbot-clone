@@ -122,7 +122,7 @@ try {
         const count = filter.locator('.task-filter__count');
         assert.equal(await count.innerText(), '·');
         assert.equal(await count.getAttribute('aria-label'), `${filter === pending ? 'Pending input count' : 'Task count'} ${state}`);
-        await boxFullyVisible(count, { width: 32, height: 20 });
+        await boxFullyVisible(count, { width: 24, height: 20 });
         if (filterSize) assert.deepEqual(await dimensions(count), filterSize);
       }
       assert.equal(await work.getByText(/all caught up|No tasks are waiting|No pending tasks|No tasks yet/).count(), 0);
@@ -215,11 +215,11 @@ try {
     await taskAlert.getByRole('button', { name: 'Retry', exact: true }).click();
     await taskAlert.waitFor({ state: 'hidden' });
     await work.getByRole('heading', { name: 'No tasks yet', exact: true }).waitFor();
-    await work.locator('.task-filter.is-open').click();
+    await all.click();
     failing = true;
     await refresh();
     await alert.waitFor();
-    assert.equal(await work.getByRole('heading', { name: 'No tasks yet', exact: true }).count(), 0, 'Open never reports empty while pending input is unknown');
+    assert.equal(await work.getByRole('heading', { name: 'No tasks yet', exact: true }).count(), 0, 'All tasks never reports empty while pending input is unknown');
     failing = false;
     await retry.click();
     await work.getByRole('heading', { name: 'No tasks yet', exact: true }).waitFor();
@@ -233,11 +233,11 @@ try {
       await page.getByRole('button', { name: 'Open Attention QA Bot details', exact: true }).click();
       const details = page.getByRole('complementary', { name: 'Conversation details' });
       await details.getByRole('navigation', { name: 'Conversation details sections' }).getByRole('button', { name: 'Tasks', exact: true }).click();
-      const detailsAlert = details.getByRole('alert').filter({ hasText: 'Pending input could not load.' });
+      const detailsAlert = details.locator('.layout-row').filter({ hasText: 'Could not refresh' });
       await detailsAlert.waitFor();
       assert.equal(await details.getByText(/No tasks yet/).count(), 0, 'Bot details also avoid a false empty state');
       failing = false;
-      await detailsAlert.getByRole('button', { name: 'Retry pending input', exact: true }).click();
+      await detailsAlert.getByRole('button', { name: 'Retry', exact: true }).click();
       await details.getByText(/No tasks yet/).waitFor();
       await detailsAlert.waitFor({ state: 'hidden' });
     }

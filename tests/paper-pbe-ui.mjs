@@ -22,7 +22,8 @@ const routes={ 'chat-rest':'#bot/coordinator','chat-run':'#bot/coordinator','cha
 const screenshots=['chat-rest','chat-run','empty','error','tasks','search','landing'];
 const results=[];
 // BUILD-SPEC 0b budgets, desktop then phone. Fixture message content is retained.
-const budgets = { 'chat-rest': [72,64], 'chat-run': [82,74], 'chat-voice': [78,71], loading: [15,12], empty: [35,27], error: [56,53], tasks: [41,33], team: [35,29], goals: [20,14], files: [41,38], search: [117,44], landing: [34,32], 'signin-code': [34,32], 'first-run': [33,37], join: [11,11] };
+// Tasks now includes visible next actions, update times, and explicit status filters.
+const budgets = { 'chat-rest': [72,64], 'chat-run': [82,74], 'chat-voice': [78,71], loading: [15,12], empty: [35,27], error: [56,53], tasks: [64,56], team: [35,29], goals: [20,14], files: [41,38], search: [117,44], landing: [34,32], 'signin-code': [34,32], 'first-run': [33,37], join: [11,11] };
 
 function inspectLabels() {
  const root=document.querySelector('.shell-content') || document.querySelector('main');
@@ -65,7 +66,7 @@ for(const width of widths)for(const theme of themes) {
     const column=await page.locator('.transcript__col').boundingBox(),dock=await page.locator('.composer').boundingBox();
     assert.ok(Math.abs(column.x-dock.x)<=1&&Math.abs(column.width-dock.width)<=1,'Thread and dock share both edges');
   }
-  if(name==='tasks' && width>760) assert.equal(await page.locator('.task-column').count(),4,'Four equal desktop columns');
+  if(name==='tasks') assert.equal(await page.locator('.task-column').count(),3,'Three real task states, with pending work first');
   if(name==='search') { await page.getByText('Files and tasks',{exact:true}).waitFor(); assert.equal(await page.getByRole('option').count(),4); const list = await page.locator('.search-modal__results').boundingBox(); const last = await page.getByRole('option').last().boundingBox(); assert.ok(list.height >= 300 && last.y + last.height <= list.y + list.height + 1, 'Search results are visible inside the panel'); }
   // PB-F restores the approved six-word waiting-task notice and Review action.
   const waitingCopy = name === 'tasks' && await page.getByTestId('tasks-needs-input').isVisible() ? 6 : 0;
