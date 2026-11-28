@@ -54,7 +54,7 @@ try {
     doc.layout.pinned = [{ type: 'bot', id: 'missing' }, { type: 'dashboard', id: 'd_missing1' }];
     useCustomization.setState({ saved: doc, effective: doc });
   });
-  assert.ok(await page.getByRole('button', { name: 'Account & settings' }).isVisible());
+  assert.ok(await page.getByRole('button', { name: /Account & settings$/ }).isVisible());
   await page.getByRole('region', { name: 'Pinned', exact: true }).waitFor({ state: 'detached' });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => { location.hash = '#bots'; }); await page.locator('.phone-tabs').waitFor();
