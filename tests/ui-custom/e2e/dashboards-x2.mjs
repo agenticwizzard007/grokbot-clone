@@ -153,8 +153,8 @@ export async function runDashboards({ demo = false } = {}) {
     // Ask opens a draft, never a send request.
     await page.goto(`${server.base}/#dashboards`); let sends = 0;
     page.on('request', request => { if (request.method() === 'POST' && /\/messages$/.test(new URL(request.url()).pathname)) sends++; });
-    await page.getByRole('button', { name: 'Create with your agent', exact: true }).click(); await page.locator('.composer__input').waitFor(); assert.match(await page.locator('.composer__input').inputValue(), /Make me a dashboard for/); assert.equal(sends, 0); pass('ask your agent prefills without sending');
-    await page.goto(`${server.base}/#settings`); await page.locator('nav[aria-label="Settings sections"]').getByRole('button', { name: 'Dashboards', exact: true }).click(); await page.locator('.dashboards-manager').waitFor(); pass('Settings entry opens manager');
+    await page.getByRole('button', { name: 'Create with your agent', exact: true }).click(); await page.getByRole('dialog', { name: 'Create with your agent', exact: true }).waitFor(); assert.equal(await page.getByLabel('Request', { exact: true }).inputValue(), ''); assert.equal(sends, 0); pass('ask your agent opens a request sheet without sending');
+    await page.goto(`${server.base}/#settings`); await page.locator('nav[aria-label="Settings sections"]').getByRole('button', { name: 'Dashboards', exact: true }).click(); await page.locator('#appearance-dashboards').waitFor(); pass('Settings entry opens Appearance Dashboards');
     await page.goto(`${server.base}/#search`); await page.getByRole('textbox', { name: 'Search', exact: true }).fill('Dashboards'); await page.keyboard.press('Enter'); await page.locator('.dashboards-manager').waitFor(); pass('command palette keyboard path opens manager');
     await page.goto(`${server.base}/#dash/${sales.id}`); await page.getByRole('button', { name: 'Edit dashboard', exact: true }).click();
     const resize = async size => {

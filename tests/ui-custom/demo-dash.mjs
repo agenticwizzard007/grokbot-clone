@@ -162,8 +162,8 @@ async function runPolishView({ before, output, view }) {
       await open(sales); await page.getByRole('button', { name: /^Open:/ }).click(); await page.locator('.tasks-view').waitFor(); pass('Open navigates to Tasks');
       await open(sales); await page.getByRole('button', { name: /^Approve:/ }).click(); await page.getByRole('dialog').getByRole('button', { name: 'Approve', exact: true }).click(); await page.getByRole('dialog').waitFor({ state: 'hidden' });
       assert.equal(server.db.prepare('SELECT status FROM approvals WHERE id=?').get(approvalId.slice(9)).status, 'allowed'); pass('Approve requires confirmation and resolves the owned item');
-      await page.goto(`${server.base}/#dashboards`); await page.getByRole('button', { name: 'Create with your agent', exact: true }).click(); await page.locator('.composer__input:not([disabled])').waitFor();
-      assert.match(await page.locator('.composer__input').inputValue(), /^Make me a dashboard for /); assert.equal(sends, 0); pass('Create with your agent prefills without sending');
+      await page.goto(`${server.base}/#dashboards`); await page.getByRole('button', { name: 'Create with your agent', exact: true }).click(); await page.getByRole('dialog', { name: 'Create with your agent', exact: true }).waitFor();
+      assert.equal(await page.getByLabel('Request', { exact: true }).inputValue(), ''); assert.equal(sends, 0); pass('Create with your agent opens the request sheet without sending');
     }
   } catch (error) { if (page) await page.screenshot({ path: path.join(output, `failure-${view[0]}-${view[1]}.png`) }); failures.push(error.stack); throw error; }
   finally { await server.close(); fs.writeFileSync(path.join(output, `results-${view[0]}-${view[1]}.json`), JSON.stringify({ passed: checks.length, failed: failures.length, checks, failures, screenshots, counts, guards }, null, 2)); }

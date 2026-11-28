@@ -242,6 +242,9 @@ async function main() {
     const polish = await runDashboardPolish({ output: path.join(evidence, 'dashboard-polish') });
     report.push(...polish.checks.map(name => ({ name, owner: 'FIX-DASH', enforce: true, issues: [] })));
     report.push(...await auditSidebarPolish(ROUTES, path.join(evidence, 'sidebar-polish')));
+    const { runDashboardLaunch } = await import('./ui-custom/demo-fix-dash-3-launch.mjs');
+    const launch = await runDashboardLaunch({ output: path.join(evidence, 'dashboard-launch') });
+    report.push(...launch.checks.map(name => ({ name, owner: 'FIX-DASH-3', enforce: true, issues: [] })));
   }
   fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   assert.equal(report.filter(r => r.enforce && r.issues.length).length, 0, 'Enforced routes follow the shared layout system');

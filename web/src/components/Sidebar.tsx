@@ -82,10 +82,10 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const storeSelectedBotId = useStore((s) => s.selectedBotId);
   const modal = useStore((s) => s.modal);
   const chatVisible = useConfigUI((s) => sidebarHighlightsBot(s, modal));
-  const selectedBotId = chatVisible ? storeSelectedBotId : null; // nothing highlighted on Tasks, Settings, Bot settings or create pages
+  const screen = navigation.screen;
+  const selectedBotId = chatVisible && (screen?.kind === 'chat' || screen?.kind === 'details') ? storeSelectedBotId : null;
   const user = useStore((s) => s.user);
   const dashboards = useDashboardDisclosure(user?.id);
-  const screen = navigation.screen;
   const currentDashboard = !settingsOpen && !modal && screen?.kind === 'dash' ? routeDashboard(screen.dashboard, layout.dashboards)?.id : undefined;
   const managingDashboards = !settingsOpen && !modal && screen?.kind === 'dashboards';
   // The phone drawer always shows the full sidebar.

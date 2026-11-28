@@ -50,7 +50,9 @@ try {
   await page.getByText('Your dashboard is empty.', { exact: true }).waitFor(); passed++;
   const messages = []; page.on('request', request => { if (request.method() === 'POST' && /\/(message|messages|send)(?:\?|$)/.test(request.url())) messages.push(request.url()); });
   await page.getByRole('button', { name: 'Create with your agent', exact: true }).click();
-  await page.waitForFunction(() => [...document.querySelectorAll('textarea')].some(node => node.value.includes('Make me a dashboard for My week')));
+  await page.getByRole('dialog', { name: 'Create with your agent', exact: true }).waitFor();
+  assert.equal(await page.getByLabel('Request', { exact: true }).inputValue(), '');
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
   assert.equal(messages.length, 0); passed++;
   await patch(page, [{ op: 'replace', path: '/dashboards/0/widgets', value: [{ id:'$new72', type:'shortcuts', title:'Quick links', span:6, rows:2, options:{items:[{label:'Draft a plan',target:`ask:${server.fixture.bot.id}:Help me draft the launch plan`}]}}] }]);
   await page.goto(`${server.base}/#dash/${dashboard.id}`); await page.getByRole('button',{name:'Draft a plan',exact:true}).click();

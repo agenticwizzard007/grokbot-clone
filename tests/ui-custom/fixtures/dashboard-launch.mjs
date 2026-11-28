@@ -19,6 +19,7 @@ export function flyUiEnvironment(root = process.cwd()) {
 
 /** A blank database and real auth/dev cookie issuance, with no seeded users or preferences. */
 export async function dashboardLaunchServer({ root = process.cwd() } = {}) {
+  root = path.resolve(root);
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dashboard-launch-'));
   const port = async () => { const s = net.createServer().listen(0, '127.0.0.1'); await once(s, 'listening'); const p = s.address().port; await new Promise(r => s.close(r)); return p; };
   const apiPort = await port(), uiPort = await port(), modelPort = await port();

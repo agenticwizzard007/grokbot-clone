@@ -110,6 +110,16 @@ const routes = [...navigationRoutes.map(hash => ({ name: hash || 'home', hash })
   { name: 'layout-reset', hash: '#settings/appearance', action: async page => { await page.getByRole('button', { name: 'Manage layout', exact: true }).click(); await page.getByRole('menuitem', { name: 'Reset', exact: true }).click(); } },
   { name: 'chat-preview', hash: '#bot/coordinator', action: page => server.previewCard(page) },
   { name: 'dashboards-manager', hash: '#dashboards' },
+  { name: 'dashboard-agent-sheet', hash: '#dashboards', action: async page => {
+    await page.getByRole('button', { name: 'Create with your agent', exact: true }).click();
+    await page.getByRole('radiogroup', { name: 'Bot', exact: true }).waitFor();
+    await assertSingleDialog(page, 'Create with your agent');
+  } },
+  { name: 'dashboard-suggestion-sheet', hash: '#dashboards', action: async page => {
+    await page.getByRole('button', { name: 'Suggest a dashboard for me', exact: true }).click();
+    await page.getByLabel('Role', { exact: true }).waitFor();
+    await assertSingleDialog(page, 'Suggest a dashboard');
+  } },
   { name: 'dashboard', hash: '#dash/d_a11y0001', action: checkDashboardHeader },
   { name: 'dashboard-sidebar-capped', hash: '#dashboards', action: showDashboardSidebar, reflow: showDashboardSidebar },
   { name: 'dashboard-refresh', hash: '#dash/d_a11y0001', action: async page => {
