@@ -23,7 +23,7 @@ export async function auditSidebarPolish(routes, output = path.resolve('.context
       if (long) for (let i = 0; i < 24; i++) db.prepare('INSERT INTO bots(id,user_id,name,created_at,updated_at) VALUES(?,?,?,?,?)').run(`sidebar-polish-${i}`, server.fixture.userId, `Project assistant ${i + 1}`, Date.now(), Date.now());
       const doc = structuredClone(original);
       if (custom) {
-        doc.dashboards = Array.from({ length: long ? 12 : 1 }, (_, i) => ({ id: `$new${i + 1}`, name: ['Sales pipeline', 'Operations', 'Weekly review', 'Launch planning', 'Customer follow ups'][i] ?? `Project overview ${i + 1}`, icon: 'layout-dashboard', widgets: [] }));
+        doc.dashboards = Array.from({ length: long ? 12 : 1 }, (_, i) => ({ id: `d_${String(i + 1).padStart(8, '0')}`, name: ['Sales pipeline', 'Operations', 'Weekly review', 'Launch planning', 'Customer follow ups'][i] ?? `Project overview ${i + 1}`, icon: 'layout-dashboard', widgets: [] }));
         // Footer semantics remain stable even when the saved order interleaves them.
         doc.layout.sidebar.order = ['usage', 'tasks', 'settings', 'allBots', 'files', 'dashboards', 'yourBots', 'createBot'];
       }
