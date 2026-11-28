@@ -45,6 +45,7 @@ try {
       await popup.close();
       console.log(`PASS D1 Gmail available independently of Google login at ${width}px`);
     } catch (error) { failures.push(`${width}: ${error.message}`); }
+    await context.unrouteAll({ behavior: 'wait' });
     await context.close();
   }
   assert.deepEqual(failures, []);

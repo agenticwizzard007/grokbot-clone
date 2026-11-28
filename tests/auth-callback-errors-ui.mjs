@@ -92,7 +92,7 @@ try {
       await page.goto(`${base}/?keep=fixture&login=${test.code}#settings/account`);
       const banner = page.locator('.auth-callback[role="alert"]');
       await banner.waitFor();
-      await page.getByRole('heading', { name: 'Account', exact: true }).waitFor();
+      await page.locator('.app-settings').getByText('Sign-in methods', { exact: true }).waitFor();
       assert.equal(await banner.locator('.auth-callback__message').innerText(), test.message);
       assert.ok(await page.locator('.app').isVisible(), 'keep the existing session shell');
       assert.equal(await page.locator('.signin').count(), 0);
@@ -119,7 +119,7 @@ try {
       // Exercise retry navigation locally, returning another failure without leaving the fixture.
       if (reviewGoogleLink) {
         await retry.click();
-        await page.getByRole('heading', { name: 'Messaging', exact: true }).waitFor();
+        await page.locator('.access-messaging').waitFor();
         await page.locator('.access-messaging summary').filter({ hasText: 'Learn more' }).click();
         assert.equal(await page.getByRole('link', { name: 'Connect Google', exact: true }).getAttribute('href'), '/api/auth/google/start?intent=link');
         assert.equal(await banner.count(), 0);
@@ -162,6 +162,7 @@ try {
     await page.locator('.subscription-reauth').getByText('Sign-in did not complete. Try again to continue.', { exact: true }).waitFor();
     assert.equal(await page.getByText(/You’re signed in again/).count(), 0, 'a failed callback must not become a successful reauthentication');
     assert.deepEqual(errors, []);
+    await context.unrouteAll({ behavior: 'wait' });
     await context.close();
     console.log(`PASS A-02 at ${width}: signed-in and signed-out provider errors, retry, dismiss, URL cleanup, session preservation and layout.`);
   }

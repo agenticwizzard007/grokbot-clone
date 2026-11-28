@@ -76,6 +76,7 @@ try {
       assert.equal(states.length, 2, 'Back dismisses recovery without starting authorization');
       console.log(`PASS D1 recovery, fresh click-time authorization, scopes, and layout at ${width}px light`);
     } catch (error) { failures.push(`${width}: ${error.message}`); }
+    await context.unrouteAll({ behavior: 'wait' });
     await context.close();
   }
   assert.deepEqual(failures, []);
