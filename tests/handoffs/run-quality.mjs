@@ -30,8 +30,9 @@ for (const [command, args] of commands) {
   console.log(`RUN ${command} ${args.join(' ')}`);
   const exit = await new Promise(resolve => { const child = spawn(command, args, { stdio: ['ignore', fd, fd], env: { ...process.env, HO_POLISH_OUTPUT: process.env.HO_POLISH_OUTPUT || path.join(out, 'polish-shots') } }); child.on('error', error => resolve(String(error))); child.on('exit', code => resolve(code)); }); fs.closeSync(fd);
   const text = fs.readFileSync(log, 'utf8');
-  const summaries = [...text.matchAll(/^(?:HO-H (?:journeys|layout): |(?:PASS|FAIL) demo of record: |PASS |FLOW DEMO |UI QUALITY |HO-I integration UI: |HO-C demo: |PASS HO-E (?:behavior|layout): )(\d+)(?:\/\d+| pass| checks| views)/gm)];
-  const pass = Number(text.match(/(?:ℹ |# )pass (\d+)/)?.[1] ?? summaries.at(-1)?.[1] ?? [...text.matchAll(/^PASS\b/gm)].length);
+  const summaries = [...text.matchAll(/^(?:HO-H (?:journeys|layout): |(?:PASS|FAIL) demo of record: |PASS |FLOW DEMO |UI QUALITY |HO-I integration UI: |HO-C demo: |PASS (?:HO-E (?:behavior|layout|demo)|navigation|performance server|browser performance): )(\d+)(?:\/\d+| pass| checks| views| recorded| route| budgets)/gm)];
+  const combinedDemo = text.match(/HO-F demo: (\d+) server tests, (\d+) UI checks passed/);
+  const pass = combinedDemo ? Number(combinedDemo[1]) + Number(combinedDemo[2]) : Number(text.match(/(?:ℹ |# )pass (\d+)/)?.[1] ?? summaries.at(-1)?.[1] ?? [...text.matchAll(/^PASS\b/gm)].length);
   const failures = [...text.matchAll(/^(?:HO-H (?:journeys|layout): \d+ pass, |(?:PASS|FAIL) demo of record: \d+ checks, |(?:FLOW DEMO|UI QUALITY) \d+ passed, )(\d+) fail/gm)];
   const fail = Number(text.match(/(?:ℹ |# )fail (\d+)/)?.[1] ?? failures.at(-1)?.[1] ?? ([...text.matchAll(/^FAIL\b/gm)].length || (exit === 0 ? 0 : 1)));
   results.push({ command: [command, ...args].join(' '), exit, passed: pass, failed: fail, log });
