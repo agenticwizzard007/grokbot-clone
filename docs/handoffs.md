@@ -33,7 +33,7 @@ The final result is explicit:
 
 The Timeline shows passes, runs, inputs and verdicts. Graph shows the same sequence as a deterministic graph, with a vertical arrangement on phones. **Copy details** exports identifiers and event types for support, without output bodies.
 
-Chat collects each loop's receipts under one **Loop** row. Use **Show passes** to inspect individual handoffs, or **View** to open the loop. A Bot's Activity tab also lists handoffs with All, Sent and Received filters. Room progress appears as the loop changes state.
+Chat collects each loop's receipts under a row named for that loop. Use **Show passes** to inspect individual handoffs, or **View** to open the loop. A Bot's Activity tab also lists handoffs with All, Sent and Received filters. Room progress appears as the loop changes state.
 
 A Bot's **Flow** tab shows Triggers, Inputs, Steps, Outputs and Handoffs. Select a node to open its related setting; Back returns to the node. Flow reads stored configuration and does not need a model request. Suggested connections stay suggestions until you connect them.
 
@@ -134,6 +134,8 @@ node scripts/handoffs-demo.mjs
 ```
 
 The quality runner executes all handoff and flow test files, their component tests, the twelve real-app journeys, security, performance, the demo, layout alignment and navigation. It also runs Composio, readiness, coordination and agent suites. It saves command logs, exit codes and reported pass counts under `.context/handoffs/quality-h/`. Navigation uses `--import tsx` because it imports TypeScript and TSX. `node tests/navigation-every-route-ui.mjs` alone is not supported by Node's type stripping on this baseline.
+
+For contrast approval, supply a local axe bundle through the shared accessibility helper's `HO_D_AXE_PATH` option. The recorded verification uses axe 4.10.3 at `.context/handoffs/axe.min.js`, without adding a dependency. For example, run `HO_D_AXE_PATH=.context/handoffs/axe.min.js node tests/handoffs/e2e/journeys.mjs` after placing the bundle there. The helper's lightweight fallback checks control names but does not establish contrast compliance. Journey 8 deliberately waits for the Saved status so its contrast is audited while visible.
 
 The seeded harness reuses `tests/fixtures/layout.seed.mts` and the isolation pattern from `tests/layout-fixture.mjs`: temporary SQLite and file directories, placeholder credentials, local provider and blocked external browser requests. `tests/handoffs/mock-proxy.mjs` translates realistic fixture prompts into scripts for the unchanged `tests/mock-provider.mjs`. `mock-iter` selects a script from the packet's iteration number. The gullible persona intentionally follows an exposed attack marker; its positive control proves that nonce boundaries contain that marker. This tests parser boundaries and authorization, not a claim that language models cannot be manipulated.
 

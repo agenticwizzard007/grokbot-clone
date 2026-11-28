@@ -1,56 +1,49 @@
 # Quality gate integration record
 
-HO-H integrates main `a9b3e990`, including FIX-4, FIX-5, HO-Q and HO-Q2. HO-H changes remain limited to its tests, demo, documentation and additive npm scripts.
+HO-H integrates main `308ccf17`, including FIX-4, FIX-5, FIX-6, HO-Q and HO-Q2. Production source and dependencies are unchanged. The owner authorized the correction to the shared receipt quality guard after its false failure on real one-pass receipts.
 
-## Pending contrast fix
+## Receipt guard correction
 
-The owner's verification against main `a9b3e990` passes 23 of 24 journeys. At 390, journey 8 finds a serious axe color-contrast violation on the Settings Agents Saved status. FIX-6 owns the production correction from `--color-success` to `--color-success-text` in `AppSettings.tsx`. HO-H does not change that file or exempt the status from accessibility checks.
+The failing real receipt contains one `.ho-chip`, inside `.ho-receipt-meta`, with the correct text `1 pass`. Loading and stopped status text use the separate `.ho-status` element. The selector was selecting the intended chip. The expression `passes?` accepts `passes` and `passe`, but rejects `pass`; `pass(?:es)?` fixes that grammar without changing the allowed label forms.
 
-Journey 8 now waits for the rendered Saved status before running the unchanged accessibility audit, so a completed API save cannot race its confirmation. The earlier local run had no axe installation and used the shared helper's permitted lightweight fallback. Its accessibility result does not establish contrast compliance. A standalone axe file supplied through the helper's existing local-file option enables contrast verification without changing repository dependencies.
+`node tests/handoffs/loop-chip-quality.mjs` exercises the real rendered receipt and the shared browser inspector: seven checks pass. It accepts `1 pass`, `3 passes` and `Pass 1 of 3`, and rejects `1 passe`, `Loop, 3 passes`, `Loading` and an empty chip. The quality runner includes this regression. No production correction is needed for this failure.
 
-The focused rerun with axe 4.10.3 reproduces the same serious `color-contrast` violation on `.cfg-chip.agents-saved` at 390. Journey 8 passes at 1280: one pass, one failure. The mandatory merged UI quality checker passes all 592 views. Command: `HANDOFFS_JOURNEYS=8 HANDOFFS_EVIDENCE=.context/handoffs/saved-chip-check node tests/handoffs/e2e/journeys.mjs`. Report: `.context/handoffs/saved-chip-check/report.json`. No accessibility rule or threshold was changed.
+## Flow test synchronization
 
-## HO-Q2 demo rerun
+Journey 10 retains keyboard activation of every displayed node, destination mapping, keyboard reading order and return-focus assertions. It waits for the canonical Flow URL after Back because the chart can remain mounted behind a destination. It then observes stable focus beyond the Flow refresh debounce.
 
-HO-Q2 gives the receipt expansion control and pass group descriptive accessible names. The demo now selects `Show passes` and `Hide passes` by word-boundary prefix and finds the named pass group by its `passes` suffix. A loop scenario is counted as passed only after the expanded receipt screenshot succeeds. No stale exact-name selectors remain in the HO-H journeys or demo; the existing polish exporter also passes.
+The installed Playwright implementation treats an async `waitForFunction` predicate as truthy before its resolved boolean is checked. The test now explicitly polls the resolved result of `page.evaluate`. This corrects a test that could proceed while focus restoration was still pending. No browser events, production callbacks or destination assertions are disabled.
 
-On main `a9b3e990`, `node scripts/handoffs-demo.mjs` passes 40 checks with zero failures across 320, 390, 500 and 1280 in light and dark. All eight converging loops and eight capped loops reach the exact sentences below. The mandatory quality checker passes 592 views, and all 104 fresh captures pass automated and manual inspection. Evidence: `.context/handoffs/demo-h/report.json` and `inspection.json`. The previous demo is retained under `.context/handoffs/demo-before-q2-20261128T005739/`.
+## Current verification
 
-The refreshed Node suites pass 738 tests with zero failures or skips, including 38 security cases and eight widget contracts. Typecheck and the web build pass. The polish exporter passes 12 captures. `node tests/handoffs/perf/server.mjs` passes five budgets and `node tests/handoffs/perf/browser.mjs` passes six; the committed baseline is unchanged. Current evidence is summarized in `.context/handoffs/q2-report.json`. The full 24-journey gate remains pending FIX-6.
+`HO_D_AXE_PATH=.context/handoffs/axe.min.js HANDOFFS_EVIDENCE=.context/handoffs/final-fix6-journeys node tests/handoffs/e2e/journeys.mjs` exits zero: 24 journeys pass, zero fail; all 18 real-capture audits and 592 mandatory quality views pass. Both one-pass receipts and the visible Saved status remain in the checks. The earlier FIX-6 failures are retained under `fix6-journeys/`; the superseded run with the async predicate is explicitly marked aborted under `fix6-journeys-before-predicate-fix/`.
 
-The remaining counts below are historical results from main `6af24740`, pending a complete journey rerun after FIX-6 lands.
-
-## Resolved integration requests
-
-| Issue | Resolution | Evidence |
-|---|---|---|
-| Checker verdict tools lacked a stable tool call ID | FIX-4 supplies the active call ID in the runtime context | `node --import tsx tests/handoffs/e2e-loop-real.mjs`: 2/2 real loops pass on candidate and main |
-| Bot Activity did not mount the handoff list | FIX-5 mounts All, Sent and Received filters | Journey 7 passes at 390 and 1280; Activity quality passes 32 states |
-| Committed loop transitions did not appear in rooms | FIX-5 projects committed transitions with rollback and recovery coverage | Journey 9 passes at 390 and 1280 using real loop events, without seeded progress rows |
-| Demo I expected the old dashboard action label | FIX-5 uses Create | `node tests/handoffs/demo-i.mjs`: 84 checks pass on candidate and main |
-| Receipts needed compact grouping, spacing and copy | HO-Q supplies collapsed Loop groups and explicit pass expansion | Mandatory quality checker: 568 passing views; fresh demo inspection: 104 accepted captures |
-
-## Historical journeys and demo
-
-`node tests/handoffs/e2e/journeys.mjs` passes all 24 journeys with no skips. Its 568 mandatory quality views and 18 real-capture audits pass. Report: `.context/handoffs/final-journeys/report.json`.
-
-Two genuine test timing issues were corrected. Journey 9 waits for the Checker recipient before asserting the complete member list. Journey 10 activates the intended Flow node with one locator keyboard action instead of separating focus from a page-level Enter. Destination and return-focus assertions remain intact. Earlier 22/24 and 23/24 reports are retained under `integrated-journeys/` and `integrated-journeys-final/`.
-
-`node scripts/handoffs-demo.mjs` passes 40 checks. Eight real two-agent loops converge and eight reach the cap, covering 320, 390, 500 and 1280 in light and dark. Each loop has three passes, six completed steps and three verdicts, with the expected event sequence. The exact sentences are:
+The demo of record passes 40 checks with zero failures across 320, 390, 500 and 1280 in light and dark. All eight converging loops and eight capped loops have three passes, six completed steps and three verdicts, with these exact results:
 
 - `Done in 3 passes: all checks passed.`
 - `Stopped after 3 passes (limit). 2 of 3 checks still fail.`
 
-The historical demo records 104 screenshots and clean capture audits, plus 568 mandatory checker views. Every capture was inspected against BUILD-SPEC 0b, 0c and 0d. Expanded loop groups show individual passes. Settings Agents is included. `.context/handoffs/demo-before-q2-20261128T005739/inspection.json` records 104 passes, zero pending, zero rejected and no runtime-blocked capped result. Earlier receipt captures remain under `demo-before-q/`.
+The demo imports the mandatory merged quality checker, which passes all 592 views. Its descriptive receipt controls use `^Show passes\b` and `^Hide passes\b`; each loop is counted only after its expanded receipt capture succeeds. All 104 captures pass automated checks and manual inspection against BUILD-SPEC 0b, 0c and 0d. Settings Agents is included, and no capped result remains marked failing. Evidence: `.context/handoffs/demo-h/report.json` and `inspection.json`.
 
-## Historical verification evidence
+The required Node suites pass 738 tests, with zero failures or skips, including 38 security cases and eight widget contracts. Clean main passes 690 tests; HO-H adds 48 cases. Both workspace typechecks and the candidate web build pass. Existing UI suites pass 441 checks across ten commands, and handoff route layout/accessibility passes 12 checks with axe enabled and no skips. Evidence is retained under `fix6-checks/`, `fix6-baseline/`, `fix6-existing-ui/` and `fix6-followup/`.
 
-Candidate and main results are retained under `.context/handoffs/integrated-checks/` and `integrated-followup/`, with matching directories inside `main-polish-baseline/.context/handoffs/`. The candidate Node suites pass 735 tests; main passes 687. HO-H adds 38 security cases, eight widget contract cases and two mock-script cases. Both pass typecheck, web build and the real-runtime loop regression. The candidate's ten existing UI suites pass 441 checks.
+Shared alignment passes 364 general/dashboard views, 42 dashboard-suggestion checks and 592 handoff views. Navigation passes 870 route/size/theme cases. All nine supporting demo/export commands pass: HO-A checks its packet and layout plans; HO-B 2 scenarios; HO-C 11 scenarios; HO-D 54 checks; HO-E 24 replays; HO-F 25 server and 10 UI checks; HO-I 84 checks; real-runtime loops 2 scenarios; polish exporter 12 captures plus 592 quality views. Logs and exit codes are under `fix6-followup/` and `fix6-demos/`.
 
-Both branches pass shared alignment covering 250 general/dashboard views, 42 dashboard-suggestion checks and 568 handoff views, plus 870 navigation cases. The candidate's route layout and accessibility audit passes 12 cases with no skips. All 11 fresh performance budgets pass; the committed reference remains unchanged.
+Fresh performance passes all 11 budgets: five server/bundle and six browser. The committed baseline is unchanged. Server p95 values are 2.31ms output creation, 26.49ms handoff POST, 4.57ms cold Flow and 1.55ms warm Flow. Browser p95 values at 390/1280 are 31.50/29.90ms for the 12-step Timeline, 28.70/29.90ms for Flow paint and 42.00/41.70ms for SSE updates. Evidence: `fix6-perf/report.json` and `perf-h/measured.json`.
 
-Main's initial loop behavior run timed out when its Retry control disappeared before the click. The unchanged standalone rerun passes all 37 checks, bringing its existing UI comparison to 441 passing checks. The original failure and successful retry are both retained under the baseline worktree's evidence directory.
+## Resolved production requests
 
-The final consolidated report is `.context/handoffs/final-report.json`. It records the completed alignment, navigation and performance commands, comparison counts and any retained retry evidence. Passing performance measurements are saved separately in `.context/handoffs/perf-h/measured.json`; the committed reference is not refreshed for a passing run.
+| Issue | Resolution | Evidence |
+|---|---|---|
+| Checker verdict tools lacked a stable call ID | FIX-4 passes the active call ID | Real loops in the demo converge and cap |
+| Activity lacked the handoff list | FIX-5 mounts All, Sent and Received filters | Journey 7 and Activity quality checks |
+| Room progress was missing | FIX-5 projects committed loop transitions | Journey 9 uses real events, without seeded progress rows |
+| Demo I used the old dashboard label | FIX-5 selects Create | `node tests/handoffs/demo-i.mjs` |
+| Receipt spacing and labels needed polish | HO-Q and HO-Q2 group passes and name controls | Mandatory quality checks and fresh expanded-receipt captures |
+| Saved status failed contrast | FIX-6 uses the text success token | Journey 8 waits for Saved and audits it with axe 4.10.3 |
 
-The deployed `BASE_URL` mode is implemented and documented, but has not been exercised without an isolated deployed test account configured for the scripted provider. The bundle comparison measures HO-H additions against integrated main, not historical pre-feature cost.
+## Verification limits
+
+The deployed `BASE_URL` mode is implemented and documented but has not been exercised without an isolated deployed test account configured for the scripted provider. The bundle comparison measures HO-H additions against integrated main, not historical pre-feature cost. Performance measurements are rerun without refreshing the committed baseline when its budgets pass.
+
+Historical reports remain in `.context/handoffs/`; current results must be read from the FIX-6 reports above. Earlier accessibility runs without axe do not establish contrast compliance. The consolidated `.context/handoffs/final-fix6-report.json` includes command exits, exact counts and retained failed attempts. There are no outstanding production requests from this verification.
