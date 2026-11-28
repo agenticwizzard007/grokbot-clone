@@ -119,6 +119,7 @@
   .dashboard-manager-actions.layout-button-group { flex-direction: column; }
   .dashboard-dialog-heading > button[aria-label="Close"] { display: none; }
   .dashboard-grid:not(.dashboard-grid--editing) > .dashboard-grid-slot:not([data-widget-kind="stat"]) { grid-column: 1 / -1; }
+  .dashboard-grid--editing > .dashboard-grid-slot { grid-column: 1 / -1; }
 }
 @media (min-width: 360px) and (max-width: 480px) {
   .dashboard-grid { grid-template-columns: repeat(6,minmax(0,1fr)); }
