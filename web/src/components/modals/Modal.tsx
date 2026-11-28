@@ -55,6 +55,9 @@ export function Modal({ onClose, children, className, label, top, passThrough, e
     if (!embedded) { stack.push(modal); syncModalBackground(); }
     const k = (e: KeyboardEvent) => {
       if ((embedded ? stack.length > 0 : stack.at(-1) !== modal) || e.defaultPrevented) return;
+      // A nested menu owns the first Escape and restores its trigger inside
+      // this dialog. The next Escape can close the dialog itself.
+      if (e.key === 'Escape' && [...modal.querySelectorAll('[role="menu"]')].some(menu => menu.checkVisibility())) return;
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close.current(); return; }
       if (e.key !== 'Tab' || embedded) return;
       const elements = [...(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]') ?? [])]

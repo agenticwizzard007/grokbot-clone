@@ -60,8 +60,33 @@ async function openUsageMeter(page, collapsed) {
   assert.equal(await meter.getAttribute('aria-label') !== null, collapsed && !mobile);
   assert.equal(await meter.getByRole('progressbar', { name: 'API credits usage', exact: true }).count(), collapsed && !mobile ? 0 : 1);
 }
+async function showUsage(page, surface) {
+  const sidebar = page.locator('.sidebar');
+  if (!await sidebar.isVisible()) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  if (surface === 'rail' && page.viewportSize().width > 760 && !await sidebar.evaluate(node => node.classList.contains('is-collapsed'))) {
+    await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
+  }
+  const meter = sidebar.locator('.sidebar-usage');
+  await meter.waitFor();
+  if (await sidebar.evaluate(node => node.classList.contains('is-collapsed'))) {
+    assert.equal(await meter.and(page.getByRole('button', { name: /^Usage: (API credits|Claude Pro plan)\./ })).count(), 1, 'Collapsed usage has a descriptive accessible name');
+  } else {
+    await meter.locator('.plan-usage__name').getByText(/^(API credits|Claude Pro plan)$/).waitFor();
+    assert.equal(await meter.getAttribute('aria-label'), null, 'Expanded usage derives its name from all visible labels');
+    assert.equal(await meter.and(page.getByRole('button', { name: /On your own keys/ })).count(), 1, 'The usage button includes the own-key label in its name');
+  }
+  if (surface === 'menu') {
+    const trigger = page.getByRole('button', { name: /Account & settings$/ });
+    if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click();
+    await page.getByRole('menuitem', { name: 'Usage', exact: true }).waitFor();
+  }
+}
 const routes = [...navigationRoutes.map(hash => ({ name: hash || 'home', hash })),
   ...[false, true].map(collapsed => ({ name: `usage-meter-${collapsed ? 'collapsed' : 'expanded'}`, hash: '#bots', action: page => openUsageMeter(page, collapsed) })),
+  ...['sidebar', 'menu', 'rail'].flatMap(surface => ['normal', 'warning', 'critical', 'no-limit', 'cli-known', 'cli-unknown'].map(usage => ({
+    name: `usage-${surface}-${usage}`, hash: '#bots', usage, surface,
+    desktopOnly: surface === 'rail', action: page => showUsage(page, surface), reflow: page => showUsage(page, surface),
+  }))),
   { name: 'routines', hash: '#bot/coordinator/reports', action: openRoutines },
   { name: 'routine-confirm', hash: '#bot/coordinator/reports', action: async page => { await openRoutines(page); await page.getByRole('button').filter({ hasText: /^Run now$/ }).first().click(); } },
   { name: 'about-you', hash: '#settings/appearance/use' },
@@ -98,11 +123,12 @@ try {
       }, true);
     });
     const selectedRoutes = preset === 'swarm' ? routes : routes.filter(route => ['#settings/appearance', 'dashboard', '#bot/coordinator', '#bots', 'usage-meter-expanded', 'usage-meter-collapsed'].includes(route.name));
-    for (const route of selectedRoutes.filter(route => !process.env.A11Y_ROUTES || new RegExp(process.env.A11Y_ROUTES).test(route.name))) {
+    for (const route of selectedRoutes.filter(route => (!route.desktopOnly || width > 760) && (!process.env.A11Y_ROUTES || new RegExp(process.env.A11Y_ROUTES).test(route.name)))) {
       const name = `${preset === 'swarm' ? '' : `${preset}-`}${width}-${theme}-${route.name}`, file = name.replace(/[^a-z0-9-]/gi, '_');
       const item = { name, preset, width, theme, route: route.name, violations: [], reflow: [] };
       try {
         await page.setViewportSize({ width, height: width < 760 ? 844 : 900 });
+        if (route.usage) await server.usage(page, route.usage);
         await server.open(page, route.hash);
         await route.action?.(page);
         await assertSingleDialog(page, route.name);
@@ -118,6 +144,7 @@ try {
           if (scale === 4) await cdp.send('Emulation.setDeviceMetricsOverride', { width: 320, height: 844, deviceScaleFactor: 4, mobile: false, screenWidth: 1280, screenHeight: 3376 });
           await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('is-mobile') === matchMedia('(max-width: 760px)').matches);
           await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          await route.reflow?.(page);
           await assertSingleDialog(page, `${route.name} at ${cssWidth}px`);
           const issues = await page.evaluate(() => {
             const issues = [];
@@ -140,6 +167,7 @@ try {
         await page.setViewportSize({ width, height: width < 760 ? 844 : 900 });
         await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('is-mobile') === matchMedia('(max-width: 760px)').matches);
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await route.reflow?.(page);
         const scrollRegions = page.locator('[role=region][tabindex="0"]');
         item.keyboardScroll = 0;
         for (const region of await scrollRegions.all()) {
@@ -166,6 +194,14 @@ try {
           }
         }
         if (['#tasks', 'dashboard', 'about-you'].includes(route.name)) await page.screenshot({ path: path.join(out, `${file}.png`) });
+        if (route.surface === 'menu') {
+          const menu = page.getByRole('menu');
+          await menu.getByRole('menuitem', { name: 'Usage', exact: true }).focus();
+          await page.keyboard.press('Escape');
+          await menu.waitFor({ state: 'hidden' });
+          assert.equal(await page.getByRole('button', { name: /Account & settings$/ }).evaluate(node => node === document.activeElement), true, 'Usage menu returns focus to its trigger');
+          item.keyboard = 'Usage menu Escape and focus return passed';
+        }
         const dialog = page.locator(modalSelector);
         if (await dialog.count()) {
           const focusable = dialog.locator('button:enabled, input:enabled, select:enabled, textarea:enabled, a[href], [tabindex="0"]').filter({ visible: true });
@@ -192,7 +228,10 @@ try {
         }
         item.maxOpenDialogs = await page.evaluate(() => window.__a11yMaxDialogs);
       } catch (error) { item.error = error.stack; }
-      if (route.name.startsWith('usage-meter-')) await page.unroute('**/api/usage/summary');
+      if (route.name.startsWith('usage-meter-') || route.usage) {
+        await page.unroute('**/api/usage/summary');
+        await page.evaluate(() => localStorage.setItem('swarm.sidebarCollapsed', '0'));
+      }
       if (route.name === 'chat-preview') {
         try { await page.getByRole('region', { name: 'Review dashboard layout', exact: true }).getByRole('button', { name: 'Discard', exact: true }).click(); } catch (error) { item.error ??= error.stack; }
         server.db.prepare("DELETE FROM rows WHERE bot_id=? AND json_extract(body,'$.card')='ui_preview'").run(server.fixture.bot.id);

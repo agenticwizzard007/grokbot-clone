@@ -163,7 +163,15 @@ try {
     if (method === 'Escape') await page.keyboard.press('Escape');
     else await outsideClick(width - 2, 100);
     await page.getByRole('menu').waitFor({ state: 'detached' }).catch(() => assert.fail(`Account menu: ${method} must close it`));
-    if (width <= 760) await page.getByRole('dialog', { name: 'App navigation', exact: true }).waitFor({ state: 'detached' });
+    if (width <= 760) {
+     const drawer = page.getByRole('dialog', { name: 'App navigation', exact: true });
+     if (method === 'Escape') {
+      assert.ok(await drawer.isVisible(), 'First Escape closes only the nested account menu');
+      assert.ok(await page.getByRole('button', { name: /Account & settings$/ }).evaluate(el => el === document.activeElement), 'Account menu returns focus inside the drawer');
+      await page.keyboard.press('Escape');
+     }
+     await drawer.waitFor({ state: 'detached' });
+    }
     for (const [target, label] of [['Search','Search'], ['Connect apps','Connect Apps']]) {
      await cold('#bots'); await openArea(target);
      const surface = page.getByRole('dialog', { name: label, exact: true });
