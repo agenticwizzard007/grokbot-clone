@@ -68,7 +68,8 @@ export function inspectAlignment({ selector = '.shell-content > :not(.shell-head
   }
   if (sidebarOnly) return issues;
   const roots = [...document.querySelectorAll(selector)];
-  const visible = el => el.checkVisibility() && el.getBoundingClientRect().width > 0;
+  // Accessibility announcements are fully clipped, including their text descendants.
+  const visible = el => el.checkVisibility() && el.getBoundingClientRect().width > 0 && !el.closest('.sr-only, .dashboard-sr-only, [style*="clip-path: inset(50%)"]');
   const all = [...new Set(roots.flatMap(root => [root, ...root.querySelectorAll('*')]))].filter(visible);
   if (!all.length) issues.push('No visible route surface');
   const label = el => `${el.dataset.layout || el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]} ${(el.innerText || el.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 55)}`;
