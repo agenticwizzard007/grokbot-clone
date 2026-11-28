@@ -41,6 +41,15 @@ test('platform admission and operator commands on disposable PostgreSQL', { skip
     assert.equal((await directory.pool.query('SELECT operation FROM lifecycle_jobs WHERE tenant_id=$1', [existing])).rows[0].operation, 'create');
     assert.equal(await identity('existing', 'malformed'), existing);
   });
+  await t.test('existing identity sign-in does not wait behind the new-signup admission lock', async () => {
+    const blocker = await directory.pool.connect();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await blocker.query('BEGIN'); await blocker.query("SELECT pg_advisory_xact_lock(hashtext('swarm-phone-signups'))");
+      const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Existing sign-in waited on admission.')), 2000); });
+      assert.equal(await Promise.race([identity('existing'), timeout]), existing!);
+    } finally { clearTimeout(timer); await blocker.query('ROLLBACK'); blocker.release(); }
+  });
   await t.test('expired, revoked, exhausted and unknown invitations create nothing', async () => {
     for (const state of ['expired', 'revoked', 'exhausted', 'unknown']) {
       const code = await invite();

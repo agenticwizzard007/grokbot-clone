@@ -1,3 +1,4 @@
+import './fixtures/platform-open-signups.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { randomBytes, createHash } from 'node:crypto';

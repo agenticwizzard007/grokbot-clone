@@ -96,4 +96,4 @@ npm run test:readiness-kk
 node tests/ui-custom/unit/client-defaults-ui.mjs
 ```
 
-The UI test stores baseline and branch screenshots under `.context/mt/onboarding-ui` and compares standalone sign-in at 390 and 1280 pixels in both themes. Local tests are not evidence of live OAuth compatibility, real isolation, resource cleanup or release qualification.
+The UI test stores baseline and branch screenshots under `.context/mt/onboarding-ui` and compares standalone sign-in at 390 and 1280 pixels in both themes. The native shell forwards invitation query parameters into its PKCE and Apple attempts. Its Swift URL/PKCE test requires Xcode and was not run in the Linux sandbox. Local tests are not evidence of live OAuth compatibility, real isolation, resource cleanup or release qualification.

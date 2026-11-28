@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
-import { admitNewTenant, signupLock } from './onboarding.js';
+import { admitNewTenant } from './onboarding.js';
 import { randomBytes, createHash } from 'node:crypto';
 export const hashToken = (v: string) => createHash('sha256').update(v).digest('hex');
 export const opaqueToken = () => randomBytes(32).toString('base64url');
@@ -279,8 +279,6 @@ export class Directory {
   }
   /** For verified identity workflows that must consume their authorization in the same transaction. */
   async identityInTransaction(client: PoolClient, provider: string, subject: string, profile: { name: string; email?: string }, linkSession?: string, inviteCode?: string) {
-      // Admission is locked before identity or session rows, including phone callers.
-      await client.query(signupLock);
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${provider}:${subject}`]);
       const existing = (await client.query('SELECT tenant_id FROM identities WHERE provider=$1 AND subject=$2', [provider, subject])).rows[0];
       const link = linkSession ? (await client.query(`SELECT tenant_id FROM sessions WHERE hash=$1 AND expires_at>now()

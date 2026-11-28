@@ -13,8 +13,6 @@ const files = [
   'mcp', 'mcp-capacity', 'mcp-folders', 'composio', 'app-suggestions', 'voice-connection-state', 'connection-state-tenant',
   'expired-connections', 'connection-cards', 'voice-coordinator', 'messaging',
 ];
-// Existing infrastructure fixtures create tenants directly. Admission tests explicitly
-// select invite/closed policy and verify the production default independently.
-const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', ...files.map(name => `tests/${name}.test.mts`)], { stdio: 'inherit', env: { ...process.env, MESSAGING_SIGNUP_MODE: process.env.MESSAGING_SIGNUP_MODE ?? 'open' } });
+const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', ...files.map(name => `tests/${name}.test.mts`)], { stdio: 'inherit' });
 if (result.error) console.error(result.error.message);
 process.exit(result.status ?? 1);
