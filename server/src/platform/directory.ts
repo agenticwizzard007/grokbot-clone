@@ -1,4 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
+import { bindTenantLog } from './tenant-logs.js';
 import { randomBytes, createHash } from 'node:crypto';
 export const hashToken = (v: string) => createHash('sha256').update(v).digest('hex');
 export const opaqueToken = () => randomBytes(32).toString('base64url');
@@ -180,6 +181,27 @@ export class Directory {
           used_bytes bigint NOT NULL CHECK(used_bytes BETWEEN 0 AND 10737418240000),received_at timestamptz NOT NULL DEFAULT clock_timestamp(),
           PRIMARY KEY(tenant_id,at));
         ALTER TABLE host_usage_samples ADD COLUMN IF NOT EXISTS filesystems jsonb;
+        CREATE TABLE IF NOT EXISTS tenant_meter (
+          tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE, day date NOT NULL,
+          metric text NOT NULL, quantity numeric NOT NULL CHECK(quantity>=0 AND quantity<1e15), unit text NOT NULL,
+          cost_usd numeric CHECK(cost_usd>=0 AND cost_usd<1e15), source text NOT NULL,
+          updated_at timestamptz NOT NULL DEFAULT clock_timestamp(), PRIMARY KEY(tenant_id,day,metric,source),
+          CHECK((source='provisioner' AND ((metric='machine_running_seconds' AND unit='seconds') OR (metric='storage_gb_days' AND unit='GB-days')))
+            OR (source='tenant' AND ((metric='model_spend_usd' AND unit='USD') OR (metric IN ('computer_minutes','voice_minutes') AND unit='minutes')))));
+        CREATE INDEX IF NOT EXISTS tenant_meter_retention ON tenant_meter(day);
+        CREATE TABLE IF NOT EXISTS tenant_allowances (
+          tenant_id text PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+          monthly_usd numeric NOT NULL CHECK(monthly_usd>0 AND monthly_usd<=1000000000),
+          updated_at timestamptz NOT NULL DEFAULT clock_timestamp());
+        CREATE TABLE IF NOT EXISTS tenant_meter_status (
+          tenant_id text PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+          report_at bigint, reported_at timestamptz, last_tunnel_at timestamptz,
+          last_poll_at timestamptz, observed_at timestamptz, poll_failed boolean NOT NULL DEFAULT false);
+        CREATE TABLE IF NOT EXISTS tenant_meter_resources (
+          tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          kind text NOT NULL CHECK(kind IN ('machine','volume')), resource_id text NOT NULL,
+          generation bigint NOT NULL, at bigint NOT NULL, quantity numeric NOT NULL CHECK(quantity>=0 AND quantity<=10000),
+          state text NOT NULL, PRIMARY KEY(tenant_id,kind,resource_id));
         CREATE TABLE IF NOT EXISTS retired_volumes (
           tenant_id text NOT NULL REFERENCES tenants(id),volume_id text NOT NULL,operation_id text NOT NULL REFERENCES environment_operations(id),
           delete_after timestamptz NOT NULL,state text NOT NULL DEFAULT 'pending',error_code text,PRIMARY KEY(tenant_id,volume_id));
@@ -261,6 +283,7 @@ export class Directory {
       WHERE s.hash=$1 AND t.id=s.tenant_id AND t.state NOT IN ('deleting','deleted')
       AND s.expires_at>now() AND s.last_seen_at>now()-interval '24 hours'
       RETURNING s.*,t.generation,t.state,t.display_name,t.verified_email`, [hashToken(raw)]);
+    if (rows[0]) bindTenantLog(rows[0].tenant_id);
     return rows[0] ?? null;
   }
   async identity(provider: string, subject: string, profile: { name: string; email?: string }, linkSession?: string) {
@@ -304,6 +327,7 @@ export class Directory {
       if (previous) await client.query('DELETE FROM sessions WHERE hash=$1', [hashToken(previous)]);
       await client.query('INSERT INTO sessions(hash,tenant_id,device) VALUES($1,$2,$3)', [hashToken(raw), tenant, device.slice(0, 200)]);
     });
+    bindTenantLog(tenant);
     return raw;
   }
   async revokeTenant(tenant: string, authorization?: {sessionHash:string} | {phone:{channel:string;revision:string;tokenHash:string}}) {
@@ -324,6 +348,9 @@ export class Directory {
       await client.query('UPDATE runtime_credentials SET revoked_at=now() WHERE tenant_id=$1', [tenant]);
       await client.query('DELETE FROM companion_routes WHERE tenant_id=$1', [tenant]);
       await client.query('DELETE FROM host_usage_samples WHERE tenant_id=$1', [tenant]);
+      for (const table of ['tenant_meter','tenant_allowances','tenant_meter_resources','tenant_meter_status']) {
+        await client.query(`DELETE FROM ${table} WHERE tenant_id=$1`, [tenant]);
+      }
       await client.query("UPDATE environment_operations SET capacity_change=capacity_change-'samples' WHERE tenant_id=$1 AND capacity_change ? 'samples'",[tenant]);
       await client.query("UPDATE messaging_routes SET state='revoked',revision=revision+1 WHERE tenant_id=$1", [tenant]);
       await client.query('DELETE FROM messaging_tokens WHERE tenant_id=$1', [tenant]);
