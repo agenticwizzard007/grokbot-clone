@@ -63,6 +63,7 @@ export async function fixturePage(browser, viewport = { width: 1280, height: 900
       jobs: [], workflows: [], goals: [], artifacts: [], deliveries: [], requests: {}, coverage: {}, humanSources: { pending: 0 },
       health: { runtime: 'healthy', lastTickAt: now, lastError: null, pendingWakes: 0 },
     } };
+    else if (path === '/api/deliverables/library') body = { artifacts: [], total: 0 };
     else if (/^\/api\/deliverables\/bots\/[^/]+\/runs$/.test(path)) body = { runs: [] };
     else if (/^\/api\/deliverables\/bots\/[^/]+$/.test(path)) body = { artifacts: [] };
     else if (path === '/api/checkins') body = { enabled: false, times: ['09:00'], timezone: 'Asia/Dubai', timezoneSource: 'explicit', quietHours: [] };
