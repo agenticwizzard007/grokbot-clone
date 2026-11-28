@@ -344,6 +344,9 @@ useStore.subscribe((state, previous) => {
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
     return;
   }
+  // Standalone artifact pages own their pathname; loading the roster must not
+  // initialize the chat shell or append its default Bot hash to a shared link.
+  if (/^\/artifacts\/[A-Za-z0-9_-]+\/?$/.test(window.location.pathname)) return;
   if (!state.user || !state.botsLoaded) return;
   if (navigationAccount !== state.user.id) {
     navigationAccount = state.user.id;

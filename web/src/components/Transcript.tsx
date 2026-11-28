@@ -182,8 +182,8 @@ function Steps({ rows, visibility }: { rows: Row[]; visibility: ComponentVisibil
       {rows.map(row => {
         const saved = savedFileResult(row.body);
         return saved && <div key={row.seq} className="saved-file-result" data-row-seq={row.seq}>
-          <span>Saved {saved.filename} to Files.</span>
-          <a href={saved.href}>View Files</a>
+          <span>Saved {saved.filename} to Artifacts.</span>
+          <a href={saved.href}>View Artifacts</a>
         </div>;
       })}
       {visible.length > 0 && (

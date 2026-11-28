@@ -107,7 +107,7 @@ try {
   }
   const tabs=work.getByRole('navigation',{name:'Work sections'});
   const tabRect=await tabs.boundingBox();
-  for(const tab of ['Team','Goals','Files','Tasks']) {
+  for(const tab of ['Team','Goals','Artifacts','Tasks']) {
    await tabs.getByRole('button',{name:tab,exact:true}).click();
    await work.getByRole('heading',{name:tab,exact:true}).first().waitFor();
    const current=await tabs.boundingBox();assert.ok(Math.abs(current.x-tabRect.x)<=1&&Math.abs(current.y-tabRect.y)<=1&&Math.abs(current.width-tabRect.width)<=1,'Tabs keep their position');

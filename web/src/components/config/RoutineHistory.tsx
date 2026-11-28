@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { deliverablesApi, type Artifact, type RoutineRun } from '../../lib/deliverablesApi';
+import { artifactUrl } from '../../artifacts/api';
 import { relativeShort } from '../../lib/time';
 import { useStore } from '../../store';
 import { useVersion } from '../../configStore';
@@ -68,8 +69,8 @@ function RunFiles({ botId, id }: { botId: string; id: string }) {
     return () => controller.abort();
   }, [id, botId, revision]);
   return <div className="work-actions">{error && <p role="alert" className="work-error">{error} <button type="button" className="work-button" onClick={() => setRevision(count => count + 1)}>Retry run details</button></p>}
-    {!files && !error && <p role="status">Loading saved run files…</p>}
-    {files?.length === 0 && <p className="work-meta">No saved report files for this run.</p>}
-    {files?.map(file => <a key={file.id} href={file.downloadUrl} className="work-button" download={file.filename}>{file.filename}</a>)}
+    {!files && !error && <p role="status">Loading run artifacts…</p>}
+    {files?.length === 0 && <p className="work-meta">No artifacts saved for this run.</p>}
+    {files?.map(file => <a key={file.id} href={artifactUrl(file.id)} className="work-button">{file.filename}</a>)}
   </div>;
 }

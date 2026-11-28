@@ -10,11 +10,12 @@ async function request<T>(path: string, body?: unknown, key?: string, signal?: A
     body: body === undefined ? undefined : JSON.stringify(body) });
   if (!response.ok) {
     const detail = await response.json().catch(() => null);
-    throw new ApiError(response.status, detail?.error ?? 'Could not load saved reports.');
+    throw new ApiError(response.status, detail?.error ?? 'Could not load artifacts.');
   }
   return response.json();
 }
 export const deliverablesApi = {
+  artifact: (id: string, signal?: AbortSignal) => request<{ artifacts: SavedDeliverable[] }>(`/artifacts/${encodeURIComponent(id)}/delivery-history`, undefined, undefined, signal),
   list: (botId: string, signal?: AbortSignal) => request<{ artifacts: SavedDeliverable[] }>(`/bots/${encodeURIComponent(botId)}`, undefined, undefined, signal),
   runs: (botId: string, routineId?: string, signal?: AbortSignal) => request<{ runs: RoutineRun[] }>(`/bots/${encodeURIComponent(botId)}/runs${routineId ? `?routineId=${encodeURIComponent(routineId)}` : ''}`, undefined, undefined, signal),
   run: (id: string, signal?: AbortSignal) => request<{ run: RoutineRun; artifacts: Artifact[] }>(`/runs/${encodeURIComponent(id)}`, undefined, undefined, signal),

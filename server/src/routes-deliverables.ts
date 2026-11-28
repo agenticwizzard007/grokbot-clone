@@ -4,9 +4,11 @@ import { db } from './db.js';
 import { sha256 } from './lib/ids.js';
 import { requireUser, type AuthVars } from './lib/auth.js';
 import { DeliverableError, getRoutineRun, listArtifacts, listDeliveries, listRoutineRuns,
-  readArtifact, getArtifact, getDelivery, getDeliveryTarget, requestDelivery, retryDelivery, sendDelivery, prepareDeliveryAction, deliveryDestinationSchema, deliveryByKey, deliveryCommand, recordDeliveryCommand, reconcileDelivery, targetIdentity } from './deliverables/index.js';
+  getArtifact, getDelivery, getDeliveryTarget, requestDelivery, retryDelivery, sendDelivery, prepareDeliveryAction, deliveryDestinationSchema, deliveryByKey, deliveryCommand, recordDeliveryCommand, reconcileDelivery, targetIdentity } from './deliverables/index.js';
 
-/** Mounted by the app at /api/deliverables. All downloads and mutations require the owning user. */
+import { artifactLibrary, collaborationArtifact, sharedArtifactContent, artifactMembers, setArtifactMember, artifactComments, addArtifactComment } from './deliverables/collaboration.js';
+
+/** Owner-only delivery actions; artifact reads and discussions also honor explicit team access. */
 export const deliverablesApi = new Hono<AuthVars>();
 deliverablesApi.use('*', requireUser);
 deliverablesApi.onError((e, c) => {
@@ -16,6 +18,31 @@ deliverablesApi.onError((e, c) => {
   return c.json({ error: 'Deliverable operation failed.' }, 500);
 });
 
+deliverablesApi.get('/library', c => {
+  const offset = z.coerce.number().int().min(0).max(100000).parse(c.req.query('offset') ?? 0);
+  return c.json(artifactLibrary(c.get('user').id, offset, c.req.query('botId')));
+});
+deliverablesApi.get('/artifacts/:artifactId', c => {
+  const userId = c.get('user').id, id = c.req.param('artifactId');
+  return c.json({ artifact: collaborationArtifact(userId, id), members: artifactMembers(userId, id), comments: artifactComments(userId, id) });
+});
+deliverablesApi.get('/artifacts/:artifactId/delivery-history', c => {
+  const userId = c.get('user').id, artifact = getArtifact(userId, c.req.param('artifactId'));
+  return c.json({ artifacts: [{ ...artifact, deliveries: listDeliveries(userId, artifact.id) }] });
+});
+deliverablesApi.get('/artifacts/:artifactId/content', c => {
+  const { artifact, content } = sharedArtifactContent(c.get('user').id, c.req.param('artifactId'));
+  const isText = artifact.mimeType.startsWith('text/') || /\.(md|txt|csv|json|html|css|js|ts|tsx|jsx|py|xml|yaml|yml|sql)$/i.test(artifact.filename);
+  return c.json({ text: isText && content.length <= 1024 * 1024 ? content.toString('utf8') : null }, 200, { 'Cache-Control': 'private, no-store' });
+});
+deliverablesApi.post('/artifacts/:artifactId/members', async c => {
+  const body = z.object({ email: z.string().trim().email().max(254), role: z.enum(['viewer', 'commenter', 'remove']) }).strict().parse(await c.req.json());
+  return c.json({ members: setArtifactMember(c.get('user').id, c.req.param('artifactId'), body.email, body.role) });
+});
+deliverablesApi.post('/artifacts/:artifactId/comments', async c => {
+  const body = z.object({ body: z.string().trim().min(1).max(4000), requestId: z.string().uuid() }).strict().parse(await c.req.json());
+  return c.json({ comments: addArtifactComment(c.get('user').id, c.req.param('artifactId'), body.body, body.requestId) });
+});
 deliverablesApi.get('/bots/:botId', (c) => {
   const userId = c.get('user').id;
   const artifacts = listArtifacts(userId, c.req.param('botId')).map((a) => ({ ...a, deliveries: listDeliveries(userId, a.id) }));
@@ -27,7 +54,7 @@ deliverablesApi.get('/runs/:runId', (c) => {
   return c.json({ run, artifacts: listArtifacts(userId, run.botId, run.id) });
 });
 deliverablesApi.get('/artifacts/:artifactId/download', (c) => {
-  const { artifact, content } = readArtifact(c.get('user').id, c.req.param('artifactId'));
+  const { artifact, content } = sharedArtifactContent(c.get('user').id, c.req.param('artifactId'));
   const asciiName = artifact.filename.replace(/[^A-Za-z0-9._-]/g, '_');
   return c.body(content, 200, {
     'Content-Type': 'application/octet-stream',

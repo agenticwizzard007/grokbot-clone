@@ -84,7 +84,7 @@ function WorkWorkspace() {
   useLayoutEffect(() => { if (heading?.detail) pageHeading.current?.focus({ preventScroll: true }); }, [heading?.detail]);
 
   return (
-    <main className="chat tasks-view" aria-labelledby="tasks-heading">
+    <main className={`chat tasks-view${tab === 'Reports' ? ' tasks-view--artifacts' : ''}`} aria-labelledby="tasks-heading">
       <div className="tasks-view__scroll" ref={scroll} tabIndex={0} role="region" aria-labelledby="tasks-heading">
         <Page type="wide" className="tasks-view__inner work-ui">
           <div className="work-heading"><div className="work-heading__copy"><h1 id="tasks-heading" ref={pageHeading} tabIndex={-1}>{title === workTabLabel(tab) ? `${scope}${title}` : title}</h1>{tab === 'Tasks' && <p>Keep your team’s work moving.</p>}</div>

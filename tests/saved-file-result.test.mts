@@ -55,7 +55,7 @@ test('R15 Markdown omits repeated save navigation but retains other links, code 
 });
 
 test('R16 Files links retain legacy reply support and suppress repeated navigation', () => {
-  for (const label of ['View Files', 'View saved files']) {
+  for (const label of ['View Artifacts', 'View Files', 'View saved files']) {
     const text = `Saved fixture.txt. [${label}](${href})`;
     const legacy = renderToStaticMarkup(React.createElement(Markdown, { text }));
     assert.ok(legacy.includes(`>${label}</a>`));

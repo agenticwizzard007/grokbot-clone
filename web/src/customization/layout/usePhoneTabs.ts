@@ -1,4 +1,4 @@
-import { House, LayoutDashboard, ListTodo, Search, Settings, Gauge, Folder } from 'lucide-react';
+import { House, LayoutDashboard, ListTodo, Search, Settings, Gauge, Boxes } from 'lucide-react';
 import type { UiConfig } from '@shared/ui-config/schema';
 import type { Screen } from '../../lib/navigation';
 import { useEffectiveConfig } from '../index';
@@ -13,7 +13,7 @@ export function phoneTabsFor(doc: UiConfig) {
     tasks: { label: 'Tasks', Icon: ListTodo, target: { kind: 'work', route: { tab: 'Tasks' } } as Screen },
     search: { label: 'Search', Icon: Search, target: { kind: 'search' } as Screen },
     usage: { label: 'Usage', Icon: Gauge, target: { kind: 'settings', section: 'usage' } as Screen },
-    files: { label: 'Files', Icon: Folder, target: { kind: 'work', route: { tab: 'Reports' } } as Screen },
+    files: { label: 'Artifacts', Icon: Boxes, target: { kind: 'work', route: { tab: 'Reports' } } as Screen },
     settings: { label: 'Settings', Icon: Settings, target: { kind: 'settings' } as Screen },
   };
   let dashboardAdded = false;

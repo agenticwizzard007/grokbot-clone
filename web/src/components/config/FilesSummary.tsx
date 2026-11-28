@@ -13,18 +13,18 @@ import { SetupConnectionHelp } from './SetupConnectionHelp';
 export function FilesSummary({ bot, onReports }: { bot: Bot; onReports: () => void }) {
   const userId = useStore(state => state.user?.id);
   const setupVersion = useVersion(`setup:${bot.id}`);
-  const [reports, setReports] = useState('Checking files...');
+  const [reports, setReports] = useState('Loading artifacts…');
   const [setup, setSetup] = useState<AgentSetupView | null>();
   const [setupError, setSetupError] = useState('');
   useEffect(() => {
     const controller = new AbortController();
     const current = () => !controller.signal.aborted && useStore.getState().user?.id === userId;
-    setReports('Checking files...'); setSetup(undefined); setSetupError('');
+    setReports('Loading artifacts…'); setSetup(undefined); setSetupError('');
     void settingsRead(signal => deliverablesApi.list(bot.id, signal), controller.signal).then(({ artifacts }) => {
       if (current()) setReports(artifacts.some(file => file.botId === bot.id)
-        ? 'Reports ready'
-        : 'No reports yet.');
-    }).catch(() => { if (current()) setReports('Could not check reports.'); });
+        ? 'Artifacts ready to preview and share'
+        : 'No artifacts yet. Ask this bot to save its work.');
+    }).catch(() => { if (current()) setReports('Could not load artifacts.'); });
     if (bot.kind !== 'room') void settingsRead(signal => configApi.agentSetup(bot.id, signal), controller.signal).then(value => {
       if (current()) setSetup(value);
     }).catch(error => {
@@ -37,7 +37,7 @@ export function FilesSummary({ bot, onReports }: { bot: Bot; onReports: () => vo
   const hasSetup = setup && Object.values(setup.files).some(text => text.trim());
   const resources = setup?.manifest.brief.shared_resources.map(setupResourceText).filter(text => /needs to be reconnected|could not connect|connection unavailable/i.test(text)) ?? [];
   return <>
-    <Card><Row title="Saved reports" subtitle={<span role="status">{reports}</span>} trailing={<button className="cfg-btn cfg-btn--secondary" type="button" onClick={onReports}>Open</button>} /></Card>
+    <Card><Row title="Artifacts" subtitle={<span role="status">{reports}</span>} trailing={<button className="cfg-btn cfg-btn--secondary" type="button" onClick={onReports}>Open</button>} /></Card>
     {bot.kind !== 'room' && <details className="pb-disclosure"><summary>Saved setup</summary>
       <p role="status">{setupError || (setup === undefined ? 'Checking saved setup...' : hasSetup ? 'Saved configuration' : 'No saved setup yet.')}</p>
       {resources.map((text, index) => <p key={index}>{text}</p>)}<SetupConnectionHelp text={resources.join('\n')} />

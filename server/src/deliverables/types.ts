@@ -27,3 +27,10 @@ export class DeliverableError extends Error {
 }
 /** Only use before any external send has been invoked. Generic/network errors are uncertain. */
 export class DeliveryNotSentError extends Error {}
+
+export type ArtifactRole = 'owner' | 'viewer' | 'commenter';
+export interface CollaborativeArtifact extends Artifact {
+  role: ArtifactRole; ownerName: string; botName: string; memberCount: number; commentCount: number;
+}
+export interface ArtifactMember { userId: string; name: string; email: string; role: ArtifactRole }
+export interface ArtifactComment { id: string; userId: string; authorName: string; body: string; createdAt: number }

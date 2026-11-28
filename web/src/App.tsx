@@ -14,6 +14,7 @@ import type { RunOutput } from './handoffs/api';
 import type { LoopDraft } from './handoffs/loops/LoopSheet';
 
 const AuthenticatedShell = lazy(() => import('./AuthenticatedShell').then(m => ({ default: m.AuthenticatedShell })));
+const ArtifactPage = lazy(() => import('./artifacts/ArtifactViewer').then(m => ({ default: m.ArtifactPage })));
 const JoinPage = lazy(() => import('./components/JoinPage').then(m => ({ default: m.JoinPage })));
 const LoopsPage = lazy(() => import('./handoffs/loops/LoopsPage'));
 const LoopRun = lazy(() => import('./handoffs/loops/LoopRun'));
@@ -156,6 +157,21 @@ export function App() {
   const authChecking = useStore((s) => s.authChecking);
   const authError = useStore((s) => s.authError);
   const user = useStore((s) => s.user);
+  useEffect(() => {
+    if (!authChecked) return;
+    try {
+      const isArtifact = /^\/artifacts\/[A-Za-z0-9_-]+\/?$/.test(location.pathname);
+      if (isArtifact) {
+        if (user) sessionStorage.removeItem('swarm.artifactReturn');
+        else sessionStorage.setItem('swarm.artifactReturn', location.pathname);
+      } else if (user) {
+        const returnTo = sessionStorage.getItem('swarm.artifactReturn');
+        if (returnTo && /^\/artifacts\/[A-Za-z0-9_-]+\/?$/.test(returnTo)) {
+          sessionStorage.removeItem('swarm.artifactReturn'); location.replace(returnTo);
+        }
+      }
+    } catch { /* Normal navigation still works without session storage. */ }
+  }, [authChecked, user?.id]);
   useEffect(installVoiceEntry, []);
   useEffect(installOverlayScrollbars, []);
   useEffect(() => { consumeSignedInRedirect(); useStore.getState().checkAuth(); }, []);
@@ -204,5 +220,9 @@ export function App() {
     </main>
   );
   if (!authChecked) return <div className="boot" />;
+  const artifactPath = window.location.pathname.match(/^\/artifacts\/([A-Za-z0-9_-]+)\/?$/);
+  if (artifactPath) return user
+    ? <Suspense fallback={<div className="boot" role="status">Loading artifact…</div>}><ArtifactPage key={`${user.id}:${artifactPath[1]}`} id={artifactPath[1]} /></Suspense>
+    : <SignIn />;
   return user ? <><SafeModeBanner /><PreviewBanner /><AppearanceUndo /><Suspense fallback={<div className="boot" role="status">Loading...</div>}><AuthenticatedApp key={user.id} /></Suspense></> : <SignIn />;
 }

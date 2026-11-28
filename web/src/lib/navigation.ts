@@ -161,7 +161,7 @@ type NavigationBot = { id: string; name: string; kind?: string };
 export function backLabel(screen: Screen, bots: NavigationBot[] = []): string {
   if (screen.kind === 'work') return `Back to ${workTabLabel(screen.route.tab)}`;
   if (screen.kind === 'chat') return `Back to ${routeBot(screen.bot, bots)?.name ?? 'Bot'} chat`;
-  if (screen.kind === 'details') return screen.flow ? 'Back to Flow' : screen.tab === 'library' ? 'Back to files' : screen.tab === 'configuration' ? 'Back to setup' : 'Back to details';
+  if (screen.kind === 'details') return screen.flow ? 'Back to Flow' : screen.tab === 'library' ? 'Back to artifacts' : screen.tab === 'configuration' ? 'Back to setup' : 'Back to details';
   const names: Record<Screen['kind'], string> = {
     'first-run': 'model setup',
     loops: 'Loops', loop: 'loop', handoff: 'handoff', output: 'output',
@@ -205,7 +205,7 @@ export function screenTitle(screen: Screen, bots: NavigationBot[] = [], loaded =
     case 'bot-settings': title = `${name} · ${screen.tab[0].toUpperCase()}${screen.tab.slice(1)}`; break;
     case 'details': {
       const tab = screen.tab === 'configuration' ? screen.setup ?? 'responsibilities' : screen.reports ? 'reports' : screen.tab;
-      const label = { activity: 'Activity', tasks: 'Tasks', library: 'Files', reports: 'Files', responsibilities: 'Setup', harness: 'Harness', files: 'Configuration files', history: 'History' }[tab];
+      const label = { activity: 'Activity', tasks: 'Tasks', library: 'Artifacts', reports: 'Artifacts', responsibilities: 'Setup', harness: 'Harness', files: 'Configuration files', history: 'History' }[tab];
       title = `${name} · ${screen.flow ? 'Flow' : label}`;
       break;
     }

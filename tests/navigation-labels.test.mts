@@ -88,7 +88,7 @@ test('every route title is named and section titles update synchronously', () =>
     go(`#settings/${section}`);
     assert.equal(document.title, `Settings · ${SETTINGS_LABELS[section]} · Swarm`);
   }
-  for (const [hash, title] of [['#bots', 'Bots'], ['#bot/fixture', 'Fixture Bot'], ['#new-bot', 'Create a Bot'], ['#new-bot/group', 'New group chat'], ['#search', 'Search'], ['#apps/connect', 'Connect apps'], ['#tasks', 'Tasks'], ['#team', 'Team'], ['#goals', 'Goals'], ['#reports', 'Files']]) {
+  for (const [hash, title] of [['#bots', 'Bots'], ['#bot/fixture', 'Fixture Bot'], ['#new-bot', 'Create a Bot'], ['#new-bot/group', 'New group chat'], ['#search', 'Search'], ['#apps/connect', 'Connect apps'], ['#tasks', 'Tasks'], ['#team', 'Team'], ['#goals', 'Goals'], ['#reports', 'Artifacts']]) {
     go(hash); assert.equal(document.title, `${title} · Swarm`);
   }
   assert.equal(backLabel({kind:'group'}), 'Back to new group chat');
@@ -98,4 +98,24 @@ test('Bots has no Back label and closing its surface retains the previous screen
   reset('#reports'); go('#bots'); label('');
   navigation.initialize({ kind: 'bots' }); label('');
   backFromSurface(); assert.equal(f.location.hash, '#reports');
+});
+
+
+test('artifact links retain their pathname without a chat hash when sign-in and roster loading finish', () => {
+  const previous = useStore.getState();
+  f.location.pathname = '/artifacts/artifact_shared';
+  f.reset('');
+  navigation.reset();
+  try {
+    useStore.setState({ user: null, botsLoaded: false });
+    useStore.setState({ user: { id: 'artifact-reader' } as any });
+    useStore.setState({ bots: [...bots], botsLoaded: true, selectedBotId: 'fixture' });
+    assert.equal(f.location.hash, '');
+    assert.equal(navigation.screen, null);
+    useStore.setState({ bots: [...bots] });
+    assert.equal(f.location.hash, '', 'subsequent roster refreshes keep the shared link unchanged');
+  } finally {
+    f.location.pathname = '/';
+    useStore.setState({ user: previous.user, bots: previous.bots, botsLoaded: previous.botsLoaded });
+  }
 });

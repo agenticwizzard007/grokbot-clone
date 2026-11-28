@@ -20,9 +20,9 @@ const routes: [string, string | null, string][] = [
   ['#loop/lp_fixture', '#loops', 'Back to Loops'],
   ['#handoff/ho_fixture', '#bots', 'Back to Bots'],
   ['#output/out_fixture?part=p_body&send=1', '#bots', 'Back to Bots'],
-  ['#bot/fixture/details/files/reports', '#bot/fixture/details/files', 'Back to files'],
+  ['#bot/fixture/details/files/reports', '#bot/fixture/details/files', 'Back to artifacts'],
   ...['responsibilities', 'harness', 'files', 'history'].map(tab => [`#bot/fixture/details/setup/${tab}`, '#bot/fixture/details/setup', 'Back to setup'] as [string, string, string]),
-  ...['Tasks', 'Team', 'Goals', 'Reports'].map(tab => [`#bot/fixture/${tab.toLowerCase()}`, `#${tab.toLowerCase()}`, `Back to ${tab === 'Reports' ? 'Files' : tab}`] as [string, string, string]),
+  ...['Tasks', 'Team', 'Goals', 'Reports'].map(tab => [`#bot/fixture/${tab.toLowerCase()}`, `#${tab.toLowerCase()}`, `Back to ${tab === 'Reports' ? 'Artifacts' : tab}`] as [string, string, string]),
 ];
 for (const [hash, target, label] of routes) test(`structural parent: ${hash}`, () => {
   const screen = parseScreen(hash)!;

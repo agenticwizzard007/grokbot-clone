@@ -7,6 +7,7 @@
     "web"
   ],
   "scripts": {
+    "test:artifacts": "node --import tsx --test tests/artifact-collaboration.test.mts && node tests/artifacts-ui.mjs",
     "test:handoffs:quality": "node tests/handoffs/run-quality.mjs",
     "test:handoffs:e2e": "node tests/handoffs/e2e/journeys.mjs",
     "demo:handoffs:record": "node scripts/handoffs-demo.mjs",
