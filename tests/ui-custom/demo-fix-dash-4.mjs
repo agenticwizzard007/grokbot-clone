@@ -89,7 +89,7 @@ export async function runFixDash4({ before = false, output = path.resolve(`.cont
       const pre = await tops();
       await page.evaluate(async()=>{const {patchUiConfig,useCustomization}=await import('/src/customization/store.ts'); const w=useCustomization.getState().saved.dashboards[0].widgets[0]; await patchUiConfig([{op:'replace',path:'/dashboards/0/widgets/0/title',value:w.title==='Daily greeting'?'Ask your agent':'Daily greeting'}]);});
       await page.getByRole('status',{name:'Dashboard updated',exact:true}).waitFor();
-      const during=await tops(); await capture('toast');
+      const during=await tops(); await capture('toast','.dashboard-surface, .ui-toast-overlay');
       await page.evaluate(async()=>(await import('/src/customization/store.ts')).dismissUndo());
       const post=await tops(); check(`toast zero layout shift ${tag}`,JSON.stringify(pre)===JSON.stringify(during)&&JSON.stringify(pre)===JSON.stringify(post),{pre,during,post});
       const chat = `#bot/${account.bot.id}`;
@@ -102,7 +102,8 @@ export async function runFixDash4({ before = false, output = path.resolve(`.cont
       let card=page.getByRole('region',{name:'Create dashboard: Open tasks',exact:true});
       await card.getByRole('button',{name:'Apply',exact:true}).waitFor({timeout:30000});
       await page.getByText('Here is your dashboard. Press Apply to save it.',{exact:true}).waitFor();
-      check(`ask mode persisted config unchanged ${tag}`,JSON.stringify((await request('GET','/ui/config')).body.doc)===JSON.stringify(saved.doc));
+      const pendingConfig=(await request('GET','/ui/config')).body;
+      check(`ask mode persisted config unchanged ${tag}`,pendingConfig.revision===saved.revision&&JSON.stringify(pendingConfig.doc)===JSON.stringify(saved.doc));
       const effective=await page.evaluate(async()=>(await import('/src/customization/store.ts')).useCustomization.getState().effective.dashboards.map(d=>d.name));
       check(`Pending absent from navigation ${tag}`,!effective.includes('Open tasks'),effective);
       if(width>760) { await page.locator('.sidebar__disclosure').click(); check(`Pending absent from sidebar ${tag}`,await page.locator('.sidebar__dashboards').getByText('Open tasks',{exact:true}).count()===0); }
@@ -128,7 +129,7 @@ export async function runFixDash4({ before = false, output = path.resolve(`.cont
       check(`Discard leaves no dashboard ${tag}`,!(await request('GET','/ui/config')).body.doc.dashboards.some(d=>d.name==='Weekly planning'));
       check(`Discarded reply no stale instruction ${tag}`,!(await page.locator('.transcript').innerText()).includes('Press Apply'));
       await capture('preview-discarded','.ui-preview-card',false);
-      // The production skill decision is a notice/event, not an assistant bubble.
+      // Exercise notice/event rows, which bypassed the assistant Markdown renderer.
       await page.evaluate(async id=>{const {useStore}=await import('/src/store.ts'); const state=useStore.getState(), prior=state.transcripts[id]; const rows=[['notice','Skill creation was declined: **Daily summary** with `draft`.'],['event','Skill creation was declined: **Launch planning** with `review`.']].map(([type,text],i)=>({botId:id,generation:prior.generation,seq:10000+i,updatedSeq:10000+i,createdAt:Date.now()+i,kind:type,body:{type,text}}));useStore.setState({transcripts:{...state.transcripts,[id]:{...prior,bySeq:Object.fromEntries(rows.map(row=>[row.seq,row]))}}});},account.bot.id);
       await page.locator('[data-row-seq="10001"]').scrollIntoViewIfNeeded(); await page.waitForTimeout(250);
       check(`declined safe bold and code ${tag}`,await page.locator('[data-row-seq="10000"] strong').count()===1&&await page.locator('[data-row-seq="10000"] code').count()===1&&await page.locator('[data-row-seq="10001"] strong').count()===1&&!(await page.locator('.transcript').innerText()).includes('**'));
