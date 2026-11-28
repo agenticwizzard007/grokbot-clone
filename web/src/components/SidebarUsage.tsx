@@ -8,16 +8,17 @@ import { planUsageDisplay } from '../lib/planUsageDisplay';
 import { PlanUsageContent } from './PlanUsageContent';
 
 /** Account-scoped plan figures come only from GET /api/usage/summary. */
-export function SidebarUsage({ collapsed }: { collapsed: boolean }) {
+export function SidebarUsage({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
   const { summary, error, refresh } = usePlanUsage();
   const timezone = useStore(s => (s.user as { timezone?: string | null } | null)?.timezone);
   const view = summary && planUsageDisplay(summary.plan, timezone);
-  const label = summary ? `Usage: ${summary.plan.name}. ${view!.amount}. ${summary.plan.unit === 'usd' ? view!.status : ''} ${view!.warning}. ${view!.reset}` : error ? 'Usage unavailable. Try again' : 'Loading usage...';
-  return <button type="button" className="sidebar-usage" aria-label={collapsed ? label : undefined}
+  const unavailable = error || !!summary && summary.plan.unit === 'percent' && view?.percent === null;
+  const label = unavailable ? 'Usage unavailable' : summary ? `Usage: ${summary.plan.name}. ${view!.amount}. ${summary.plan.unit === 'usd' ? view!.status : ''} ${view!.warning}. ${view!.reset}` : 'Loading usage...';
+  return <button type="button" className={`sidebar-usage${unavailable ? ' is-unavailable' : ''}`} aria-label={collapsed ? label : undefined}
     title={collapsed ? label : undefined}
-    onClick={() => { if (error) void refresh(); useConfigUI.getState().openAppSettings(summary?.plan.billing === 'plan' ? 'subscriptions' : 'usage'); }}>
+    onClick={() => { if (error) void refresh(); useConfigUI.getState().openAppSettings('usage'); onNavigate?.(); }}>
     {collapsed ? providerBrand(summary?.plan.provider) ? <ProviderMark provider={summary?.plan.provider} /> : <Gauge size={20} aria-hidden /> : <>
-      <span className="sr-only">Usage</span><PlanUsageContent summary={summary} error={error} sidebar />
+      {unavailable ? <span className="sidebar-usage__unavailable">Usage unavailable</span> : <><span className="sr-only">Usage</span><PlanUsageContent summary={summary} error={error} sidebar /></>}
     </>}
   </button>;
 }

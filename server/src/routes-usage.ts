@@ -27,7 +27,7 @@ const nextUtcMidnight = () => {
 
 usageApi.get('/summary', (c) => {
   c.header('Cache-Control', 'no-store');
-  return c.json(planUsageSummary(c.get('user').id));
+  return c.json(planUsageSummary(c.get('user').id, Date.now(), 'account'));
 });
 
 usageApi.get('/', (c) => {

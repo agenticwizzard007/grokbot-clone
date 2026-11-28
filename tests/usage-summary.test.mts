@@ -304,7 +304,7 @@ test('CLI summary reads only fresh local quota observations and never invents a 
     for (let n = 0; n < 100 && !cliStatus(user).connected; n++) await new Promise(resolve => setTimeout(resolve, 10));
     assert.equal(cliStatus(user).connected, true); await refreshCli(user); await cliCatalog(user, 'claude');
     const calls = probes;
-    summary = await (await request()).json();
+    summary = planUsageSummary(user);
     assert.equal(summary.plan.name, 'Claude Max plan'); assert.equal(summary.plan.percentUsed, 125); assert.equal(summary.plan.limitCents, null);
     assert.equal(summary.plan.resetsAt, at + 60000); assert.equal(probes, calls);
     assert.equal(planUsageSummary(user, at + 30000).plan.percentUsed, null);
