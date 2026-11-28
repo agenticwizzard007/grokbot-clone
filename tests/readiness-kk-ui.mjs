@@ -37,7 +37,7 @@ try {
     await page.addInitScript(({ id, theme }) => { localStorage.setItem('swarm.selectedBot', id); localStorage.setItem('swarm.detailsOpen', '0'); localStorage.setItem('swarm.theme', theme); }, { id: bot.id, theme });
     await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     await page.goto(origin);
-    if (width === 390) await page.locator('.pinned__tile').click();
+    if (width === 390) await page.getByRole('button', { name: /^CLI fixture/ }).click();
     await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
     const send = async text => assert.equal((await context.request.post(`${origin}/api/bots/${bot.id}/messages`, { data: { text } })).status(), 200);
     for (const [name, request] of [['remember', 'I prefer fixture memory checks. Remember this.'], ['save_file', 'Save a fixture file.'], ['create_task', 'Create a fixture task.']]) {
