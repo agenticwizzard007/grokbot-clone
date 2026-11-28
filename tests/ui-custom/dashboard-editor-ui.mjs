@@ -6,7 +6,7 @@ const saved = page => page.evaluate(async () => (await import('/src/customizatio
 try {
   const page = await server.page(), dashboard = await server.create(page); await server.open(page, dashboard.id);
   page.on('request', request => { if (request.method() === 'PATCH' && request.url().endsWith('/api/ui/config')) requests.push({ headers: request.headers(), body: request.postDataJSON() }); });
-  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit dashboard', exact: true }).click();
   const activate = async (action, title = 'Cost by day') => {
     const button = page.getByRole('button', { name: `${action}: ${title}`, exact: true });
     await button.focus(); await page.keyboard.press('Enter');
@@ -28,7 +28,7 @@ try {
   await page.getByLabel('Title', { exact: true }).fill('Weekly spending'); await page.getByRole('button', { name: 'Save', exact: true }).focus(); await page.keyboard.press('Enter');
   await page.locator('dialog').waitFor({ state: 'detached' }); await page.getByRole('heading', { name: 'Weekly spending', exact: true }).waitFor(); passed++;
   await activate('Remove', 'Weekly spending'); await page.locator('[data-widget-type="chart"]').waitFor({ state: 'detached' }); passed++;
-  const catalogTypes = [...widgetTypes, 'agent'];
+  const catalogTypes = ['agent', ...widgetTypes];
   for (const type of catalogTypes) {
     await page.getByRole('button', { name: 'Add widget', exact: true }).click();
     const index = catalogTypes.indexOf(type); await page.locator('.dashboard-library-item').nth(index).click();
@@ -49,8 +49,8 @@ try {
   await patch(page, [{ op: 'replace', path: '/dashboards/0/widgets', value: [] }]);
   await page.getByText('Your dashboard is empty.', { exact: true }).waitFor(); passed++;
   const messages = []; page.on('request', request => { if (request.method() === 'POST' && /\/(message|messages|send)(?:\?|$)/.test(request.url())) messages.push(request.url()); });
-  await page.getByRole('button', { name: 'Ask your agent', exact: true }).click();
-  await page.waitForFunction(() => [...document.querySelectorAll('textarea')].some(node => node.value.includes('Help me customize the dashboard My week')));
+  await page.getByRole('button', { name: 'Create with your agent', exact: true }).click();
+  await page.waitForFunction(() => [...document.querySelectorAll('textarea')].some(node => node.value.includes('Make me a dashboard for My week')));
   assert.equal(messages.length, 0); passed++;
   await patch(page, [{ op: 'replace', path: '/dashboards/0/widgets', value: [{ id:'$new72', type:'shortcuts', title:'Quick links', span:6, rows:2, options:{items:[{label:'Draft a plan',target:`ask:${server.fixture.bot.id}:Help me draft the launch plan`}]}}] }]);
   await page.goto(`${server.base}/#dash/${dashboard.id}`); await page.getByRole('button',{name:'Draft a plan',exact:true}).click();
@@ -76,7 +76,7 @@ try {
     passed++;
   }
   await phone.setViewportSize({ width: 390, height: 844 });
-  await phone.getByRole('button', { name: 'Edit', exact: true }).tap();
+  await phone.getByRole('button', { name: 'Edit dashboard', exact: true }).tap();
   for (const size of ['Small', 'Medium', 'Large', 'Full']) {
     await phone.getByRole('button', { name: 'Settings: Weekly focus', exact: true }).tap();
     await phone.getByRole('radio', { name: size, exact: true }).tap();

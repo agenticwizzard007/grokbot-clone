@@ -27,14 +27,14 @@ export function AgentWidget({ dashboardId, widget, toolbar }: { dashboardId: str
   };
   const rowAction = (action: WidgetAction, rowTitle: string) => action.type === 'approve' && approved.includes(action.itemId) ? <span className="dashboard-caption" role="status">Approved</span> : <button type="button" className="btn btn--secondary" disabled={busy} aria-label={`${actionLabel(action)}: ${rowTitle}`} onClick={() => { setActionError(''); if (action.type === 'approve') setConfirm({ action, title: rowTitle }); else void act(action); }}>{actionLabel(action)}</button>;
   const doc = state.snapshot?.doc ?? null;
-  return <Card className="dashboard-widget dashboard-widget--agent" role="region" aria-labelledby={`title-${widget.id}`} aria-busy={state.running || state.loading || undefined}>
+  return <Card className="dashboard-widget dashboard-widget--agent" data-empty={!state.loading && emptyAnswer(doc) || undefined} role="region" aria-labelledby={`title-${widget.id}`} aria-busy={state.running || state.loading || undefined}>
     <div className="dashboard-agent-header"><h2 id={`title-${widget.id}`} tabIndex={-1}>{title}</h2><button type="button" className="btn btn--secondary" aria-label={`Refresh ${title}`} title="Refresh" disabled={state.running || state.loading} onClick={() => void state.run()}><RefreshCw size={18} aria-hidden /></button>{toolbar}</div>
     {state.snapshot?.runAt != null && <p className="dashboard-caption">{updatedCaption(state.snapshot.runAt, now)}</p>}
     {state.running && <p className="dashboard-agent-state" role="status"><LoaderCircle size={16} className="spin" aria-hidden />Working</p>}
     {state.loading && !doc && <p role="status">Loading answer...</p>}
     {(state.error || state.snapshot?.state === 'error') && <div className="dashboard-empty-data"><p role="alert">{state.error || 'Could not read the answer. Try again.'}</p><button className="btn btn--secondary" disabled={state.running} onClick={() => void state.run()}>Try again</button></div>}
     {!state.loading && !state.error && state.snapshot?.state !== 'error' && !state.running && emptyAnswer(doc) && <div className="dashboard-empty-data"><p>No answer yet</p><button className="btn btn--secondary" onClick={() => void state.run()}>Run</button></div>}
-    {doc && <div className={`dashboard-widget-body${doc.kind === 'list' ? ' dashboard-widget-body--scroll' : ''}`}><AgentAnswer doc={doc} action={rowAction} /></div>}
+    {doc && <div className="dashboard-widget-body"><AgentAnswer doc={doc} action={rowAction} /></div>}
     {actionError && !confirm && <p role="alert">{actionError}</p>}
     {confirm && <DashboardDialog title="Approve item" close={() => { if (!busy) setConfirm(undefined); }}><Section><p>{confirm.title}</p>{actionError && <p role="alert">{actionError}</p>}<ButtonGroup><button type="button" className="btn btn--secondary" disabled={busy} onClick={() => setConfirm(undefined)}>Cancel</button><button type="button" className="btn btn--primary" disabled={busy} onClick={() => void act(confirm.action, true)}>Approve</button></ButtonGroup></Section></DashboardDialog>}
   </Card>;

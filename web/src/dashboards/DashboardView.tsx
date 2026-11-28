@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
+import { RefreshCw } from 'lucide-react';
 import type { PatchOp } from '@shared/ui-config/service';
 import { Page, Section, Card, ButtonGroup } from '../components/layout';
 import { useEffectiveConfig, useUiPatch, useUiConfig } from '../customization';
@@ -36,16 +38,20 @@ function DashboardScreen({ dashboard, index }: { dashboard: Dashboard; index: nu
     } catch { setError('Could not save this change. Try again.'); return false; }
     finally { setBusy(false); }
   };
-  const ask = () => { const bot = bots.find(bot => bot.isPrimary) ?? bots[0]; if (bot) { prefillComposer(bot.id, `Help me customize the dashboard ${dashboard.name}: `); openConversation(bot.id); } };
+  const ask = () => { const bot = bots.find(bot => bot.isPrimary) ?? bots[0]; if (bot) { prefillComposer(bot.id, `Make me a dashboard for ${dashboard.name}: `); openConversation(bot.id); } };
+  const header = document.getElementById('dashboard-header-actions');
+  const Actions = editing ? ButtonGroup : 'div';
   return <Page type="wide" className="dashboard-page" aria-label={dashboard.name}>
-    <header className="dashboard-heading"><div>{dashboard.description && <p>{dashboard.description}</p>}</div>
-      {!!dashboard.widgets.length && <ButtonGroup className="dashboard-actions">{editing ? <>
-        <button type="button" className="btn btn--secondary" data-dashboard-add disabled={busy || dashboard.widgets.length >= 24} onClick={() => { setError(''); setAdd(true); }}>Add widget</button>
-        <button type="button" className="btn btn--primary" disabled={busy} onClick={() => setEditing(false)}>Done</button>
-      </> : <><button type="button" className="btn btn--secondary" onClick={() => data.refresh()} disabled={!dashboard.widgets.some(widget => widget.source)}>Refresh</button><button type="button" className="btn btn--primary" onClick={() => { setError(''); setEditing(true); }}>Edit</button></>}</ButtonGroup>}
-    </header>
+    {dashboard.description && <header className="dashboard-heading"><p>{dashboard.description}</p></header>}
+    {!!dashboard.widgets.length && header && createPortal(<Actions className={`dashboard-header-actions${editing ? ' dashboard-header-actions--editing' : ''}`}>{editing ? <>
+      <button type="button" className="btn btn--secondary" data-dashboard-add disabled={busy || dashboard.widgets.length >= 24} onClick={() => { setError(''); setAdd(true); }}>Add widget</button>
+      <button type="button" className="btn btn--primary" disabled={busy} onClick={() => setEditing(false)}>Done</button>
+    </> : <>
+      <button type="button" className="btn btn--secondary dashboard-refresh" aria-label="Refresh dashboard" title="Refresh dashboard" onClick={() => data.refresh()} disabled={!dashboard.widgets.some(widget => widget.source)}><RefreshCw size={20} aria-hidden /></button>
+      <button type="button" className="btn btn--text" aria-label="Edit dashboard" onClick={() => { setError(''); setEditing(true); }}>Edit</button>
+    </>}</Actions>, header)}
     {error && !add && !settings && <p className="dashboard-error" role="alert">{error}</p>}
-    {!dashboard.widgets.length ? <Section><Card className="dashboard-empty"><p>Your dashboard is empty.</p><ButtonGroup><button className="btn btn--primary" type="button" data-dashboard-add onClick={() => { setEditing(true); setAdd(true); }}>Add widget</button><button className="btn btn--secondary" type="button" disabled={!bots.length} onClick={ask}>Ask your agent</button></ButtonGroup></Card></Section>
+    {!dashboard.widgets.length ? <Section><Card className="dashboard-empty"><p>Your dashboard is empty.</p><ButtonGroup><button className="btn btn--primary" type="button" data-dashboard-add onClick={() => { setEditing(true); setAdd(true); }}>Add widget</button><button className="btn btn--secondary" type="button" disabled={!bots.length} onClick={ask}>Create with your agent</button></ButtonGroup></Card></Section>
       : <DashboardGrid dashboardId={dashboard.id} move={editing ? (from, to) => { const source = dashboard.widgets.findIndex(w => w.id === from), target = dashboard.widgets.findIndex(w => w.id === to); if (source >= 0 && target >= 0 && source !== target) void patch([{ op: 'test', path: `/dashboards/${index}/widgets/${source}/id`, value: from }, { op: 'test', path: `/dashboards/${index}/widgets/${target}/id`, value: to }, { op: 'move', from: `/dashboards/${index}/widgets/${source}`, path: `/dashboards/${index}/widgets/${target}` }]); } : undefined} widgets={dashboard.widgets} states={data.states} observe={data.observe} refresh={data.refresh}
         toolbar={editing ? widget => <DashboardEditor dashboard={dashboard} dashboardIndex={index} widget={widget} busy={busy} patch={patch} settings={widget => { setError(''); setSettings(widget); }} /> : undefined} />}
     {add && <AddWidgetSheet close={() => setAdd(false)} error={error} add={widget => patch([{ op: 'add', path: `/dashboards/${index}/widgets/-`, value: widget }])} />}
