@@ -6,9 +6,11 @@ import '../styles/plan-usage.css';
 
 export function PlanUsageContent({ summary, error = false, sidebar = false }: { summary: Pick<PlanUsageSummary, 'plan' | 'ownKeys'> | null; error?: boolean; sidebar?: boolean }) {
   const timezone = useStore(s => (s.user as { timezone?: string | null } | null)?.timezone);
+  const mobile = useStore(s => s.mobile);
+  const compactName = sidebar && mobile && summary?.plan.unit === 'usd' && summary.plan.limitCents !== null;
   const view = summary && planUsageDisplay(summary.plan, timezone);
-  return <span className="plan-usage" data-level={view?.level ?? 'normal'}>
-    <strong className="plan-usage__name">{summary?.plan.provider ? <ProviderLabel provider={summary.plan.provider}>{summary.plan.name}</ProviderLabel> : summary?.plan.name ?? (error ? 'Usage unavailable' : 'Loading usage...')}</strong>
+  return <span className="plan-usage" data-sidebar={sidebar || undefined} data-limited={summary?.plan.unit === 'usd' && summary.plan.limitCents !== null || undefined} data-level={view?.level ?? 'normal'}>
+    <strong className={`plan-usage__name${compactName ? ' sr-only' : ''}`}>{summary?.plan.provider ? <ProviderLabel provider={summary.plan.provider}>{summary.plan.name}</ProviderLabel> : summary?.plan.name ?? (error ? 'Usage unavailable' : 'Loading usage...')}</strong>
     <span className="plan-usage__amount">{view?.amount ?? (error ? 'Try again' : 'Loading amount')}</span>
     <span className="plan-usage__quota">
       {view?.percent != null && <progress max={100} value={view.percent} aria-label={`${summary!.plan.name} usage`} />}

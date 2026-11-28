@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 import { chromium } from 'playwright';
 import { layoutServer } from '../layout-fixture.mjs';
 import { inspectAlignment } from '../layout-alignment-ui.mjs';
+import { inspectSidebarRows, runFixDash3 } from './demo-fix-dash-3.mjs';
 
 export async function auditSidebarPolish(routes, output = path.resolve('.context/ui-custom/fix-dash-2/sidebar')) {
   fs.mkdirSync(output, { recursive: true });
@@ -29,14 +30,19 @@ export async function auditSidebarPolish(routes, output = path.resolve('.context
       }
       await request('PUT', doc, (await request('GET')).revision);
       const saved = (await request('GET')).doc;
-      for (const width of [320, 390, 500, 1280]) for (const theme of ['light', 'dark']) {
-        const context = await browser.newContext({ viewport: { width, height: width <= 760 ? 844 : 900 }, colorScheme: theme, reducedMotion: 'reduce' });
+      const viewports = [320,390,500,1280].map(width => ({ width, height: width <= 760 ? 844 : 900, extra: false }));
+      for (const [width, height] of [[320,640],[390,640],[390,700],[1280,600],[1280,720]]) for (const state of custom ? ['expanded','collapsed','rail'] : ['default','rail']) {
+        if (width <= 760 && state === 'rail') continue;
+        viewports.push({ width, height, state, extra: true });
+      }
+      for (const { width, height, state, extra } of viewports) for (const theme of ['light', 'dark']) {
+        const context = await browser.newContext({ viewport: { width, height }, colorScheme: theme, reducedMotion: 'reduce' });
         await context.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort());
         await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
         await context.addInitScript(theme => { if (location.origin !== 'null') { localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); } }, theme);
         const page = await context.newPage(); page.setDefaultTimeout(15000);
         const views = [...routes.filter(route => !route.signedOut), { name: 'appearance', hash: '#settings/appearance' }, { name: 'about-you', hash: '#settings/appearance/use' }, { name: 'dashboards', hash: '#dashboards' }, ...(custom ? [{ name: 'dashboard', hash: `#dash/${saved.dashboards[0].id}` }] : [])];
-        for (const route of views) {
+        for (const route of extra ? views.slice(0, 1) : views) {
           const issues = [];
           try {
             const hash = route.hash.replace('{bot}', server.fixture.bot.id).replace('{room}', server.fixture.room);
@@ -49,18 +55,29 @@ export async function auditSidebarPolish(routes, output = path.resolve('.context
             }
             await page.locator('.sidebar:visible .sidebar-usage .plan-usage').waitFor();
             await page.evaluate(() => document.fonts.ready);
+            if (state === 'rail') await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
+            const disclosure = page.locator('.sidebar:visible .sidebar__disclosure');
+            if (custom && state && state !== 'rail' && await disclosure.getAttribute('aria-expanded') !== String(state === 'expanded')) await disclosure.click();
+            await page.waitForTimeout(50);
+            issues.push(...await page.evaluate(inspectSidebarRows));
+            const copy = await page.locator('.sidebar:visible').innerText();
+            if (/mock|Fixture|PRIVATE|QA-|undefined|null|\[object|[\u2013\u2014]/i.test(copy)) issues.push('Sidebar contains forbidden visible text');
             issues.push(...await page.evaluate(inspectAlignment, { sidebarOnly: true }));
             const scroll = page.locator('.sidebar:visible .sidebar__custom-scroll, .sidebar:visible .sidebar__scroll');
             const before = await page.locator('.sidebar:visible .sidebar-usage').boundingBox();
             const scrolling = await scroll.evaluate(el => { el.scrollTop = el.scrollHeight; return { top: el.scrollTop, height: el.clientHeight, total: el.scrollHeight }; });
             if (long && scrolling.top <= 0) issues.push('G1 long middle list must scroll');
-            if (!long && scrolling.top !== 0) issues.push('G1 short list must retain free space above the footer');
+            if (scrolling.total <= scrolling.height && scrolling.top !== 0) issues.push('G1 fitting list must retain free space above the footer');
             assert.deepEqual(await page.locator('.sidebar:visible .sidebar-usage').boundingBox(), before, 'G1 scrolling must not move Usage');
-            issues.push(...await page.evaluate(inspectAlignment, { sidebarOnly: true }));
-            if (route === views[0]) await page.screenshot({ path: path.join(output, `${shape}-${width}-${theme}.png`) });
+            await page.waitForTimeout(50);
+            issues.push(...await page.evaluate(inspectAlignment, { sidebarOnly: true }), ...await page.evaluate(inspectSidebarRows));
+            await scroll.evaluate(el => { el.scrollTop = el.scrollHeight / 2; });
+            await page.waitForTimeout(50);
+            issues.push(...await page.evaluate(inspectSidebarRows));
+            if (route === views[0]) await page.screenshot({ path: path.join(output, `${shape}-${width}x${height}-${state ?? 'default'}-${theme}.png`) });
             if (width <= 760) await page.getByRole('button', { name: 'Close navigation', exact: true }).click();
           } catch (error) { issues.push(error.message); }
-          report.push({ name: `${shape}/${route.name}`, width, theme, owner: 'FIX-DASH-2', enforce: true, issues });
+          report.push({ name: `${shape}/${route.name}/${state ?? 'default'}`, width, height, theme, owner: 'FIX-DASH-3', enforce: true, issues });
           console.log(`${issues.length ? 'FAIL' : 'PASS'} sidebar ${shape} ${route.name} ${width} ${theme}${issues.length ? `: ${issues.join('; ')}` : ''}`);
         }
         await context.close();
@@ -70,6 +87,8 @@ export async function auditSidebarPolish(routes, output = path.resolve('.context
   const failed = report.filter(view => view.issues.length).length;
   console.log(`SIDEBAR POLISH: ${report.length - failed} passed, ${failed} failed`);
   assert.equal(failed, 0, 'G1 sidebar geometry on every route, short and long lists');
+  const demo = await runFixDash3({ output: path.join(output, 'acceptance') });
+  report.push(...demo.checks.map(check => ({ name: check.name, owner: 'FIX-DASH-3', enforce: true, issues: [] })));
   return report;
 }
 

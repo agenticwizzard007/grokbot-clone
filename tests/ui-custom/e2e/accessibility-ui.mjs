@@ -84,7 +84,10 @@ async function showUsage(page, surface) {
 async function showDashboardSidebar(page) {
   if (!await page.locator('.sidebar').isVisible()) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
   const group = page.locator('.sidebar__dashboards');
-  assert.equal(await group.getByRole('button').count(), 6, 'Five dashboards and the All dashboards entry');
+  const disclosure = group.getByRole('button', { name: 'Dashboards', exact: true });
+  if (await disclosure.getAttribute('aria-expanded') === 'false') await disclosure.click();
+  const { width, height } = page.viewportSize();
+  assert.equal(await group.locator('.sidebar-island').count(), width <= 760 || height < 760 ? 4 : 6, 'Viewport dashboard cap and the All dashboards entry');
   assert.equal(await group.getByRole('button', { name: 'All dashboards', exact: true }).count(), 1);
   assert.equal(await group.getByRole('button', { name: 'Operations', exact: true }).count(), 0, 'The remaining dashboards stay in the manager');
   await group.scrollIntoViewIfNeeded();

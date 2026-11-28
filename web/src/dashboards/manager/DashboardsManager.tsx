@@ -17,13 +17,13 @@ export default function DashboardsManager() {
       {!doc.dashboards.length && <p>Create a dashboard for your work.</p>}
       <ButtonGroup className="dashboard-manager-actions"><button className="btn btn--primary" disabled={busy || full || status === 'disabled'} onClick={() => show({ kind: 'create' })}>Create</button><button className="btn btn--secondary" disabled={!canAsk} onClick={ask}>Create with your agent</button></ButtonGroup>
       {full && <p role="status">You have reached the limit of {DASHBOARD_LIMIT} dashboards.</p>}
-      {!!doc.dashboards.length && <Card>{doc.dashboards.map((dashboard, index) => <Row key={dashboard.id} className="dashboard-manager-row" title={<button type="button" className="dashboard-open" onClick={() => openDashboard(dashboard)}><LayoutDashboard size={20} aria-hidden /><span>{dashboard.name}</span><span className="dashboard-caption">{dashboard.widgets.length} {dashboard.widgets.length === 1 ? 'widget' : 'widgets'}</span></button>} trailing={<SettingsMenu ariaLabel={`Manage ${dashboard.name}`} disabled={busy} items={[
+      {!!doc.dashboards.length && <Card>{doc.dashboards.map((dashboard, index) => <Row key={dashboard.id} className="dashboard-manager-row" title={<button type="button" className="dashboard-open" onClick={() => openDashboard(dashboard)}><LayoutDashboard size={20} aria-hidden /><span>{dashboard.name}</span>{dashboard.widgets.length > 0 && <span className="dashboard-caption">{dashboard.widgets.length} {dashboard.widgets.length === 1 ? 'widget' : 'widgets'}</span>}</button>} trailing={<SettingsMenu ariaLabel={`Manage ${dashboard.name}`} disabled={busy} items={[
         ...(!full ? [{ label: 'Duplicate', onSelect: () => show({ kind: 'duplicate', dashboard }) }] : []),
         { label: 'Rename', onSelect: () => show({ kind: 'rename', dashboard }) },
         ...(index > 0 ? [{ label: 'Move up', onSelect: () => void patch(moveDashboard(doc, dashboard.id, -1)) }] : []),
         ...(index < doc.dashboards.length - 1 ? [{ label: 'Move down', onSelect: () => void patch(moveDashboard(doc, dashboard.id, 1)) }] : []),
         { label: 'Delete', danger: true, onSelect: () => show({ kind: 'delete', dashboard }) },
-      ]} />} />)}</Card>}
+      ]} />} />)}{doc.dashboards.some(dashboard => !dashboard.widgets.length) && <p className="dashboard-empty-hint">Empty dashboards are ready for widgets. Open one and tap Add widget.</p>}</Card>}
       {error && !dialog && <p role="alert">{error}</p>}
     </Section>}
     {dialog && <DashboardForm state={dialog} {...manager} close={() => setDialog(undefined)} />}

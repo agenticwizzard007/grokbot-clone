@@ -59,12 +59,12 @@ export function inspectAlignment({ selector = '.shell-content > :not(.shell-head
     const contentRight = box.right - parseFloat(css.borderRightWidth) - parseFloat(css.paddingRight);
     if (!near(m.left, contentLeft) || !near(m.right, contentRight)) issues.push(`G1 usage width/edges: ${m.width.toFixed(2)}px, sidebar content ${(contentRight - contentLeft).toFixed(2)}px`);
     if (nav) { const n = nav.getBoundingClientRect(); if (!near(m.left, n.left) || !near(m.right, n.right)) issues.push('G1 usage edges differ from navigation'); }
-    if (f.top - m.bottom < -1 || f.top - m.bottom > 16) issues.push(`G1 usage/footer gap: ${(f.top - m.bottom).toFixed(2)}px`);
+    if (!near(f.top - m.bottom, 8)) issues.push(`G1 usage/footer gap: ${(f.top - m.bottom).toFixed(2)}px`);
     if (!near(f.bottom, box.bottom - parseFloat(css.paddingBottom) - parseFloat(css.borderBottomWidth))) issues.push('G1 Settings is not pinned to sidebar bottom');
     if (s.bottom > m.top + 1 || scroll.contains(meter) || scroll.contains(footer)) issues.push('G1 usage or Settings overlaps the scroll area');
     if (m.top < box.top || f.bottom > innerHeight + 1) issues.push('G1 usage or Settings is outside the viewport');
     const mc = getComputedStyle(meter);
-    if (mc.padding !== '16px' || mc.borderTopLeftRadius !== '12px') issues.push('G1 usage card needs 16px padding and 12px radius');
+    if (mc.padding !== (innerWidth <= 760 ? '8px 16px' : '16px') || mc.borderTopLeftRadius !== '12px') issues.push('G1 usage card needs 16px horizontal padding, compact phone padding and 12px radius');
   }
   if (sidebarOnly) return issues;
   const roots = [...document.querySelectorAll(selector)];

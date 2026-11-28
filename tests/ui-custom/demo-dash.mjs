@@ -140,10 +140,11 @@ async function runPolishView({ before, output, view }) {
       await capture('operations', width, theme);
       await page.goto(`${server.base}/#dashboards`); await page.locator('.dashboards-manager').waitFor();
       if (!before) await page.getByRole('button', { name: 'Create with your agent', exact: true }).waitFor();
+      if (!before) { assert.doesNotMatch(await page.locator('.dashboards-manager').innerText(), /0 widgets/); assert.equal(await page.getByText('Empty dashboards are ready for widgets. Open one and tap Add widget.', { exact: true }).count(), 1); }
       await capture('manager', width, theme);
       await page.getByRole('button', { name: 'Create', exact: true }).click(); await capture('create', width, theme); await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       if (width <= 760) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
-      if (!before) { assert.equal(await page.locator('.sidebar__dashboards button').count(), 6); assert.equal(await page.locator('.sidebar__dashboards').getByRole('button', { name: 'All dashboards', exact: true }).count(), 1); }
+      if (!before) { assert.equal(await page.locator('.sidebar__dashboards .sidebar-island').count(), width <= 760 ? 4 : 6); assert.equal(await page.locator('.sidebar__dashboards').getByRole('button', { name: 'All dashboards', exact: true }).count(), 1); }
       await capture('sidebar', width, theme);
       await open(empty); if (!before) await page.getByRole('button', { name: 'Create with your agent', exact: true }).waitFor(); await capture('empty', width, theme);
       await open(sales); await page.getByRole('button', { name: 'Edit dashboard', exact: true }).click(); await capture('edit', width, theme);
