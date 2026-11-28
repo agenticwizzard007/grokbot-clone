@@ -110,6 +110,7 @@ try {
       if (state.level !== 'normal') assert.match(await meter.innerText(), state.level === 'critical' ? /Limit reached/ : /Near limit/);
       assert.equal(await meter.locator('.plan-usage__own').count(), 0);
       await readableWords(meter);
+      if (width <= 760) assert.ok((await meter.boundingBox()).height <= 73, 'Phone quota states fit the compact meter');
       const issues = await meter.evaluate(el => {
         const r = el.getBoundingClientRect(), issues = [];
         if (r.left < 0 || r.right > innerWidth || r.bottom > innerHeight) issues.push('Outside viewport');
@@ -141,6 +142,7 @@ try {
     fail = false; snapshot.ownKeys = original.ownKeys; await refresh();
     await meter.getByText(/On your own keys \(does not count toward the plan\)/).waitFor();
     assert.match(await meter.innerText(), /\$2.37 On your own keys/);
+    if (width <= 760) assert.ok((await meter.boundingBox()).height <= 73, 'Own-key detail stays compact on phone');
     await readableWords(meter);
     // Short viewports retain the amount and quota state.
     await page.setViewportSize({ width, height: 500 });
