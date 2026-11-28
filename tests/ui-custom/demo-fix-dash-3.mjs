@@ -19,7 +19,7 @@ export function inspectSidebarRows() {
     if (!near(f.top - m.bottom, 8)) issues.push(`G1 meter/Settings gap ${f.top - m.bottom}px, expected 8px`);
     const top = s.top + scroll.clientTop, bottom = Math.min(top + scroll.clientHeight, m.top);
     for (const row of scroll.querySelectorAll('button, a[href], [role="button"]')) {
-      if (!row.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
+      if (!row.checkVisibility()) continue;
       const r = row.getBoundingClientRect();
       if (!r.height || r.bottom <= top + 1 || r.top >= bottom - 1) continue;
       if (r.top < top - 1 || r.bottom > bottom + 1) issues.push(`G1 clipped row ${row.textContent.trim() || row.getAttribute('aria-label')}: ${r.top.toFixed(1)}..${r.bottom.toFixed(1)} outside ${top.toFixed(1)}..${bottom.toFixed(1)}`);

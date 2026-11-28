@@ -245,8 +245,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
 
       {layout.standardOrder ? <>
         <nav className="sidebar__nav" aria-label="Main navigation" onClick={onClose}>{section('allBots')}{section('tasks')}{section('files')}</nav>
-        <div ref={scrollRef} className="sidebar__scroll">{mobile && <RosterFeedback />}{section('dashboards')}{section('yourBots')}{section('createBot')}</div>
-      </> : <div ref={scrollRef} className="sidebar__custom-scroll">
+        <div ref={scrollRef} className="sidebar__scroll"><div className="sidebar__scroll-content">{mobile && <RosterFeedback />}{section('dashboards')}{section('yourBots')}{section('createBot')}</div></div>
+      </> : <div ref={scrollRef} className="sidebar__custom-scroll"><div className="sidebar__scroll-content">
         {mobile && <RosterFeedback />}
         {layout.pinned.length > 0 && <section aria-label="Pinned" className="sidebar__pins">
           {!collapsed && <div className="sidebar__section-label">Pinned</div>}
@@ -255,7 +255,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
           </button>)}
         </section>}
         {layout.items.filter(id => id !== 'usage' && id !== 'settings').map(id => <Fragment key={id}>{section(id)}</Fragment>)}
-      </div>}
+      </div></div>}
       {section('usage')}{section('settings')}
 
     </aside>

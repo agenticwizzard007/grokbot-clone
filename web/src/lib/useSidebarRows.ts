@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
 
-/** Paint complete targets only at either scroll edge. Keep every row in the tab
- * order: focusing an edge row scrolls its whole target into view before paint. */
+/** Move boundary-crossing targets outside the scrollport until the whole row
+ * fits. Focus restores the natural position and scrolls the complete row in. */
 export function useSidebarRows() {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -12,12 +12,16 @@ export function useSidebarRows() {
       const box = scroll.getBoundingClientRect(), top = box.top + scroll.clientTop, bottom = top + scroll.clientHeight;
       for (const row of rows()) {
         const rect = row.getBoundingClientRect();
-        row.toggleAttribute('data-sidebar-clipped', rect.height > 0 && (rect.top < top - 1 || rect.bottom > bottom + 1));
+        const shift = row.dataset.sidebarClipped === 'start' ? -rect.height : row.dataset.sidebarClipped === 'end' ? rect.height : 0;
+        const start = rect.top - shift, end = rect.bottom - shift;
+        if (start < top - 1 && end > top + 1) row.dataset.sidebarClipped = 'start';
+        else if (end > bottom + 1 && start < bottom - 1) row.dataset.sidebarClipped = 'end';
+        else delete row.dataset.sidebarClipped;
       }
     };
     const focus = (event: FocusEvent) => {
       const row = (event.target as HTMLElement).closest<HTMLElement>('button, a[href], [role="button"]');
-      if (row && scroll.contains(row)) { row.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' }); measure(); }
+      if (row && scroll.contains(row)) { delete row.dataset.sidebarClipped; row.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' }); measure(); }
     };
     const observer = new ResizeObserver(measure);
     const observe = () => { observer.disconnect(); observer.observe(scroll); for (const row of rows()) observer.observe(row); measure(); };
