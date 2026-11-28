@@ -64,7 +64,7 @@ export function inspectAlignment({ selector = '.shell-content > :not(.shell-head
     if (s.bottom > m.top + 1 || scroll.contains(meter) || scroll.contains(footer)) issues.push('G1 usage or Settings overlaps the scroll area');
     if (m.top < box.top || f.bottom > innerHeight + 1) issues.push('G1 usage or Settings is outside the viewport');
     const mc = getComputedStyle(meter);
-    if (mc.padding !== (innerWidth <= 760 ? '8px 16px' : '16px') || mc.borderTopLeftRadius !== '12px') issues.push('G1 usage card needs 16px horizontal padding, compact phone padding and 12px radius');
+    if (mc.padding !== (innerWidth <= 760 || meter.classList.contains('is-unavailable') ? '8px 16px' : '16px') || mc.borderTopLeftRadius !== '12px') issues.push('G1 usage card needs 16px horizontal padding, compact phone or unavailable padding and 12px radius');
   }
   if (sidebarOnly) return issues;
   const roots = [...document.querySelectorAll(selector)];

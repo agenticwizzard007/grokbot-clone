@@ -68,7 +68,12 @@ async function showUsage(page, surface) {
   }
   const meter = sidebar.locator('.sidebar-usage');
   await meter.waitFor();
-  if (await sidebar.evaluate(node => node.classList.contains('is-collapsed'))) {
+  const collapsed = await sidebar.evaluate(node => node.classList.contains('is-collapsed'));
+  if (await meter.evaluate(node => node.classList.contains('is-unavailable'))) {
+    assert.equal(await meter.and(page.getByRole('button', { name: 'Usage unavailable', exact: true })).count(), 1);
+    assert.equal(await meter.getAttribute('aria-label') !== null, collapsed, 'Unavailable usage keeps collapsed-only aria-label behavior');
+    if (!collapsed) { const { height } = await meter.boundingBox(); assert.ok(height >= 44 && height <= 64); }
+  } else if (collapsed) {
     assert.equal(await meter.and(page.getByRole('button', { name: /^Usage: (API credits|Claude Pro plan)\./ })).count(), 1, 'Collapsed usage has a descriptive accessible name');
   } else {
     await meter.locator('.plan-usage__name').getByText(/^(API credits|Claude Pro plan)$/).waitFor();
