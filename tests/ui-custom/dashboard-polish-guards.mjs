@@ -31,6 +31,7 @@ export function inspectDashboardPolish() {
     const buttons = [...list.querySelectorAll('button')].filter(visible), boxes = buttons.map(el => el.getBoundingClientRect());
     if (boxes.some(r => r.width < 120 || !near(r.width, boxes[0].width) || !near(r.height, 44) || !near(r.right, boxes[0].right))) issues.push(`G2 inline actions need equal widths >=120px, 44px height and aligned right edges: ${boxes.map(r => `${r.width.toFixed(2)}x${r.height.toFixed(2)}@${r.right.toFixed(2)}`).join(', ')}`);
     if (buttons.some(button => textBox(button).height > parseFloat(getComputedStyle(button).lineHeight) + 1)) issues.push('G2 inline action label wraps');
+    if ([...list.querySelectorAll('.dashboard-agent-row-text')].some(text => text.getBoundingClientRect().width < 96)) issues.push('G2 inline actions squeeze the row text below 96px');
   }
   const stats = [...document.querySelectorAll('.dashboard-grid:not(.dashboard-grid--editing) .dashboard-widget--stat')];
   for (const stat of stats) {

@@ -68,7 +68,7 @@ export async function assertGrid(page, width) {
   });
   const columns = width < 360 ? 2 : width <= 1023 ? 6 : 12;
   assert.equal(geometry.columns, columns); assert.equal(geometry.overflow, false); assert.equal(geometry.gap, 16);
-  const spanOf = slot => width < 360 ? slot.type === 'stat' && slot.span === 4 ? 2 : slot.span <= 4 ? 1 : 2 : width <= 480 ? slot.type === 'stat' && slot.span === 4 ? 2 : slot.span <= 4 ? 3 : 6 : width <= 1023 ? Math.ceil(slot.span / 2) : slot.span;
+  const spanOf = slot => width <= 760 && slot.type !== 'stat' ? columns : width < 360 ? slot.type === 'stat' && slot.span === 4 ? 2 : slot.span <= 4 ? 1 : 2 : width <= 480 ? slot.type === 'stat' && slot.span === 4 ? 2 : slot.span <= 4 ? 3 : 6 : width <= 1023 ? Math.ceil(slot.span / 2) : slot.span;
   for (const slot of geometry.slots) {
     const span = spanOf(slot);
     const expected = (geometry.width - geometry.gap * (columns - 1)) / columns * span + geometry.gap * (span - 1);
