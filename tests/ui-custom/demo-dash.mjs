@@ -128,7 +128,12 @@ async function runPolishView({ before, output, view }) {
         await page.unroute('**/api/ui/data', unavailable);
         await page.getByRole('button', { name: 'Refresh dashboard', exact: true }).click(); await meter.locator('.plan-usage').waitFor();
       }
-      await open(operations); await capture('operations', width, theme);
+      await open(operations);
+      if (!before) assert.ok(await page.locator('[data-widget-type="table"]').evaluate(root => {
+        const card = root.getBoundingClientRect();
+        return [...root.querySelectorAll('tr')].every(row => row.getBoundingClientRect().bottom <= card.bottom - 15);
+      }), 'Whole table rows fit inside the card');
+      await capture('operations', width, theme);
       await page.goto(`${server.base}/#dashboards`); await page.locator('.dashboards-manager').waitFor();
       if (!before) await page.getByRole('button', { name: 'Create with your agent', exact: true }).waitFor();
       await capture('manager', width, theme);

@@ -94,7 +94,7 @@
 .dashboard-header-actions .dashboard-refresh { width: 44px; padding: 8px; }
 .dashboard-header-actions .btn--text { color: var(--color-primary); }
 .dashboard-manager-actions { max-width: 480px; }
-.dashboard-widget--list .dashboard-widget-body, .dashboard-widget--agent .dashboard-widget-body { overflow: visible; max-height: none; }
+.dashboard-widget--list .dashboard-widget-body, .dashboard-widget--table .dashboard-widget-body, .dashboard-widget--agent .dashboard-widget-body { overflow: visible; max-height: none; }
 .dashboard-view-all a { font-size: 14px; color: var(--color-primary); text-decoration: none; }
 .dashboard-grid-slot[data-widget-empty] { min-height: 88px; align-self: start; }
 .dashboard-grid-slot[data-widget-empty] .dashboard-widget-body { flex: 0 0 auto; }
