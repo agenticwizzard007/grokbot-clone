@@ -100,7 +100,8 @@ try {
       await page.goto(`${base}/?signup-fixture=${++visits}#settings/messaging`);
       const result = await response;
       await result.finished();
-      await page.getByRole('heading', { name: 'Text your Bots', exact: true }).waitFor();
+      await (width <= 760 ? page.locator('.shell-header').getByText('Messaging', { exact: true }) : page.getByRole('heading', { name: 'Messaging', exact: true })).waitFor();
+      await page.locator('.access-messaging > details > summary').click();
       const connectGoogle = page.getByRole('link', { name: 'Connect Google', exact: true });
       await connectGoogle.waitFor({ state: 'visible' });
       assert.equal(await connectGoogle.getAttribute('href'), '/api/auth/google/start?intent=link');
