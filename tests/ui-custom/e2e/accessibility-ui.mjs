@@ -39,7 +39,29 @@ async function openRoutines(page) {
   await page.getByRole('button', { name: 'Routines', exact: true }).click();
   await page.getByRole('region', { name: 'Routines', exact: true }).getByRole('switch').first().waitFor();
 }
+async function openUsageMeter(page, collapsed) {
+  const response = await page.request.get(`${server.base}/api/usage/summary`);
+  assert.equal(response.status(), 200);
+  const summary = await response.json();
+  // Exercise a populated progress meter using synthetic quota figures only.
+  summary.plan = { ...summary.plan, name: 'API credits', billing: 'api', provider: null,
+    unit: 'usd', usedCents: 1234, limitCents: 5000, percentUsed: 24.68 };
+  await page.route('**/api/usage/summary', route => route.fulfill({ json: summary }));
+  await page.evaluate(async collapsed => {
+    const { useStore } = await import('/src/store.ts');
+    useStore.setState({ sidebarCollapsed: collapsed });
+    await (await import('/src/lib/planUsage.ts')).refreshPlanUsage();
+  }, collapsed);
+  const mobile = page.viewportSize().width <= 760;
+  if (mobile) await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  const meter = page.locator('.sidebar-usage:visible');
+  await meter.and(page.getByRole('button', { name: /API credits.*\$12\.34 of \$50\.00.*24\.7% used/ })).waitFor();
+  // Phone navigation intentionally expands either saved desktop preference.
+  assert.equal(await meter.getAttribute('aria-label') !== null, collapsed && !mobile);
+  assert.equal(await meter.getByRole('progressbar', { name: 'API credits usage', exact: true }).count(), collapsed && !mobile ? 0 : 1);
+}
 const routes = [...navigationRoutes.map(hash => ({ name: hash || 'home', hash })),
+  ...[false, true].map(collapsed => ({ name: `usage-meter-${collapsed ? 'collapsed' : 'expanded'}`, hash: '#bots', action: page => openUsageMeter(page, collapsed) })),
   { name: 'routines', hash: '#bot/coordinator/reports', action: openRoutines },
   { name: 'routine-confirm', hash: '#bot/coordinator/reports', action: async page => { await openRoutines(page); await page.getByRole('button').filter({ hasText: /^Run now$/ }).first().click(); } },
   { name: 'about-you', hash: '#settings/appearance/use' },
@@ -75,7 +97,7 @@ try {
         if (button && !button.closest('dialog[open], [role=dialog][aria-modal=true], [role=menu]')) window.__a11yOpener = button;
       }, true);
     });
-    const selectedRoutes = preset === 'swarm' ? routes : routes.filter(route => ['#settings/appearance', 'dashboard', '#bot/coordinator', '#bots'].includes(route.name));
+    const selectedRoutes = preset === 'swarm' ? routes : routes.filter(route => ['#settings/appearance', 'dashboard', '#bot/coordinator', '#bots', 'usage-meter-expanded', 'usage-meter-collapsed'].includes(route.name));
     for (const route of selectedRoutes.filter(route => !process.env.A11Y_ROUTES || new RegExp(process.env.A11Y_ROUTES).test(route.name))) {
       const name = `${preset === 'swarm' ? '' : `${preset}-`}${width}-${theme}-${route.name}`, file = name.replace(/[^a-z0-9-]/gi, '_');
       const item = { name, preset, width, theme, route: route.name, violations: [], reflow: [] };
@@ -170,6 +192,7 @@ try {
         }
         item.maxOpenDialogs = await page.evaluate(() => window.__a11yMaxDialogs);
       } catch (error) { item.error = error.stack; }
+      if (route.name.startsWith('usage-meter-')) await page.unroute('**/api/usage/summary');
       if (route.name === 'chat-preview') {
         try { await page.getByRole('region', { name: 'Review dashboard layout', exact: true }).getByRole('button', { name: 'Discard', exact: true }).click(); } catch (error) { item.error ??= error.stack; }
         server.db.prepare("DELETE FROM rows WHERE bot_id=? AND json_extract(body,'$.card')='ui_preview'").run(server.fixture.bot.id);
