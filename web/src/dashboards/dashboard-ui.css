@@ -30,11 +30,11 @@
 .dashboard-agent-header h2 { flex: 1; }
 .dashboard-agent-header .btn { flex: 0 0 44px; width: 44px; padding: 8px; }
 .dashboard-agent-state { display: flex; align-items: center; gap: 8px; }
-.dashboard-agent-list { list-style: none; margin: 0; padding: 0; }
-.dashboard-agent-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-block: 8px; min-height: 44px; border-bottom: 1px solid var(--color-border); }
+.dashboard-agent-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0,1fr) minmax(120px,max-content); column-gap: 8px; }
+.dashboard-agent-list > li { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; align-items: center; gap: 8px; padding-block: 8px; min-height: 44px; border-bottom: 1px solid var(--color-border); }
 .dashboard-agent-list > li:last-child { border: 0; }
-.dashboard-agent-list .dashboard-agent-row-text { flex: 1 1 112px; display: flex; flex-direction: column; gap: 8px; }
-.dashboard-agent-list .btn { flex: 0 1 auto; }
+.dashboard-agent-list .dashboard-agent-row-text { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.dashboard-agent-list .dashboard-agent-row-text:only-child { grid-column: 1 / -1; }
 .dashboard-agent-answer { white-space: pre-wrap; overflow-wrap: anywhere; }
 .dashboard-agent-stat { font: 600 32px/40px var(--font-heading); }
 @media (max-width: 760px) {
@@ -106,7 +106,7 @@
 /* Bot names are data. The full name remains in the link's accessible name. */
 .dashboard-page.dashboard-page .dashboard-bot-name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; line-height: 20px; }
 .dashboard-bot-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; line-height: 20px; }
-.dashboard-agent-list .btn { flex: 0 0 112px; width: 112px; padding-inline: 8px; }
+.dashboard-page.dashboard-page .dashboard-agent-list .btn { width: 100%; min-width: 120px; height: 44px; white-space: nowrap; }
 @media (max-width: 760px) {
   .shell-header:has(.dashboard-switcher) { display: grid; grid-template-columns: minmax(0,1fr) auto; height: auto; gap: 8px 16px; padding: 8px 16px; }
   .shell-header:has(.dashboard-switcher) .shell-back { grid-area: 1 / 1; justify-self: start; }
@@ -116,6 +116,10 @@
   .dashboard-header-actions .btn { padding-inline: 8px; }
   .dashboard-header-actions .btn:has(+ .btn--primary) { max-width: 96px; white-space: normal; }
   .dashboard-manager-actions { max-width: none; }
+  .dashboard-manager-actions.layout-button-group { flex-direction: column; }
+  .dashboard-dialog-heading > button[aria-label="Close"] { display: none; }
+  .dashboard-grid:not(.dashboard-grid--editing) > .dashboard-grid-slot:not([data-widget-kind="stat"]) { grid-column: 1 / -1; }
+  .dashboard-grid--editing > .dashboard-grid-slot { grid-column: 1 / -1; }
 }
 @media (min-width: 360px) and (max-width: 480px) {
   .dashboard-grid { grid-template-columns: repeat(6,minmax(0,1fr)); }
@@ -134,6 +138,17 @@
 .dashboard-widget--agent[data-empty] .dashboard-empty-data { height: auto; flex-direction: row; justify-content: space-between; gap: 8px; }
 .dashboard-widget--stat { display: grid; grid-template-rows: 1fr auto; }
 .dashboard-widget--stat .dashboard-widget-header { align-items: flex-start; }
+
+/* Read mode follows content; rows still control how many complete items are shown.
+   Editing retains the row-unit sizing handles. */
+.dashboard-grid:not(.dashboard-grid--editing) { grid-auto-rows: auto; align-items: start; }
+.dashboard-grid:not(.dashboard-grid--editing) > .dashboard-grid-slot { grid-row: auto; min-height: 0; }
+.dashboard-grid:not(.dashboard-grid--editing) > [data-widget-kind="stat"] { align-self: stretch; }
+.dashboard-stat-title-short { display: none; }
+@media (min-width: 360px) and (max-width: 480px) {
+  .dashboard-stat-title-long { display: none; }
+  .dashboard-stat-title-short { display: inline; }
+}
 
 .dashboard-header-actions--editing { width: 248px; align-items: stretch; }
 .dashboard-header-actions--editing .btn { flex: 1 1 0; white-space: normal; }

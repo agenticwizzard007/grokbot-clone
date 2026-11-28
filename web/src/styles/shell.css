@@ -130,6 +130,9 @@
 
 /* Optional chrome never owns a layout gap or a border. */
 .ui-layout-contents { display: contents; }
+.sidebar__usage { display: flex; flex-direction: column; flex: 0 0 auto; width: 100%; min-width: 0; }
+.sidebar__usage > .sidebar-usage { width: 100%; }
+.sidebar.is-collapsed .sidebar__usage { width: auto; }
 .sidebar__custom-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .sidebar__custom-scroll .sidebar-island { width: 100%; }
 .sidebar__custom-scroll .sidebar-island span { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }

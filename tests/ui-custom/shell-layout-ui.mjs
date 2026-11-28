@@ -28,13 +28,14 @@ try {
   await page.getByRole('region', { name: 'Pinned', exact: true }).waitFor();
   assert.equal(await page.locator('.sidebar').getByRole('button', { name: 'Files', exact: true }).count(), 0);
   const order = await page.locator('.sidebar__custom-scroll').evaluate(el => [...el.children].map(child => child.getAttribute('aria-label') || child.className));
-  assert.equal(order[0], 'Pinned'); assert.ok(order[1].includes('sidebar__footer')); assert.equal(order[2], 'Dashboards');
+  assert.equal(order[0], 'Pinned'); assert.equal(order[1], 'Dashboards');
+  assert.equal(await page.locator('.sidebar > .sidebar__footer').count(), 1, 'Settings stays pinned outside the reordered scroll area');
   await page.waitForFunction(() => Math.round(document.querySelector('.sidebar').getBoundingClientRect().width) === 320);
   pass('sidebar ordering, hidden items, width and Pinned group');
   await page.getByRole('button', { name: /Account & settings$/ }).click();
   await page.getByRole('menuitem', { name: /^Settings/ }).click();
   await page.waitForURL('**/#settings/general');
-  pass('Settings menu stays reachable when reordered near the top');
+  pass('Settings menu stays reachable in the pinned footer with custom ordering');
   await page.getByRole('region', { name: 'Dashboards', exact: true }).getByRole('button', { name: 'Weekly overview and planning', exact: true }).click();
   await page.waitForURL(`**/#dash/${id}`); pass('dashboard sidebar route');
   await server.patch([{ op: 'replace', path: '/layout/sidebar/collapsed', value: true }]);
@@ -53,7 +54,7 @@ try {
     doc.layout.pinned = [{ type: 'bot', id: 'missing' }, { type: 'dashboard', id: 'd_missing1' }];
     useCustomization.setState({ saved: doc, effective: doc });
   });
-  assert.ok(await page.getByRole('button', { name: 'Account & settings' }).isVisible());
+  assert.ok(await page.getByRole('button', { name: /Account & settings$/ }).isVisible());
   await page.getByRole('region', { name: 'Pinned', exact: true }).waitFor({ state: 'detached' });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => { location.hash = '#bots'; }); await page.locator('.phone-tabs').waitFor();

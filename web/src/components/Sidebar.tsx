@@ -178,7 +178,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     createBot: <>        <button type="button" className="sidebar__create" onClick={createBot} aria-label="Create a Bot" title={`Create a Bot (${shortcutLabel('new-bot')})`}>
           <Icon name="plus" size={20} opacity={0.66} />{!collapsed && <span>Create a Bot</span>}
         </button></>,
-    usage: usageVisibility !== 'hide' ? <div data-ui-id="sidebar.usage" className="ui-layout-contents"><SidebarUsage collapsed={collapsed} /></div> : null,
+    usage: usageVisibility !== 'hide' ? <div data-ui-id="sidebar.usage" className="sidebar__usage"><SidebarUsage collapsed={collapsed} /></div> : null,
     settings: <>      <div className={`sidebar__footer${settingsOpen ? ' is-active' : ''}`}>
         <div className="account" ref={accountRef}>
             <button ref={accountTrigger} type="button" className="account__btn" aria-label={`${accountVisibility === 'hide' ? '' : `${initials(user?.name ?? user?.email ?? '')} `}Settings. Account & settings`} onClick={() => setAccountMenu(open => !open)} aria-haspopup="menu" aria-expanded={accountMenu} title={accountVisibility === 'hide' ? 'Settings' : user?.email.endsWith('@openrouter.invalid') ? 'OpenRouter account' : user?.email}>
@@ -240,7 +240,6 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
       {layout.standardOrder ? <>
         <nav className="sidebar__nav" aria-label="Main navigation" onClick={onClose}>{section('allBots')}{section('tasks')}{section('files')}</nav>
         <div className="sidebar__scroll">{mobile && <RosterFeedback />}{section('dashboards')}{section('yourBots')}{section('createBot')}</div>
-        {section('usage')}{section('settings')}
       </> : <div className="sidebar__custom-scroll">
         {mobile && <RosterFeedback />}
         {layout.pinned.length > 0 && <section aria-label="Pinned" className="sidebar__pins">
@@ -249,8 +248,9 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             {pin.type === 'bot' ? <BotAvatarFor bot={bots.find(bot => bot.id === pin.id)!} size={24} /> : <LayoutDashboard size={18} aria-hidden />}{!collapsed && <span>{pin.name}</span>}
           </button>)}
         </section>}
-        {layout.items.map(id => <Fragment key={id}>{section(id)}</Fragment>)}
+        {layout.items.filter(id => id !== 'usage' && id !== 'settings').map(id => <Fragment key={id}>{section(id)}</Fragment>)}
       </div>}
+      {section('usage')}{section('settings')}
 
     </aside>
   );

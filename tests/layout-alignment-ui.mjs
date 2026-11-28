@@ -9,6 +9,7 @@ import { preparePbeState } from './paper-pbe-states.mjs';
 import { layoutServer } from './layout-fixture.mjs';
 import { readableWords } from './paper-label-geometry.mjs';
 import { runDashboardPolish } from './ui-custom/demo-dash.mjs';
+import { auditSidebarPolish } from './ui-custom/sidebar-polish-ui.mjs';
 
 export const DASHBOARD_POLISH_ROUTES = ['sales-pipeline', 'operations', 'manager', 'create', 'sidebar', 'empty', 'empty-widget', 'edit', 'widget-settings', 'add-widget', 'ask-agent', 'approve-confirm', 'send-prefill'].map(name => ({ name: `dashboard-${name}`, owner: 'FIX-DASH', enforce: true }));
 
@@ -44,11 +45,32 @@ export const SUGGESTION_ROUTES = [
 ];
 
 /** Browser-side geometry checks, also reused by the Settings matrix. */
-export function inspectAlignment({ selector = '.shell-content > :not(.shell-header):not(.phone-tabs), .signin, .access-signin, .join', requirePage = true } = {}) {
+export function inspectAlignment({ selector = '.shell-content > :not(.shell-header):not(.phone-tabs), .signin, .access-signin, .join', requirePage = true, sidebarOnly = false } = {}) {
+  const issues = [], near = (a, b) => Math.abs(a - b) <= 1;
+  for (const sidebar of document.querySelectorAll('.sidebar:not(.is-collapsed)')) {
+    const box = sidebar.getBoundingClientRect();
+    if (!sidebar.checkVisibility() || box.right <= 0 || box.left >= innerWidth) continue;
+    const meter = sidebar.querySelector('.sidebar-usage');
+    if (!meter?.checkVisibility()) continue;
+    const footer = sidebar.querySelector('.sidebar__footer'), scroll = sidebar.querySelector('.sidebar__custom-scroll, .sidebar__scroll');
+    const nav = sidebar.querySelector('.sidebar__nav, .sidebar__dashboards');
+    const m = meter.getBoundingClientRect(), f = footer.getBoundingClientRect(), s = scroll.getBoundingClientRect();
+    const css = getComputedStyle(sidebar), contentLeft = box.left + parseFloat(css.borderLeftWidth) + parseFloat(css.paddingLeft);
+    const contentRight = box.right - parseFloat(css.borderRightWidth) - parseFloat(css.paddingRight);
+    if (!near(m.left, contentLeft) || !near(m.right, contentRight)) issues.push(`G1 usage width/edges: ${m.width.toFixed(2)}px, sidebar content ${(contentRight - contentLeft).toFixed(2)}px`);
+    if (nav) { const n = nav.getBoundingClientRect(); if (!near(m.left, n.left) || !near(m.right, n.right)) issues.push('G1 usage edges differ from navigation'); }
+    if (f.top - m.bottom < -1 || f.top - m.bottom > 16) issues.push(`G1 usage/footer gap: ${(f.top - m.bottom).toFixed(2)}px`);
+    if (!near(f.bottom, box.bottom - parseFloat(css.paddingBottom) - parseFloat(css.borderBottomWidth))) issues.push('G1 Settings is not pinned to sidebar bottom');
+    if (s.bottom > m.top + 1 || scroll.contains(meter) || scroll.contains(footer)) issues.push('G1 usage or Settings overlaps the scroll area');
+    if (m.top < box.top || f.bottom > innerHeight + 1) issues.push('G1 usage or Settings is outside the viewport');
+    const mc = getComputedStyle(meter);
+    if (mc.padding !== '16px' || mc.borderTopLeftRadius !== '12px') issues.push('G1 usage card needs 16px padding and 12px radius');
+  }
+  if (sidebarOnly) return issues;
   const roots = [...document.querySelectorAll(selector)];
-  const visible = el => el.checkVisibility() && el.getBoundingClientRect().width > 0;
+  // Accessibility announcements are fully clipped, including their text descendants.
+  const visible = el => el.checkVisibility() && el.getBoundingClientRect().width > 0 && !el.closest('.sr-only, .dashboard-sr-only, [style*="clip-path: inset(50%)"]');
   const all = [...new Set(roots.flatMap(root => [root, ...root.querySelectorAll('*')]))].filter(visible);
-  const issues = [];
   if (!all.length) issues.push('No visible route surface');
   const label = el => `${el.dataset.layout || el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]} ${(el.innerText || el.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 55)}`;
   const rect = el => el.getBoundingClientRect();
@@ -135,7 +157,7 @@ async function main() {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   const report = [];
   try {
-    for (const width of (process.env.LAYOUT_WIDTHS || '390,1280').split(',').map(Number)) for (const theme of ['light', 'dark']) {
+    for (const width of (process.env.LAYOUT_WIDTHS || '320,390,500,1280').split(',').map(Number)) for (const theme of ['light', 'dark']) {
       const context = await browser.newContext({ viewport: { width, height: width <= 760 ? 844 : 900 }, reducedMotion: 'reduce', colorScheme: theme });
       await context.addCookies([{ name: 'swarm_session', value: 'layout-test-token', url: server.base }]);
       await context.addInitScript(theme => { if (location.origin === 'null') return; localStorage.setItem('swarm.theme', theme); localStorage.setItem('swarm.sidebarCollapsed', '0'); }, theme);
@@ -219,6 +241,7 @@ async function main() {
     report.push(...await auditDashboardRoutes(path.join(evidence, 'dashboards'), inspectAlignment));
     const polish = await runDashboardPolish({ output: path.join(evidence, 'dashboard-polish') });
     report.push(...polish.checks.map(name => ({ name, owner: 'FIX-DASH', enforce: true, issues: [] })));
+    report.push(...await auditSidebarPolish(ROUTES, path.join(evidence, 'sidebar-polish')));
   }
   fs.writeFileSync(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   assert.equal(report.filter(r => r.enforce && r.issues.length).length, 0, 'Enforced routes follow the shared layout system');

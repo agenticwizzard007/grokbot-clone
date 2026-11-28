@@ -68,17 +68,21 @@ export async function assertGrid(page, width) {
   });
   const columns = width < 360 ? 2 : width <= 1023 ? 6 : 12;
   assert.equal(geometry.columns, columns); assert.equal(geometry.overflow, false); assert.equal(geometry.gap, 16);
-  const spanOf = slot => width < 360 ? slot.type === 'stat' && slot.span === 4 ? 2 : slot.span <= 4 ? 1 : 2 : width <= 480 ? slot.type === 'stat' && slot.span === 4 ? 2 : slot.span <= 4 ? 3 : 6 : width <= 1023 ? Math.ceil(slot.span / 2) : slot.span;
+  const spanOf = slot => width <= 760 && slot.type !== 'stat' ? columns : width < 360 ? slot.type === 'stat' || slot.span > 4 ? 2 : 1 : width <= 480 ? slot.type === 'stat' && slot.span === 4 ? 2 : slot.span <= 4 ? 3 : 6 : width <= 1023 ? Math.ceil(slot.span / 2) : slot.span;
   for (const slot of geometry.slots) {
     const span = spanOf(slot);
     const expected = (geometry.width - geometry.gap * (columns - 1)) / columns * span + geometry.gap * (span - 1);
-    assert.ok(Math.abs(slot.width - expected) <= 1, `span ${span}: ${slot.width} versus ${expected}`);
-    for (const other of geometry.slots) if (Math.abs(slot.top - other.top) <= 1 && slot.rows === other.rows && !slot.empty && !other.empty) assert.ok(Math.abs(slot.height - other.height) <= 1);
+    // Read mode may widen a final card to finish its row, but never shrink its span.
+    assert.ok(slot.width >= expected - 1, `span ${span}: ${slot.width} versus minimum ${expected}`);
+    if (slot.width > expected + 1) assert.ok(Math.abs(slot.right - geometry.right) <= 1, 'Only the final card can grow to finish a row');
+    // KPI tiles share a height. Other read-mode cards fit their complete content.
+    for (const other of geometry.slots) if (Math.abs(slot.top - other.top) <= 1 && slot.type === 'stat' && other.type === 'stat') assert.ok(Math.abs(slot.height - other.height) <= 1);
   }
   for (const slot of geometry.slots) {
     const row = geometry.slots.filter(other => Math.abs(slot.top - other.top) <= 1);
-    const total = row.reduce((sum, item) => sum + spanOf(item), 0);
-    if (total === columns) { assert.ok(Math.abs(Math.min(...row.map(item => item.left)) - geometry.left) <= 1); assert.ok(Math.abs(Math.max(...row.map(item => item.right)) - geometry.right) <= 1); }
+    assert.ok(Math.abs(row[0].left - geometry.left) <= 1, 'Each row starts at the grid edge');
+    assert.ok(Math.abs(row.at(-1).right - geometry.right) <= 1, 'Each row fills the grid width');
+    for (let index = 1; index < row.length; index++) assert.ok(Math.abs(row[index].left - row[index - 1].right - geometry.gap) <= 1, 'Cards keep the shared gap without overlap');
   }
   return geometry;
 }
