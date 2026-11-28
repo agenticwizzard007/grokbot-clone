@@ -1,4 +1,5 @@
 import type { ApprovalStatus, Bot, ComputerState, LiveState, Routine, Row, Toolkit, User } from '@shared/types';
+import type { PlanUsageSummary } from '@shared/plan-usage-types';
 import { isNativeApp } from './native';
 import { requireActiveSession, revalidateSession } from './session';
 import { readDeadline } from './readDeadline';
@@ -42,6 +43,7 @@ export const ROW_PAGE_SIZE = 200;
 interface RowPage { generation: number; rows: Row[]; revision?: number; olderCursor?: number | null }
 
 export const api = {
+  usageSummary: (signal?: AbortSignal) => req<PlanUsageSummary>('GET', '/usage/summary', undefined, signal),
   me: (signal?: AbortSignal) => req<{ user: User | null; devLogin: boolean; googleLogin?: boolean; googleLinked?: boolean; appleLogin?: boolean; appleLinked?: boolean }>('GET', '/auth/me', undefined, signal),
   devLogin: (email: string, name?: string) => req<{ ok: true }>('POST', '/auth/dev', { email, name }),
   logout: () => req<{ ok: true }>('POST', '/auth/logout'),

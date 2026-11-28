@@ -2,10 +2,9 @@ import { ApprovalLevelSettings } from './ApprovalLevelSettings';
 import { Page, Section, Card, Row, ButtonGroup } from '../layout';
 import { Modal } from '../modals/Modal';
 import { InfoTip, SettingsMenu } from './SettingsControls';
-import { ProviderLabel, ProviderMark } from '../ProviderMark';
+import { ProviderMark } from '../ProviderMark';
 import { OpenRouterSettings } from './OpenRouterSettings';
 import { CredentialReauthPrompt } from './ReauthPrompt';
-import { planLabel } from '../../lib/planLabel';
 import { useModels } from '../../lib/models';
 import { useEffect, useRef, useState } from 'react';
 import { cliApi, getCachedCliStatus, type CliProvider, type CliProviderStatus, type CliStatus, type CliRun } from '../../lib/cliApi';
@@ -13,7 +12,8 @@ import { modelAccessStatus } from '../../lib/modelAccessStatus';
 import { refreshModels } from './ModelPicker';
 import { CliLoginTerminal } from './CliLoginTerminal';
 import { ApiError } from '../../lib/api';
-import { useReportedPlanUsage } from '../../lib/accessPlanUsage';
+import { usePlanUsage } from '../../lib/planUsage';
+import { PlanUsageContent } from '../PlanUsageContent';
 import { useStore } from '../../store';
 import { cancelResume, planResume, useConfigUI, type ResumeAction } from '../../configStore';
 import '../../styles/subscriptions.css';
@@ -45,7 +45,7 @@ export function SubscriptionSettings() {
 function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: string; accountEmail: string }) {
   const modelCatalog = useModels();
   const requestedProvider = useConfigUI(s => s.subscriptionProvider);
-  const planUsage = useReportedPlanUsage(modelCatalog.usage);
+  const planUsage = usePlanUsage();
   // A sign-in round trip (OAuth redirect or phone verification) returns here with the tab it left from.
   const resume = useConfigUI.getState().resume?.section === 'subscriptions' ? useConfigUI.getState().resume : null;
   const resumed = resume?.accountId === accountId && resume.expiresAt > Date.now() ? resume : null;
@@ -312,6 +312,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
         }}>Plan</button>
         <button type="button" className={!selected ? 'is-active' : ''} aria-pressed={!!status && !selected} disabled={disabled} onClick={() => void select(null)}>API key</button>
       </ButtonGroup>} />
+    <Section title="Plan usage"><Card><PlanUsageContent summary={planUsage.summary} error={planUsage.error} /></Card></Section>
     <Section title="Plans"><Card variant="list">
       {(['claude', 'codex'] as const).map(id => {
         const connection = modelAccessStatus(status, id, stale);
@@ -380,10 +381,7 @@ function AccountSubscriptionSettings({ accountId, accountEmail }: { accountId: s
           </Card></Section>
           <Section title="Install"><Card><CommandText command={provider.install} /><CommandText command={provider.login} /></Card></Section>
           <Section title="Diagnostics"><Card><dl><RunDetails title="Last model run" run={status?.runsByProvider?.[providerTab]?.latest ?? null} /><RunDetails title="Last tool run" run={status?.runsByProvider?.[providerTab]?.lastToolRun ?? null} /></dl></Card></Section>
-          <Section title="Usage"><Card>{tabStatus.currentlyInUse && modelCatalog.provider === `${providerTab}-cli` && modelCatalog.billing === 'plan' ? <>
-            <ProviderLabel provider={providerTab}>{modelCatalog.plan ? planLabel(providerTab, modelCatalog.plan) : 'Plan'}</ProviderLabel>
-            {planUsage.state === 'reported' ? planUsage.windows.map(w => <p key={w.label}>{w.label}: {w.usedPercent}% used</p>) : <p>Usage unavailable</p>}
-          </> : <p>Check your provider account for current limits.</p>}</Card></Section>
+
           {blocked && <p>Reconnect the selected plan or choose API key.</p>}
           {health?.error && <p role="note">{health.error}</p>}
         </div></details>

@@ -38,7 +38,9 @@ try {
     };
     const requests = [];
     await page.route('**/api/**', route => {
-      const range = new URL(route.request().url()).searchParams.get('range');
+      const url = new URL(route.request().url());
+      if (url.pathname !== '/api/usage') return route.fulfill({ json: {} });
+      const range = url.searchParams.get('range');
       requests.push(range);
       return route.fulfill({ json: report(range) });
     });
@@ -52,6 +54,7 @@ document.documentElement.dataset.theme='light';useStore.setState({mobile:innerWi
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement('main',{className:'app-settings__page',style:{maxWidth:'760px',margin:'auto',padding:'24px'}},React.createElement(UsageSection)));
 ` }));
     await page.goto(origin);
+    await page.locator('.settings-disclosure > summary').click();
     const tokenTile = page.locator('.usage-tile').filter({ hasText: /^(Known tokens|Tokens)/ }).first();
     await page.getByRole('status').filter({ hasText: 'Token counts are incomplete' }).waitFor();
     assert.equal(await tokenTile.locator('.usage-tile__value').innerText(), 'Unavailable');
@@ -59,7 +62,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
     assert.match(await page.getByRole('status').filter({ hasText: 'Token counts are incomplete' }).innerText(), /Token counts are incomplete for 2 requests; totals include only reported tokens/);
     await page.getByRole('button', { name: 'Show more', exact: true }).click();
     assert.equal(await page.locator('.usage-ranked__figure').first().innerText(), 'Unavailable');
-    assert.match(await page.getByRole('img').first().getAttribute('aria-label'), /Token usage unavailable/);
+    assert.match(await page.getByRole('img', { name: /Token usage unavailable/ }).first().getAttribute('aria-label'), /Token usage unavailable/);
     await page.getByRole('radio', { name: 'Table', exact: true }).click();
     assert.equal(await page.getByRole('cell', { name: 'Unavailable', exact: true }).count(), 2);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

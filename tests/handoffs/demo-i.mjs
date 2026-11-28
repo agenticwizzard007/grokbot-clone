@@ -92,7 +92,7 @@ async function paperMatrix({ page, width, server, check, screenshots, evidence }
       const nav = page.getByRole('navigation', { name: 'Settings sections', exact: true });
       await nav.waitFor();
       assert.deepEqual(await nav.locator('.layout-section__header h2').allTextContents(), ['Workspace', 'Connections']);
-      assert.equal(await nav.locator('.settings-nav__item').count(), 13);
+      assert.equal(await nav.locator('.settings-nav__item').count(), 14);
       const agents = nav.getByRole('button', { name: 'Agents', exact: true });
       assert.equal(await agents.count(), 1);
       assert.equal(await agents.locator('svg.lucide-users').count(), 1);
@@ -105,7 +105,7 @@ async function paperMatrix({ page, width, server, check, screenshots, evidence }
         await back.click(); await nav.waitFor();
         await agents.click(); await page.getByLabel('Agent handoffs', { exact: true }).waitFor();
       }
-      check(`Settings navigation has thirteen sections in two groups at ${testedWidth} ${theme}`);
+      check(`Settings navigation has fourteen sections in two groups at ${testedWidth} ${theme}`);
     }
   }
   await page.setViewportSize({ width, height: 1000 }); await setTheme(page, 'light');
@@ -130,7 +130,7 @@ await runIntegrationDemo({ outputFlow: async args => {
     await settingsNav.getByRole('button', { name: label, exact: true }).click();
   };
   await openSidebar();
-  await page.locator('.sidebar').getByRole('button', { name: /Account & settings$/ }).click();
+  await page.locator('.sidebar').getByRole('button', { name: 'Account & settings', exact: true }).click();
   await page.getByRole('menuitem', { name: /^Settings/ }).click();
   await settingsNav.getByRole('button', { name: 'Agents', exact: true }).click();
   await policy.waitFor();
@@ -147,7 +147,7 @@ await runIntegrationDemo({ outputFlow: async args => {
   await page.reload(); await enabled.waitFor();
   assert.equal(await enabled.getAttribute('aria-checked'), 'false');
   assert.equal(await page.getByRole('button', { name: 'Open Loops', exact: true }).count(), 0);
-  assert.equal(await page.getByRole('button', { name: 'Add link between agents', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Add a standing link', exact: true }).count(), 0);
   await save('/handoff-settings', () => enabled.click());
   assert.equal((await read('/handoff-settings')).settings.enabled, true);
   check('Disabled handoffs can be re-enabled after a fresh load');
@@ -214,7 +214,7 @@ await runIntegrationDemo({ outputFlow: async args => {
   await page.goBack(); await policy.waitFor(); await alignment();
   check('Agents opens the real loop builder with matching defaults and bounds, then returns');
 
-  await page.getByRole('button', { name: 'Add link between agents', exact: true }).click();
+  await page.getByRole('button', { name: 'Add a standing link', exact: true }).click();
   const linkSheet = page.getByRole('dialog', { name: 'Handoff links', exact: true });
   await linkSheet.waitFor(); await page.keyboard.press('Escape'); await linkSheet.waitFor({ state: 'hidden' });
   await page.goBack(); await policy.waitFor();
@@ -222,7 +222,9 @@ await runIntegrationDemo({ outputFlow: async args => {
 
   await pickSettings('Layout');
   await page.getByRole('region', { name: 'Dashboards', exact: true }).waitFor();
-  assert.equal(await page.getByRole('button', { name: 'Create new dashboard', exact: true }).count(), 1);
+  const createDashboard = page.getByRole('region', { name: 'Dashboards', exact: true }).getByRole('button', { name: 'Create new dashboard', exact: true });
+  await createDashboard.waitFor();
+  assert.equal(await createDashboard.count(), 1);
   await pickSettings('Agents'); await policy.waitFor(); await alignment();
   await page.reload(); await policy.waitFor(); await alignment();
   assert.equal(new URL(page.url()).hash, '#settings/agents');
@@ -237,7 +239,7 @@ await runIntegrationDemo({ outputFlow: async args => {
     const reference = path.join(evidence, `settings-reference-${width}-${theme}.png`);
     await page.screenshot({ path: reference, fullPage: true }); screenshots.push(reference);
     await pickSettings('Agents'); await policy.waitFor();
-    await openSidebar(); await page.locator('.sidebar').getByRole('button', { name: /^Tasks(?: \d|$)/ }).click();
+    await openSidebar(); await page.locator('.sidebar').getByRole('button', { name: 'Tasks', exact: true }).click();
     await page.locator('.task-card').first().waitFor();
     const tasks = path.join(evidence, `tasks-reference-${width}-${theme}.png`);
     await page.screenshot({ path: tasks, fullPage: true }); screenshots.push(tasks);

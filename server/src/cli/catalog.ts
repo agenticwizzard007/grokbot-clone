@@ -7,10 +7,14 @@ const effort = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max
 const schema = z.object({
   models: z.array(z.object({ id: z.string().max(130), name: z.string().max(160), resolvedModel: z.string().max(120).optional(), efforts: z.array(effort), defaultEffort: effort.nullable(), vision: z.boolean() })).max(1000),
   defaultModel: z.string().nullable(), plan: z.string().max(160).nullable(),
-  usage: z.object({ available: z.boolean(), checkedAt: z.number().finite(), windows: z.array(z.object({ label: z.string().max(700), usedPercent: z.number().min(0).max(100), resetsAt: z.number().finite().nullable() })).max(100) }),
+  usage: z.object({ available: z.boolean(), checkedAt: z.number().finite(), windows: z.array(z.object({ label: z.string().max(700), usedPercent: z.number().finite().min(0), resetsAt: z.number().finite().nullable() })).max(100) }),
 });
 const revisions = new Map<string, number>();
 const cache = new Map<string, { at: number; value: ReturnType<typeof normalize> }>();
+/** Local observation only. Reading usage must never start a provider probe. */
+export function cachedCliCatalog(userId: string, provider: CliProvider) {
+  return cache.get(`${userId}:${cliRuntime(userId)}:${provider}`)?.value ?? null;
+}
 interface PendingCatalog {
   controller: AbortController;
   promise: Promise<ReturnType<typeof normalize>>;

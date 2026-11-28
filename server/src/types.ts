@@ -298,6 +298,7 @@ export interface Toolkit {
 
 /** Server-sent events on GET /api/events */
 export type ServerEvent = (
+  | { type: 'usage' }
   | { type: 'handoff'; id: string; status: import('./handoffs/contracts.js').HandoffStatus }
   | { type: 'loop'; id: string; status: import('./handoffs/contracts.js').LoopStatus; iteration: number }
   | { type: 'flow'; botId: string; version: number }

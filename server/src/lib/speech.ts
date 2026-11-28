@@ -105,6 +105,7 @@ class TranscriptionFailure extends Error {
 
 async function openrouterTranscribe(a: Audio, language?: string): Promise<string> {
   const ready = formatFor(a.mime) ? a : await toMp3(a);
+  const keyKind = usesPersonalOpenRouter(currentUserId()) ? 'personal' : 'native';
   const r = await fetch(`${env.openrouterBaseUrl}/audio/transcriptions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${openrouterKey()}`, 'Content-Type': 'application/json' },
@@ -113,8 +114,8 @@ async function openrouterTranscribe(a: Audio, language?: string): Promise<string
   });
   if (!r.ok) { await r.body?.cancel(); throw new TranscriptionFailure('OpenRouter', r.status); }
   const j = (await r.json()) as { text?: string; usage?: unknown };
-  if (j.usage) void recordModelUsage({ kind: 'transcription', model: STT_MODEL(), provider: 'openrouter', response: j });
-  else recordUnits({ kind: 'transcription', model: STT_MODEL(), provider: 'openrouter', units: 1, unit: 'recordings' });
+  if (j.usage) void recordModelUsage({ kind: 'transcription', model: STT_MODEL(), provider: 'openrouter', keyKind, response: j });
+  else recordUnits({ kind: 'transcription', model: STT_MODEL(), provider: 'openrouter', keyKind, units: 1, unit: 'recordings' });
   return String(j.text ?? '').trim();
 }
 
@@ -174,6 +175,7 @@ export async function transcribe(a: Audio, opts: { language?: string } = {}): Pr
 // ---------- text-to-speech ----------
 
 async function openrouterSpeak(text: string, voice: string, format: 'mp3' | 'pcm'): Promise<Audio> {
+  const keyKind = usesPersonalOpenRouter(currentUserId()) ? 'personal' : 'native';
   const r = await fetch(`${env.openrouterBaseUrl}/audio/speech`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${openrouterKey()}`, 'Content-Type': 'application/json' },
@@ -183,7 +185,7 @@ async function openrouterSpeak(text: string, voice: string, format: 'mp3' | 'pcm
   if (!r.ok) throw new Error(`OpenRouter speech failed (${r.status}): ${(await r.text().catch(() => '')).slice(0, 200)}`);
   const data = Buffer.from(await r.arrayBuffer());
   if (!data.length) throw new Error('OpenRouter speech returned no audio');
-  recordUnits({ kind: 'speech', model: TTS_MODEL(), provider: 'openrouter', units: text.length, unit: 'characters' });
+  recordUnits({ kind: 'speech', model: TTS_MODEL(), provider: 'openrouter', keyKind, units: text.length, unit: 'characters' });
   return { data, mime: format === 'pcm' ? 'audio/pcm;rate=24000' : 'audio/mpeg' };
 }
 
