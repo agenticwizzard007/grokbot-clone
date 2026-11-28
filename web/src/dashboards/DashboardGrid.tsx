@@ -14,6 +14,6 @@ export function DashboardGrid({ dashboardId, widgets, states, observe, refresh, 
 function isEmpty(widget: Widget, state?: WidgetState) {
   if (widget.type === 'note') return !String(widget.options.text ?? '').trim();
   if (!widget.source || state?.status !== 'ready' || !state.data || widget.type === 'stat') return false;
-  if (widget.type === 'meter') return !state.data.available || !state.data.rows?.[Number(widget.options.window) || 0];
+  if (widget.type === 'meter') return !state.data.value?.plan || !state.data.value.ownKeys;
   return state.data.available === false || Array.isArray(state.data.rows) && state.data.rows.length === 0;
 }

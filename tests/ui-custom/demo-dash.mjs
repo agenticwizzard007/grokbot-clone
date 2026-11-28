@@ -4,7 +4,7 @@ import path from 'node:path';
 import { agenticFixture } from './e2e/agentic-fixture.mjs';
 import { inspectAlignment } from '../layout-alignment-ui.mjs';
 
-export const DASH_POLISH_STATES = ['sales-pipeline', 'operations', 'manager', 'create', 'sidebar', 'empty', 'edit', 'widget-settings', 'add-widget', 'ask-agent', 'approve-confirm', 'send-prefill'];
+export const DASH_POLISH_STATES = ['sales-pipeline', 'operations', 'manager', 'create', 'sidebar', 'empty', 'empty-widget', 'edit', 'widget-settings', 'add-widget', 'ask-agent', 'approve-confirm', 'send-prefill'];
 const prompt = 'Show my tasks that have been open for more than 2 days';
 const widget = (id, type, title, span, rows, source, options = {}) => ({ id: `$new${id}`, type, title, span, rows, ...(source ? { source: { id: source, params: {} } } : {}), options });
 async function runPolishView({ before, output, view }) {
@@ -28,7 +28,7 @@ async function runPolishView({ before, output, view }) {
         widget(5, 'agent', 'Tasks stuck over 2 days', 6, 3, null, { prompt, display: 'list', schedule: 'manual' }),
         { ...widget(6, 'list', 'Open tasks', 6, 3, 'tasks.list', { limit: 4 }), source: { id: 'tasks.list', params: { state: 'working', limit: 10 } } },
         widget(7, 'botStatus', 'Bots', 6, 2, 'bots.status', { limit: 6 }),
-        widget(8, 'meter', 'Usage limits', 6, 3, 'usage.windows', { window: 0 }),
+        widget(8, 'meter', 'Plan usage', 6, 2, 'usage.windows', { window: 0 }),
       ] },
       { id: '$new20', name: 'Operations', icon: 'activity', widgets: [
         widget(21, 'stat', 'Tasks completed', 4, 1, 'tasks.counts', { field: 'done' }),
@@ -64,7 +64,7 @@ async function runPolishView({ before, output, view }) {
       const selector = await dialog.count() ? 'dialog[open]' : name === 'send-prefill' ? '.composer' : name === 'sidebar' ? '.sidebar__dashboards' : '.dashboard-page';
       assert.doesNotMatch(await page.locator('body').innerText(), /mock|Fixture|PRIVATE|QA-|undefined|null|\[object|[\u2013\u2014]/i, `${name}: clean copy`);
       assert.deepEqual(await page.evaluate(inspectAlignment, { selector: selector === '.dashboard-page' ? '.dashboard-page, .dashboard-header-actions' : selector, requirePage: !['sidebar', 'send-prefill'].includes(name) }), [], `${name}: alignment`);
-      const issues = await page.locator(selector).evaluate(root => [...root.querySelectorAll('p,span,strong,label,button,h2')].filter(el => el.checkVisibility() && el.textContent.trim() && !el.closest('svg')).flatMap(el => parseFloat(getComputedStyle(el).fontSize) < (el.closest('.model-pill') || el.matches('.sidebar__section-label, .dashboard-caption, .dashboard-schedule li > span, .dashboard-bot-meta, .dashboard-bot-meta *, .dashboard-list-meta *, .dashboard-muted, .dashboard-library-item > span, .dashboard-status') ? 13 : 14) && !el.matches('.dashboard-status > span') ? [el.textContent] : []));
+      const issues = await page.locator(selector).evaluate(root => [...root.querySelectorAll('p,span,strong,label,button,h2')].filter(el => el.checkVisibility() && el.textContent.trim() && !el.closest('svg')).flatMap(el => parseFloat(getComputedStyle(el).fontSize) < (el.closest('.model-pill, .plan-usage__status, .plan-usage__reset, .plan-usage__own, .plan-usage__note') || el.matches('.sidebar__section-label, .dashboard-caption, .dashboard-schedule li > span, .dashboard-bot-meta, .dashboard-bot-meta *, .dashboard-list-meta *, .dashboard-muted, .dashboard-library-item > span, .dashboard-status') ? 13 : 14) && !el.matches('.dashboard-status > span') ? [el.textContent] : []));
       if (name !== 'send-prefill') assert.deepEqual(issues, [], `${name}: readable type`);
       if (width <= 760 && name !== 'sidebar') assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 1, `${name}: one Back`);
       const fields = await page.locator('input,textarea').evaluateAll(fields => fields.filter(el => el.checkVisibility()).map(el => `${el.value} ${el.placeholder}`).join(' '));
@@ -100,7 +100,7 @@ async function runPolishView({ before, output, view }) {
         const bot = page.locator('[data-widget-type="botStatus"]'); assert.equal(await bot.locator('.bot-avatar svg').count(), 1);
         assert.equal(await bot.locator('.dashboard-bot-name').evaluate(el => getComputedStyle(el).whiteSpace), 'nowrap');
         assert.equal(await bot.getByRole('link', { name: /Project assistant/ }).evaluate(el => getComputedStyle(el).textDecorationLine), 'none');
-        assert.ok(await page.locator('[data-widget-type="meter"]').evaluate(el => el.getBoundingClientRect().height <= 136), 'Empty meter is compact');
+        await page.locator('[data-widget-type="meter"] .plan-usage').waitFor();
         assert.equal(await page.getByRole('button', { name: 'Refresh dashboard', exact: true }).count(), 1);
         assert.equal(await page.getByRole('button', { name: 'Edit dashboard', exact: true }).count(), 1);
         const headerActions = await page.locator('.dashboard-header-actions').evaluate(el => ({ inHeader: !!el.closest('.shell-header'), width: el.getBoundingClientRect().width, targets: [...el.querySelectorAll('button')].map(button => button.getBoundingClientRect().height) }));
@@ -108,11 +108,26 @@ async function runPolishView({ before, output, view }) {
         await page.getByText('Updated 5 min ago', { exact: true }).waitFor();
         const actionWidths = await page.locator('.dashboard-agent-list .btn').evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().width));
         assert.ok(actionWidths.every(width => Math.abs(width - actionWidths[0]) <= 1), 'Inline action buttons have equal widths');
-        pass(`dashboard regressions ${width} ${theme}: KPI row, whole rows, View all, avatar, compact empty, header`);
+        pass(`dashboard regressions ${width} ${theme}: KPI row, whole rows, View all, avatar, plan usage, header`);
       }
       await capture('sales-pipeline', width, theme);
       counts.push({ phase: before ? 'before' : 'after', width, theme, screen: 'sales-pipeline', words: (await page.locator('.shell-content').innerText()).trim().split(/\s+/).length });
       await page.locator('[data-widget-type="botStatus"]').scrollIntoViewIfNeeded(); await capture('sales-details', width, theme);
+      if (!before) {
+        const meter = page.locator('[data-widget-type="meter"]'); await meter.scrollIntoViewIfNeeded();
+        // Exercise the unavailable response without changing the real seeded plan summary.
+        const unavailable = async route => {
+          const response = await route.fetch(), body = await response.json();
+          for (const request of route.request().postDataJSON().requests) if (request.source === 'usage.windows') body.results[request.key] = { ok: true, available: false, rows: [], count: 0, fetchedAt: Date.now() };
+          await route.fulfill({ response, json: body });
+        };
+        await page.route('**/api/ui/data', unavailable);
+        await page.getByRole('button', { name: 'Refresh dashboard', exact: true }).click(); await meter.getByText('Usage unavailable', { exact: true }).waitFor();
+        assert.ok(await meter.evaluate(el => el.getBoundingClientRect().height <= 136), 'Empty meter is compact');
+        await capture('empty-widget', width, theme);
+        await page.unroute('**/api/ui/data', unavailable);
+        await page.getByRole('button', { name: 'Refresh dashboard', exact: true }).click(); await meter.locator('.plan-usage').waitFor();
+      }
       await open(operations); await capture('operations', width, theme);
       await page.goto(`${server.base}/#dashboards`); await page.locator('.dashboards-manager').waitFor();
       if (!before) await page.getByRole('button', { name: 'Create with your agent', exact: true }).waitFor();

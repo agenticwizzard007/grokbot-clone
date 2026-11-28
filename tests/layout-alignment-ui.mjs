@@ -10,7 +10,7 @@ import { layoutServer } from './layout-fixture.mjs';
 import { readableWords } from './paper-label-geometry.mjs';
 import { runDashboardPolish } from './ui-custom/demo-dash.mjs';
 
-export const DASHBOARD_POLISH_ROUTES = ['sales-pipeline', 'operations', 'manager', 'create', 'sidebar', 'empty', 'edit', 'widget-settings', 'add-widget', 'ask-agent', 'approve-confirm', 'send-prefill'].map(name => ({ name: `dashboard-${name}`, owner: 'FIX-DASH', enforce: true }));
+export const DASHBOARD_POLISH_ROUTES = ['sales-pipeline', 'operations', 'manager', 'create', 'sidebar', 'empty', 'empty-widget', 'edit', 'widget-settings', 'add-widget', 'ask-agent', 'approve-confirm', 'send-prefill'].map(name => ({ name: `dashboard-${name}`, owner: 'FIX-DASH', enforce: true }));
 
 export { DASHBOARD_ROUTES } from './ui-custom/e2e/layout-x2.mjs';
 
