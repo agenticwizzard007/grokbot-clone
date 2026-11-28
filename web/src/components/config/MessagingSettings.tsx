@@ -221,6 +221,7 @@ function AccountSection() {
   const setModal = useStore((s) => s.setModal);
   const [busy, setBusy] = useState<'google' | 'gmail' | null>(null);
   const [gmailAccounts, setGmailAccounts] = useState<DisplayAccount[]>([]);
+  const [appsConfigured, setAppsConfigured] = useState(false);
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
   const [note, setNote] = useState<NoteState>(null);
   const [gmailError, setGmailError] = useState(false);
@@ -231,10 +232,11 @@ function AccountSection() {
     const apply = (r: Awaited<ReturnType<typeof configApi.connectedApps>>) => {
       setGmailAccounts(r.connectedApps?.find(a => a.slug === 'gmail')?.accounts ?? []);
       setGmailConnected(r.connected.includes('gmail'));
+      setAppsConfigured(r.notConfigured !== true);
     };
     const saved = gmailStatusCache.peek('gmail');
     if (saved) apply(saved);
-    else { setGmailConnected(null); setGmailAccounts([]); }
+    else { setGmailConnected(null); setGmailAccounts([]); setAppsConfigured(false); }
     setGmailError(false);
     void gmailStatusCache.refresh('gmail', () => settingsRead(signal => configApi.connectedApps(signal)))
       .then(r => { if (alive && current()) apply(r); })
@@ -282,10 +284,10 @@ function AccountSection() {
           {busy === 'google' ? 'Opening' : 'Connect Google'}
         </a>}
       </AccessRow><AccessRow icon={MessageCircle} title="Gmail for your Bots" description={<><ConnectedAccounts accounts={gmailAccounts} />{gmailConnected ? 'Connected for Bots to read and send mail with your approval.' : 'Connect Gmail separately from your phone identity.'}</>}>
-          {gmailError ? <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(value => value + 1)}>Retry Gmail status</button> : <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || !googleLogin || gmailConnected === null} onClick={() => void connectGmail()}>
+          {gmailError ? <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => setAttempt(value => value + 1)}>Retry Gmail status</button> : <button type="button" className="cfg-btn cfg-btn--secondary" disabled={!!busy || !appsConfigured || gmailConnected === null} onClick={() => void connectGmail()}>
             {busy === 'gmail' ? 'Opening' : gmailConnected === null ? 'Checking' : gmailConnected ? 'Manage Gmail' : 'Connect Gmail'}
           </button>}
-      </AccessRow>{gmailError && <div className="cfg-error" role="alert">Unavailable. Gmail connection status could not be loaded.</div>}{!googleLogin && !gmailError && <p className="cfg-field__hint">Connected apps need a Composio project key from the server owner.</p>}<Note note={note} /></Section>
+      </AccessRow>{gmailError && <div className="cfg-error" role="alert">Unavailable. Gmail connection status could not be loaded.</div>}{!appsConfigured && gmailConnected !== null && !gmailError && <p className="cfg-field__hint">Connected apps need a Composio project key from the server owner.</p>}<Note note={note} /></Section>
   );
 }
 

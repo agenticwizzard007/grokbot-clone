@@ -11,6 +11,14 @@ export function googleAuthorization(redirectUri: string, state: string, nonce: s
   url.search = new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID!, redirect_uri: redirectUri, response_type: 'code', scope: 'openid email profile', state, nonce, code_challenge: challengeFor(verifier), code_challenge_method: 'S256', prompt: 'select_account' }).toString();
   return url.href;
 }
+/** Normalize provider errors without reflecting untrusted provider text into the app. */
+export function googleCallbackError(error?: string, status?: string) {
+  const reason = (error ?? '').slice(0, 4096);
+  if (/expired|timed?[_ +]?out|no longer awaiting completion/i.test(reason) || status === 'expired') return 'google_expired';
+  if (reason) return 'google_denied';
+  if (status === 'failed') return 'google_failed';
+  return null;
+}
 export async function verifyGoogleIdentity(idToken: string, nonce: string, key: JWTVerifyGetKey = jwks): Promise<GoogleIdentity> {
   const { payload } = await jwtVerify(idToken, key, { issuer: ['https://accounts.google.com', 'accounts.google.com'], audience: process.env.GOOGLE_CLIENT_ID, algorithms: ['RS256'], maxTokenAge: '10m' });
   if (payload.nonce !== nonce || typeof payload.sub !== 'string' || !payload.sub || payload.sub.length > 255 || payload.email_verified !== true || typeof payload.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) throw new Error('google_identity');

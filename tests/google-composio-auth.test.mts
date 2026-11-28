@@ -5,8 +5,9 @@ import path from 'node:path';
 import { after, mock, test } from 'node:test';
 import { Hono } from 'hono';
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-google-composio-'));
-// No Google OAuth client: sign-in uses a Composio-managed Gmail authorization.
+// Pending legacy Composio callbacks and cleanup must survive the switch to direct OIDC.
 Object.assign(process.env, { SWARM_ROLE: 'standalone', DB_PATH: path.join(root, 'test.db'), FILES_DIR: path.join(root, 'files'), SESSION_SECRET: 'test-google-composio', COMPUTER_PROVIDER: 'local', COMPOSIO_API_KEY: 'test-project', SERVER_URL: 'https://swarm.test', APP_URL: 'https://swarm.test' });
 delete process.env.GOOGLE_CLIENT_ID; delete process.env.GOOGLE_CLIENT_SECRET;
 mock.method(globalThis, 'fetch', async input => {
@@ -17,31 +18,19 @@ mock.method(globalThis, 'fetch', async input => {
 });
 const { db, now } = await import('../server/src/db.js');
 const { composio } = await import('../server/src/composio.js');
+const { sealSecret } = await import('../server/src/settings.js');
+const { sessionHash } = await import('../server/src/lib/auth.js');
 const client = composio() as any;
 
 /** Simulated Composio + Google: connected account -> Composio user, status and the Google principal behind the token. */
 interface Principal { sub: string; email: string; verified?: boolean }
 const accounts = new Map<string, { userId: string; status: string; principal: Principal; reason?: string }>();
-let nextPrincipal: Principal = { sub: '1000', email: 'person@example.test' };
 let seq = 0;
-let failAuthorize = false;
-let authorizeHook: (() => Promise<void>) | undefined;
 let listHook: ((input: any) => Promise<void>) | undefined;
 let proxyHook: ((input: any) => Promise<void>) | undefined;
 let deleteHook: ((id: string) => Promise<void>) | undefined;
 let getHook: ((id: string) => Promise<void>) | undefined;
-mock.method(client, 'create', async (userId: string, options: any) => {
-  assert.equal(options.manageConnections, false);
-  return { authorize: async (toolkit: string, input: any) => {
-    assert.equal(toolkit, 'gmail');
-    assert.match(input.callbackUrl, /^https:\/\/swarm\.test\/api\/auth\/google\/callback\?state=/);
-    const id = `ca_${++seq}`;
-    await authorizeHook?.();
-    accounts.set(id, { userId, status: 'ACTIVE', principal: { ...nextPrincipal } });
-    if (failAuthorize) throw new Error('link creation response lost');
-    return { id, redirectUrl: `https://connect.composio.dev/link/${id}` };
-  } };
-});
+mock.method(client, 'create', async () => { throw new Error('Login must never create a Gmail authorization'); });
 mock.method(client.connectedAccounts, 'get', async (id: string) => {
   await getHook?.(id);
   const a = accounts.get(id);
@@ -71,16 +60,19 @@ const app = new Hono().route('/api', api);
 after(() => { mock.restoreAll(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
 
 const sessionCookie = (r: Response) => r.headers.getSetCookie().find(v => v.startsWith('swarm_session='))?.split(';')[0];
+// Seed the persisted shape left by the old deployment. New /start requests cannot create these rows.
 async function begin(principal: Principal, extraCookie = '', query = '') {
-  nextPrincipal = principal;
-  const r = await app.request(`/api/auth/google/start${query}`, { headers: { cookie: extraCookie } });
-  const location = new URL(r.headers.get('location')!);
-  assert.equal(location.hostname, 'connect.composio.dev', `started: ${location}`);
-  const account = location.pathname.split('/').pop()!;
-  const attempt = r.headers.getSetCookie().find(v => v.startsWith('swarm_google_attempt='))!.split(';')[0];
-  // The cookie may hold several attempts from this browser; the newest is last.
-  const state = attempt.split('=')[1].split('.').pop()!;
-  return { account, state, provisional: accounts.get(account)!.userId, cookie: extraCookie ? `${extraCookie}; ${attempt}` : attempt, path: `/api/auth/google/callback?state=${state}&status=success&connected_account_id=${account}` };
+  const state = randomBytes(32).toString('base64url'), account = `ca_${++seq}`, provisional = `usr_legacy_attempt_${seq}`;
+  accounts.set(account, { userId: provisional, status: 'ACTIVE', principal });
+  const session = extraCookie.match(/swarm_session=([^;]+)/)?.[1];
+  const linked = query === '?intent=link' && session
+    ? db.prepare('SELECT user_id FROM auth_sessions WHERE token=session_hash(?)').get(session) as { user_id: string } : null;
+  db.prepare('INSERT INTO google_oidc_attempts VALUES (?,?,?,?,?,?)').run(state, 'composio-gmail',
+    sealSecret(JSON.stringify({ provisional, account })), linked?.user_id ?? null, linked ? sessionHash(session!) : null, now() + 30 * 60_000);
+  db.prepare('INSERT INTO google_oidc_attempts VALUES (?,?,?,?,?,?)').run(`cleanup:${state}`, 'composio-cleanup',
+    sealSecret(JSON.stringify({ provisional, account, created: now() })), null, null, now() + 31 * 60_000);
+  const cookie = `${extraCookie ? `${extraCookie}; ` : ''}swarm_google_attempt=${state}`;
+  return { account, state, provisional, cookie, path: `/api/auth/google/callback?state=${state}&status=success&connected_account_id=${account}` };
 }
 const finish = (a: { path: string; cookie: string }, path = a.path) => app.request(path, { headers: { cookie: a.cookie } });
 const me = async (cookie?: string) => await (await app.request('/api/auth/me', { headers: { cookie: cookie ?? '' } })).json() as any;
@@ -94,9 +86,9 @@ function addSession(raw: string, userId: string, authenticatedAgo = 0) {
   db.prepare('INSERT INTO auth_sessions(token,user_id,created_at,expires_at,last_seen_at,authenticated_at) VALUES (session_hash(?),?,?,?,?,?)').run(raw, userId, now(), now() + 3600_000, now(), now() - authenticatedAgo);
 }
 
-test('Google sign-in is offered through Composio when no Google OAuth client exists', async () => {
+test('Google sign-in requires an OIDC client even when Composio is configured', async () => {
   const anonymous = await me();
-  assert.equal(anonymous.googleLogin, true);
+  assert.equal(anonymous.googleLogin, false);
   assert.equal(anonymous.googleLinked, false);
 });
 
@@ -181,7 +173,7 @@ test('a recently signed-in user can connect Google, then sign in with it; linkin
 
 test('every terminal failure removes the exact throwaway authorization; foreign state cannot delete it', async () => {
   const denied = await begin({ sub: '6001', email: 'denied@example.test' });
-  assert.match((await finish(denied, denied.path.replace('status=success', 'status=failed'))).headers.get('location')!, /google_denied/);
+  assert.match((await finish(denied, denied.path.replace('status=success', 'status=failed'))).headers.get('location')!, /google_failed/);
   assert.equal(authorizationsOf(denied.provisional), 0);
 
   const pending = await begin({ sub: '6002', email: 'pending@example.test' });
@@ -206,23 +198,16 @@ test('every terminal failure removes the exact throwaway authorization; foreign 
   assert.equal((await finish(foreign)).headers.get('location'), 'https://swarm.test/?signed_in=1', 'the owner can still finish it');
 });
 
-test('expired, session-revoked and failed-start attempts are swept from the durable cleanup record', async () => {
+test('expired, session-revoked and abandoned legacy attempts are swept from the durable cleanup record', async () => {
   const expired = await begin({ sub: '7001', email: 'expired@example.test' });
   db.prepare('UPDATE google_oidc_attempts SET expires_at=? WHERE id=?').run(now() - 1, expired.state);
-  assert.match((await finish(expired)).headers.get('location')!, /google_session/);
+  assert.match((await finish(expired)).headers.get('location')!, /google_expired/);
   addUser('usr_revoked', 'revoked@example.test');
   addSession('revoked-session', 'usr_revoked');
   const revoked = await begin({ sub: '7002', email: 'revoked@example.test' }, 'swarm_session=revoked-session', '?intent=link');
   db.prepare('DELETE FROM auth_sessions WHERE token=session_hash(?)').run('revoked-session');
   assert.match((await finish(revoked)).headers.get('location')!, /google_session|google_link_required/);
   const abandoned = await begin({ sub: '7003', email: 'abandoned@example.test' });
-  failAuthorize = true;
-  const before = seq;
-  const failed = await app.request('/api/auth/google/start');
-  failAuthorize = false;
-  assert.match(failed.headers.get('location')!, /google_unavailable/);
-  assert.equal(seq, before + 1, 'the provider created an authorization before the start failed');
-  assert.equal(accounts.has(`ca_${before + 1}`), false, 'an authorization created before a failed start is removed at once');
   for (const a of [expired, revoked, abandoned]) assert.equal(authorizationsOf(a.provisional), 1, 'not yet swept');
   db.prepare("UPDATE google_oidc_attempts SET expires_at=? WHERE nonce IN ('composio-cleanup','composio-gmail')").run(now() - 1);
   await sweepGoogleLoginAuthorizations();
@@ -381,27 +366,6 @@ test('a failed cleanup claim survives another process/restart and cannot reopen 
   assert.equal(authorizationsOf(a.provisional), 0);
 });
 
-test('a late authorize response cannot reopen a cleanup claim or lose its eventual authorization', async () => {
-  const authorizeStarted = deferred(), authorize = deferred();
-  const before = seq;
-  authorizeHook = async () => { authorizeStarted.open(); await authorize.wait; };
-  const start = app.request('/api/auth/google/start');
-  await authorizeStarted.wait;
-  const row = db.prepare("SELECT id FROM google_oidc_attempts WHERE nonce='composio-cleanup' ORDER BY rowid DESC LIMIT 1").get() as { id: string };
-  const state = row.id.slice('cleanup:'.length);
-  expireCleanup(state);
-  await sweepGoogleLoginAuthorizations();
-  assert.equal(cleanupRow(state)?.nonce, 'composio-cleaning', 'an empty provider list cannot discard a pending authorize reference');
-  try {
-    authorize.open();
-    const response = await start;
-    assert.match(response.headers.get('location')!, /google_unavailable/);
-    assert.equal(accounts.has(`ca_${before + 1}`), false, 'the late-created authorization is removed after settlement');
-    assert.equal(cleanupRow(state), undefined);
-    assert.equal(db.prepare('SELECT 1 FROM google_oidc_attempts WHERE id=?').get(state), undefined);
-  } finally { authorize.open(); authorizeHook = undefined; }
-});
-
 test('a rolled-back cleanup claim makes no provider calls and leaves promotion eligible', async () => {
   const a = await begin({ sub: '8401', email: 'claim-rollback@example.test' });
   assert.match(a.state, /^[A-Za-z0-9_-]+$/);
@@ -477,29 +441,24 @@ test('an authorization still waiting on Google consent is kept until it is 60 mi
   } finally { getHook = undefined; mock.timers.reset(); }
 });
 
-test('a second start from the same browser keeps the first attempt usable and never sweeps it', async () => {
+test('a new OIDC start keeps a pending legacy callback usable in the same browser', async () => {
   const first = await begin({ sub: '9101', email: 'first-tab@example.test' });
-  // Make the first attempt's cleanup record due, so only the same-browser rule protects it.
   expireCleanup(first.state);
-  nextPrincipal = { sub: '9102', email: 'second-tab@example.test' };
-  const started = await app.request('/api/auth/google/start', { headers: { cookie: first.cookie } });
-  assert.equal(new URL(started.headers.get('location')!).hostname, 'connect.composio.dev');
-  const jar = attemptCookie(started);
-  const [held, second] = jar.split('=')[1].split('.');
-  assert.equal(held, first.state, 'the browser keeps its earlier attempt');
-  await settle();
-  assert.equal(cleanupRow(first.state)?.nonce, 'composio-cleanup', 'a new start never sweeps its own browser\'s attempt');
-  assert.equal(authorizationsOf(first.provisional), 1);
-
-  const done = await finish({ path: first.path, cookie: jar });
-  assert.equal(done.headers.get('location'), 'https://swarm.test/?signed_in=1');
-  assert.equal((await me(sessionCookie(done)!)).user.id, first.provisional);
-  const rest = attemptCookie(done);
-  assert.equal(rest, `swarm_google_attempt=${second}`, 'only the finished attempt is consumed');
-  const secondAccount = [...accounts].find(([, v]) => v.principal.sub === '9102')![0];
-  const later = await finish({ path: `/api/auth/google/callback?state=${second}&status=success&connected_account_id=${secondAccount}`, cookie: rest });
-  assert.equal(later.headers.get('location'), 'https://swarm.test/?signed_in=1');
-  assert.equal((await me(sessionCookie(later)!)).user.email, 'second-tab@example.test');
+  process.env.GOOGLE_CLIENT_ID = 'synthetic-oidc'; process.env.GOOGLE_CLIENT_SECRET = 'synthetic-secret';
+  try {
+    const started = await app.request('/api/auth/google/start', { headers: { cookie: first.cookie } });
+    assert.equal(new URL(started.headers.get('location')!).hostname, 'accounts.google.com');
+    const jar = attemptCookie(started);
+    const [held, second] = jar.split('=')[1].split('.');
+    assert.equal(held, first.state);
+    await settle();
+    assert.equal(cleanupRow(first.state)?.nonce, 'composio-cleanup');
+    assert.equal(authorizationsOf(first.provisional), 1);
+    const done = await finish({ path: first.path, cookie: jar });
+    assert.equal(done.headers.get('location'), 'https://swarm.test/?signed_in=1');
+    assert.equal((await me(sessionCookie(done)!)).user.id, first.provisional);
+    assert.equal(attemptCookie(done), `swarm_google_attempt=${second}`);
+  } finally { delete process.env.GOOGLE_CLIENT_ID; delete process.env.GOOGLE_CLIENT_SECRET; }
 });
 
 test('a missing or failed Composio authorization at callback reports a timed-out sign-in', async () => {
