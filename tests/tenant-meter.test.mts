@@ -1,3 +1,4 @@
+import './fixtures/platform-open-signups.mjs';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { WebSocket } from 'ws';

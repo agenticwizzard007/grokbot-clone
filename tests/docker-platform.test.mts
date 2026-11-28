@@ -66,6 +66,10 @@ test('same repo image, migration ordering, standalone data and tenant driver pas
   }
   assert.deepEqual(platform.services.migrate.command, ['node', 'server/dist/platform/migrate.js']);
   assert.match(platform.services.provisioner.environment.TENANT_DRIVER, /\$\{TENANT_DRIVER/);
+  for (const name of ['platform', 'provisioner']) {
+    assert.equal(platform.services[name].environment.PLATFORM_TENANT_LIMIT, '${PLATFORM_TENANT_LIMIT:-100}');
+    assert.equal(platform.services[name].environment.TENANT_METERING, '${TENANT_METERING:-0}');
+  }
   assert.equal(standalone.services.standalone.environment.SWARM_ROLE, 'standalone');
   assert.deepEqual(standalone.services.standalone.volumes, ['standalone-data:/data']);
 });

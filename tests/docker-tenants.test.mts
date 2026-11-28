@@ -42,6 +42,20 @@ test('idempotent create reconciles an observed container without repeating creat
   assert.equal(effects(engine).length,count);
 });
 
+test('opt-in metering reaches Docker hosts without exposing provisioner credentials',async t=>{
+  const previous=process.env.TENANT_METERING;
+  t.after(()=>{if(previous===undefined)delete process.env.TENANT_METERING;else process.env.TENANT_METERING=previous;});
+  const {engine,driver}=await fixture(t);
+  process.env.TENANT_METERING='0';
+  const first=await create(driver,a);
+  assert.equal(engine.containers.get(first.machine.id).Config.Env.some((v:string)=>v.startsWith('TENANT_METERING=')),false);
+  process.env.TENANT_METERING='1';
+  const second=await create(driver,b),env=engine.containers.get(second.machine.id).Config.Env;
+  assert.ok(env.includes('TENANT_METERING=1'));
+  assert.equal(env.some((v:string)=>/^(DATABASE_URL|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|FLY_API_TOKEN|DOCKER_HOST)=/.test(v)),false);
+  assert.equal((await driver.machine(second.app,b,second.machine.id)).id,second.machine.id);
+});
+
 test('lost create response is recovered by inspection and API errors redact engine bodies',async t=>{
   const {engine,driver}=await fixture(t),{app}=await driver.ensureApp(a),volume=await driver.ensureVolume(app,a,region);
   engine.failAfter=(_m,r)=>r==='/containers/create';

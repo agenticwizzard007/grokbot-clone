@@ -158,6 +158,8 @@ services:
     environment:
       <<: [*cloud, *backups]
       SWARM_ROLE: platform
+      PLATFORM_TENANT_LIMIT: ${PLATFORM_TENANT_LIMIT:-100}
+      TENANT_METERING: ${TENANT_METERING:-0}
       PORT: '8787'
       PLATFORM_URL: https://localhost:${PLATFORM_HTTPS_PORT:-8443}
       APP_URL: https://localhost:${PLATFORM_HTTPS_PORT:-8443}
@@ -182,6 +184,8 @@ services:
     environment:
       <<: [*cloud, *backups]
       SWARM_ROLE: provisioner
+      PLATFORM_TENANT_LIMIT: ${PLATFORM_TENANT_LIMIT:-100}
+      TENANT_METERING: ${TENANT_METERING:-0}
       SWARM_LOCAL_PROVISIONER_HOLD: ${SWARM_LOCAL_PROVISIONER_HOLD:-1}
       TENANT_DRIVER: ${TENANT_DRIVER:-fly}
       TENANT_HOST_IMAGE: ${TENANT_HOST_IMAGE:-}

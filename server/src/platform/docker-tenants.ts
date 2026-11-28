@@ -3,6 +3,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {TenantNames} from './tenant-names.js';
 import type {BeforeCreate, TenantMachine} from './fly-tenants.js';
 import {pinnedImage} from '../runtime/container-policy.js';
+import {tenantMeteringEnabled} from '../runtime/meter-contract.js';
 import {usageCollectionEnabled} from '../runtime/host-usage.js';
 import {sameGuest, validateGuest, type TenantGuest, type TenantCapacity} from './tenant-capacity.js';
 
@@ -23,7 +24,7 @@ if [ -f /data/swarm-machine-id ]; then export FLY_MACHINE_ID="$(cat /data/swarm-
 exec "$@"`, 'swarm-docker-host'];
 const tmpfs = {'/run':'rw,nosuid,nodev,noexec,size=16m,mode=700', '/tmp':'rw,nosuid,nodev,noexec,size=128m,mode=1777'};
 const imageEnvironment = new Set(['PATH','LANG','LC_ALL','TZ','NODE_VERSION','YARN_VERSION','NODE_ENV']);
-const tenantEnvironment = new Set([...imageEnvironment,'SWARM_TENANT_ID','SWARM_VOLUME_ID','SWARM_RUNTIME_GENERATION','PLATFORM_URL','COMPOSIO_GATEWAY_URL','TENANT_USAGE_COLLECTION']);
+const tenantEnvironment = new Set([...imageEnvironment,'SWARM_TENANT_ID','SWARM_VOLUME_ID','SWARM_RUNTIME_GENERATION','PLATFORM_URL','COMPOSIO_GATEWAY_URL','TENANT_USAGE_COLLECTION','TENANT_METERING']);
 const missing = (error:any) => {if (error.status === 404) return null; throw error;};
 
 /** Docker is a development boundary, not Fly qualification. No implicit pull,
@@ -211,7 +212,8 @@ export class DockerTenants extends TenantNames {
     const env = {SWARM_TENANT_ID:tenant,SWARM_VOLUME_ID:volume,SWARM_RUNTIME_GENERATION:generation,
       ...(process.env.PLATFORM_URL ? {PLATFORM_URL:process.env.PLATFORM_URL}:{}),
       ...(process.env.COMPOSIO_GATEWAY_URL ? {COMPOSIO_GATEWAY_URL:process.env.COMPOSIO_GATEWAY_URL}:{}),
-      ...(usageCollectionEnabled(process.env.TENANT_USAGE_COLLECTION) ? {TENANT_USAGE_COLLECTION:'1'}:{})};
+      ...(usageCollectionEnabled(process.env.TENANT_USAGE_COLLECTION) ? {TENANT_USAGE_COLLECTION:'1'}:{}),
+      ...(tenantMeteringEnabled() ? {TENANT_METERING:'1'}:{})};
     // Check all resources using the volume, including foreign containers. Never
     // attach a second writer just because it has a different name or label.
     const users = await this.request('GET',`/containers/json?all=true&filters=${segment(JSON.stringify({volume:[volume]}))}`);
