@@ -172,7 +172,7 @@ button.mm-item:hover { background: var(--color-bg-hover); }
   grid-template-rows: calc(var(--composer-field-height, var(--line-message)) + 12px); align-items: end;
   min-height: calc(var(--line-message) + 28px); max-height: calc(6 * var(--line-message) + 28px); max-width: var(--content-width);
   /* Include the border in the approved 52px single-line height. */
-  padding: 7px 8px; gap: 4px; border: 1px solid var(--color-border-secondary);
+  padding: 7px 8px; gap: 4px; border: 1px solid var(--composer-border-color, var(--color-border-secondary));
   border-radius: var(--radius-composer); background-color: var(--color-bg-elevated); box-shadow: var(--shadow-composer);
 }
 .app .composer__bar, .app .composer__left { display: contents; }
@@ -184,7 +184,6 @@ button.mm-item:hover { background: var(--color-bg-hover); }
   letter-spacing: 0; overflow-y: hidden; scrollbar-width: thin;
 }
 .app .composer__input::placeholder { color: var(--color-text-tertiary); white-space: normal; text-overflow: clip; }
-.app .composer__input:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; border-radius: 4px; }
 .app .composer .model-pill-anchor { grid-column: 3; grid-row: 1; width: max-content; }
 .app .composer__right { grid-column: 4; grid-row: 1; padding: 0; margin: 0; }
 .app .composer__btn, .app .composer__cta { width: 36px; height: 36px; min-width: 36px; flex-shrink: 0; }

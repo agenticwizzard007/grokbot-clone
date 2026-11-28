@@ -225,11 +225,11 @@
 .composer {
   display: flex; align-items: flex-end; justify-content: space-between; gap: 8px;
   max-width: 960px; min-height: 44px; margin: 0 auto; padding: 0 8px;
-  background: var(--color-bg-pane); border: 0.5px solid var(--color-border-secondary); border-radius: var(--radius-composer);
+  background: var(--color-bg-pane); border: 0.5px solid var(--composer-border-color, var(--color-border-secondary)); border-radius: var(--radius-composer);
   box-shadow: var(--shadow-composer);
   transition: border-color 120ms;
 }
-.composer:focus-within { border-color: var(--color-border-primary); }
+.composer:focus-within { --composer-border-color: var(--color-text-quaternary); }
 .composer__left { display: flex; align-items: flex-end; gap: 8px; flex: 1 1 0; min-width: 0; }
 .composer__right { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
 .composer__plus-anchor { position: relative; display: inline-flex; padding: 8px 0; }
@@ -239,11 +239,13 @@
 }
 .composer__btn:hover:not(:disabled) { background: var(--color-bg-secondary-hover); }
 .composer__input {
-  flex: 1 1 0; min-width: 0; border: 0; outline: none; resize: none; background: transparent;
+  flex: 1 1 0; min-width: 0; border: 0; resize: none; background: transparent;
   padding: 12px 0; margin: 0; font-size: 14px; line-height: 20px; letter-spacing: 0.14px; color: var(--color-ink);
   /* R2F-023: at most 200px, and less on short windows (about 1014x759) so a long draft never crowds out the chat. */
   max-height: clamp(66px, 18vh, 200px); display: block;
 }
+/* The composer owns the focus indicator, including pointer focus on its text field. */
+.composer__input:focus { outline: none; }
 .composer__input::placeholder { color: var(--color-text-quaternary); opacity: 1; }
 .composer__cta {
   display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%;
