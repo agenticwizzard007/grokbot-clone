@@ -96,8 +96,8 @@ try {
     assert.equal(await page.locator('.usage-report__summary strong').innerText(), '565 requests');
     assert.equal(await page.locator('.usage-report__summary [role=status]').innerText(), 'Token counts are incomplete for 1 request; totals include only reported tokens.');
     const billing = page.locator('.usage-billing');
-    assert.match(await billing.innerText(), /API provider usage · OpenRouter\s+\$42.99/);
-    assert.match(await billing.innerText(), /CLI plan usage · ChatGPT\s+560 requests/);
+    assert.match(await billing.innerText(), /API provider usage ·\s+OpenRouter\s+\$42.99/);
+    assert.match(await billing.innerText(), /CLI plan usage ·\s+ChatGPT\s+560 requests/);
     assert.match(await billing.innerText(), /no Swarm API charge/);
     assert.match(await page.locator('.usage-billing__note').innerText(), /API requests are billed per request/);
     assert.doesNotMatch(await page.locator('.usage-page').innerText(), /zero API charges|Provider usage unavailable|0 requests with|Recorded spend/);
@@ -125,9 +125,10 @@ try {
     await page.screenshot({ path: `${evidence}/chart-${width}-${theme}.png` });
     for (const title of ['Breakdown', 'Plan limits', 'Provider account']) {
       const row = page.locator('.access-row').filter({ has: page.getByText(title, { exact: true }) });
-      assert.equal(await row.locator(':scope > .settings-row__icon').count(), 1);
+      assert.equal(await row.locator('.settings-row__icon').count(), 1);
     }
-    const xs = await page.locator('.access-row .cfg-row__title').evaluateAll(rows => rows.filter(row => ['Breakdown', 'Plan limits', 'Provider account'].includes(row.textContent)).map(row => row.getBoundingClientRect().left));
+    const xs = await page.locator('.access-row .layout-row__title').evaluateAll(rows => rows.filter(row => ['Breakdown', 'Plan limits', 'Provider account'].includes(row.textContent)).map(row => row.getBoundingClientRect().left));
+    assert.equal(xs.length, 3, 'All three usage row titles are measured');
     assert.ok(Math.max(...xs) - Math.min(...xs) < 1, JSON.stringify(xs));
     const csv = page.getByRole('link', { name: 'Download CSV' });
     await csv.scrollIntoViewIfNeeded();
@@ -145,9 +146,11 @@ try {
     await page.screenshot({ path: `${evidence}/usage-${width}-${theme}.png` });
     const usageRange = await rangeLabel.innerText();
     await page.evaluate(async () => (await import('/src/configStore.ts')).useConfigUI.getState().openBotSettings('coordinator', 'analytics'));
+    await page.locator('.an-page > details > summary').click();
     await page.locator('.an-range__span').waitFor();
     assert.equal(await page.locator('.an-range__span').innerText(), usageRange, 'Usage and Analytics share the same range label');
     await open('computer');
+    await page.locator('.app-settings__page summary').filter({ hasText: /^Learn more$/ }).click();
     await page.getByText('No Bot screens are open.', { exact: true }).waitFor();
     assert.doesNotMatch(await page.locator('.app-settings__page').innerText(), /No Bot has used the computer/);
     await open('usage');

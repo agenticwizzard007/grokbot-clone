@@ -1,6 +1,6 @@
 {
-  "commit": "bfe30f86",
-  "description": "HO-Q default geometry comparison against main with reviewed UC-X2 geometry",
+  "commit": "6af24740",
+  "description": "Default geometry comparison against main after the reviewed USG-B usage meter merge",
   "_comment": "Move this pin only with a reviewed layout change.",
   "historyTimestamp": "2026-11-27T01:11:11.000Z",
   "widths": [
@@ -14,6 +14,6 @@
   "routeViews": 208,
   "reviewedDifferences": {},
   "reviewedGeometryViews": [],
-  "reviewNote": "HO-Q: pin advances to main bfe30f86, including UC-X2 #278 and FIX-4 #281. The pinned main preserves UC-X2 reviewed Settings geometry: Agents and Dashboards add 92px on desktop and 96px on phone, as recorded by main. Prior HO-P Flow and Setup reviews are also incorporated. Q adds no default-view geometry changes. All 208 default views must match the pin exactly, including tokens; no geometry exceptions. Receipt row review notes remain in tests/handoffs/HO-Q-REPORT.md.",
-  "reviewedFrom": "e9f28c3"
+  "reviewNote": "FIX-A11Y integration: the user explicitly requires preserving the USG-B #286 layout and behavior from main 6af24740. That merged change adds the Plan usage Section and Card on Models and access, increasing the phone Page by 204px and shifting its following sections. The sidebar usage meter also comes from main unchanged. Advance the reference to that reviewed main, including USG-A #285 and FIX-5 #284. FIX-A11Y adds no default-view geometry changes. All 208 views and tokens must match this main exactly; no geometry exceptions.",
+  "reviewedFrom": "bfe30f86"
 }
