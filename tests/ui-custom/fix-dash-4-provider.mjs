@@ -4,8 +4,8 @@ import { WebSocket } from 'ws';
 
 /** Replay the actual companion generate result, not the widget's typed result.
  * Codex exec writes {text,tool_calls} to --output-last-message and reports
- * item.completed/turn.completed on stdout (companion/cli-bridge.mjs:runCodex).
- * Claude's result.structured_output is the same envelope (runClaude).
+ * item.completed/turn.completed on stdout (companion/cli-bridge.mjs:generateCodex).
+ * Claude's result.structured_output is the same envelope (generateClaude).
  * Both become this RPC result, then pass through cliResponsesClient unchanged.
  * No model process or remote provider is started. */
 export async function widgetProviderReplay({ api, request, provider = 'codex' }) {

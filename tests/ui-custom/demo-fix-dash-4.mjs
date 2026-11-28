@@ -9,7 +9,7 @@ import { inspectAlignment } from '../layout-alignment-ui.mjs';
 export const FIX_DASH_4_STATES = ['prompt-running', 'prompt-answer', 'prompt-failure', 'toast', 'preview-pending', 'preview-applied', 'preview-discarded', 'declined-skill'];
 export async function runFixDash4({ before = false, output = path.resolve(`.context/fix-dash-4/${before ? 'before' : 'after'}`), views = [[320,'light'],[390,'light'],[500,'light'],[1280,'light'],[390,'dark'],[1280,'dark']] } = {}) {
   fs.mkdirSync(output, { recursive: true });
-  const server = await agenticFixture(), checks = [], screenshots = [];
+  const server = await agenticFixture(), checks = [], screenshots = [], wordCounts = [];
   let page, replay;
   const check = (name, passed, detail) => { checks.push({ name, passed, detail }); console.log(`${passed ? 'PASS' : 'FAIL'} ${name}${detail ? ': ' + JSON.stringify(detail) : ''}`); };
   try {
@@ -34,6 +34,8 @@ export async function runFixDash4({ before = false, output = path.resolve(`.cont
         await page.evaluate(() => document.fonts.ready);
         const file = path.join(output,`${name}-${tag}.png`); await page.screenshot({path:file}); screenshots.push(file);
         const text = await page.locator('body').innerText();
+        const mainText = await page.locator('.shell-content').innerText();
+        wordCounts.push({ state: name, width, theme, words: mainText.trim().split(/\s+/).filter(Boolean).length });
         check(`${name} clean visible text ${tag}`, !/mock|Fixture|PRIVATE|QA-|undefined|null|\[object/.test(text));
         const issues = await page.evaluate(inspectAlignment,{selector,requirePage});
         check(`${name} alignment ${tag}`,issues.length===0,issues);
@@ -134,7 +136,7 @@ export async function runFixDash4({ before = false, output = path.resolve(`.cont
       await page.context().close();
     }
   } catch(error) { if(page&&!page.isClosed())await page.screenshot({path:path.join(output,'failure.png')}); throw error; }
-  finally { if(replay)await replay.close(); fs.writeFileSync(path.join(output,'server.log'),server.logs.join(''));await server.close();fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({passed:checks.filter(c=>c.passed).length,failed:checks.filter(c=>!c.passed).length,checks,screenshots},null,2)); }
+  finally { if(replay)await replay.close(); fs.writeFileSync(path.join(output,'server.log'),server.logs.join(''));await server.close();fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({passed:checks.filter(c=>c.passed).length,failed:checks.filter(c=>!c.passed).length,checks,screenshots,wordCounts},null,2)); }
   console.log(`FIX-DASH-4: ${checks.filter(c=>c.passed).length} passed, ${checks.filter(c=>!c.passed).length} failed. ${output}/results.json`);
   if(!before)assert.equal(checks.filter(c=>!c.passed).length,0,JSON.stringify(checks.filter(c=>!c.passed)));
   return checks;
