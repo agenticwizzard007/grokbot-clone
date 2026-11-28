@@ -6,6 +6,7 @@ if (!process.env.TEST_DATABASE_URL) {
   process.exit(1);
 }
 const files = [
+  'platform-onboarding', 'platform-onboarding-auth',
   'cloud-endpoints', 'docker-platform',
   'docker-tenants', 'docker-tenant-policy', 'docker-lifecycle',
   'tenant-meter', 'tenant-meter-runtime', 'isolation-security', 'gateway-isolation', 'platform-directory', 'platform-lifecycle', 'tenant-capacity', 'host-usage', 'platform-tunnel', 'host-preflight', 'containment-qualification', 'runtime-refresh', 'runtime-operations', 'operations-metrics', 'migration-inventory', 'release-gates',

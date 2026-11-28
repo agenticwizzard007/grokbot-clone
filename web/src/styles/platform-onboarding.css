@@ -1,0 +1,6 @@
+.platform-onboarding { display: grid; gap: 16px; padding: 16px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 14px; line-height: 1.5; }
+.platform-onboarding p { margin: 8px 0 0; font-size: 14px; }
+.platform-onboarding form { display: grid; gap: 16px; }
+.platform-onboarding label { display: grid; gap: 8px; font-size: 14px; }
+.platform-onboarding input { min-height: 48px; width: 100%; }
+.platform-onboarding button { min-height: 48px; }

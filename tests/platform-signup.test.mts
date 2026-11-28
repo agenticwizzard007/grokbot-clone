@@ -7,7 +7,7 @@ import { Directory, hashToken } from '../server/src/platform/directory.js';
 
 const url = process.env.TEST_DATABASE_URL;
 test('platform signup administration preserves identity, role and fresh authorization boundaries', { skip: !url }, async t => {
-  Object.assign(process.env, { SESSION_SECRET:'signup-tests-only-01234567890123456789', PLATFORM_URL:'https://swarm.test', MESSAGING_SIGNUP_MODE:'invite', MESSAGING_SIGNUPS_PER_DAY:'50', MESSAGING_MEMBER_INVITES:'5' });
+  Object.assign(process.env, { SESSION_SECRET:'signup-tests-only-01234567890123456789', PLATFORM_URL:'https://swarm.test', MESSAGING_SIGNUP_MODE:'open', MESSAGING_SIGNUPS_PER_DAY:'50', MESSAGING_MEMBER_INVITES:'5' });
   const { SignupAdministration, signupPolicy, pruneSignupMetadata } = await import('../server/src/platform/signup.js');
   const { signupAdminRoutes } = await import('../server/src/platform/signup-routes.js');
   const { platformMessaging } = await import('../server/src/platform/messaging.js');
@@ -19,6 +19,9 @@ test('platform signup administration preserves identity, role and fresh authoriz
   const directory = new Directory(target.href); await directory.migrate(); await directory.migrate();
   t.after(async () => { await directory.pool.end(); await adminPool.query(`DROP SCHEMA ${schema} CASCADE`); await adminPool.end(); });
   const a = await directory.identity('google','admin',{name:'Administrator',email:'same@example.test'}), b = await directory.identity('google','other',{name:'Other',email:'same@example.test'});
+  process.env.MESSAGING_SIGNUP_MODE = 'invite';
+  // Fixture accounts predate today's signup window. The limit now spans all providers.
+  await directory.pool.query("UPDATE tenants SET created_at=now()-interval '2 days'");
   await directory.pool.query("INSERT INTO account_roles VALUES($1,'admin')",[a]);
   let token = await directory.createSession(a,undefined,'admin device');
   const other = await directory.createSession(b,undefined,'other device'), administration = new SignupAdministration(directory);
@@ -100,11 +103,11 @@ test('platform signup administration preserves identity, role and fresh authoriz
     const second=await administration.createInvite(token,{maxUses:1,expiresInDays:7});
     assert.notEqual(first.invite.code,second.invite.code); assert.equal((await owner.memberInvite(b)).url,member.url);
     await save({memberInvites:0}); assert.equal(await owner.invite(code),undefined);
-    await assert.rejects(directory.transaction(c=>owner.admitPhone(c,'15551110004',code)),/no longer valid/);
+    await assert.rejects(directory.identity('phone','15551110004',{name:'Fixture'},undefined,code),/no longer valid/);
     assert.ok(await owner.invite(first.invite.code));
     await administration.revokeInvite(token,first.invite.code); assert.equal(await owner.invite(first.invite.code),undefined);
     await directory.pool.query("UPDATE messaging_invites SET expires_at=now()-interval '1 second' WHERE code=$1",[second.invite.code]);
-    await assert.rejects(directory.transaction(c=>owner.admitPhone(c,'15551110004',second.invite.code)),/no longer valid/);
+    await assert.rejects(directory.identity('phone','15551110004',{name:'Fixture'},undefined,second.invite.code),/no longer valid/);
     assert.equal((await request('/api/messaging/invites','POST',{maxUses:3},other)).status,403);
   });
   async function blockedWrite(kind:'session'|'role'|'expiry') {

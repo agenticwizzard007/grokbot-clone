@@ -8,8 +8,7 @@ test('platform phone verification and messaging stay bound to verified owners',{
   process.env.SESSION_SECRET='platform-messaging-test-secret-0123456789';process.env.PLATFORM_URL='https://swarm.test';
   const { platformMessaging } = await import('../server/src/platform/messaging.js');
   const { verifySignature } = await import('../server/src/messaging/inkbox/client.js');
-  const { setEnvOverride } = await import('../server/src/env.js');
-  setEnvOverride('MESSAGING_SIGNUP_MODE','open');
+  process.env.MESSAGING_SIGNUP_MODE='open';
   const schema=`test_${randomBytes(8).toString('hex')}`,admin=new Pool({connectionString:url});await admin.query(`CREATE SCHEMA ${schema}`);
   const target=new URL(url!);target.searchParams.set('options',`-c search_path=${schema},public`);const directory=new Directory(target.href);
   t.after(async()=>{await directory.pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
@@ -89,7 +88,7 @@ test('platform phone verification and messaging stay bound to verified owners',{
       assert.match((await app.request(revoked)).headers.get('location')!,/login=expired/);
     });
     await t.test('invite seats and verified signup are consumed atomically',async()=>{
-      setEnvOverride('MESSAGING_SIGNUP_MODE','invite');setEnvOverride('MESSAGING_MEMBER_INVITES','1');
+      process.env.MESSAGING_SIGNUP_MODE='invite';process.env.MESSAGING_MEMBER_INVITES='1';
       const aSession=await directory.createSession(owner,undefined,'Invite device');
       const invite=await post('/api/messaging/my-invite',{},`swarm_session=${aSession}`);assert.equal(invite.status,200);
       const code=new URL((await invite.json() as any).url).pathname.split('/').at(-1)!;
@@ -99,7 +98,7 @@ test('platform phone verification and messaging stay bound to verified owners',{
       assert.equal((await post('/api/auth/phone/verify',{id:two.id,code:two.code,inviteCode:code},two.cookie)).status,403);
       assert.equal((await directory.pool.query("SELECT 1 FROM identities WHERE provider='phone' AND subject='15550005555'")).rowCount,0);
       assert.equal((await directory.pool.query('SELECT uses FROM messaging_invites WHERE code=$1',[code])).rows[0].uses,1);
-      setEnvOverride('MESSAGING_SIGNUP_MODE','open');
+      process.env.MESSAGING_SIGNUP_MODE='open';
     });
     async function signed(text:string,phone:string,id:string){
       const raw=JSON.stringify({event_type:'imessage.received',data:{message:{id,remote_number:`+${phone}`,conversation_id:`conversation-${phone}`,content:text}}});

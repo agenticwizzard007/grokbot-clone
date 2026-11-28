@@ -3,15 +3,14 @@ import type { PoolClient } from 'pg';
 import { Directory, hashToken, opaqueToken } from './directory.js';
 import type { TenantEnvelopes } from './envelopes.js';
 import type { Parsed } from '../messaging/inkbox/events.js';
+import { AdmissionError } from './onboarding.js';
 import { signupPolicy } from './signup.js';
 
 export type PhoneChannel = 'imessage' | 'whatsapp' | 'sms';
 export class MessagingNotFound extends Error {}
 export class MessagingDestinationChanged extends Error {}
 export interface MessagingDeliveryTarget { phone: string; conversation: string | null; revision: string }
-export class MessagingAdmissionError extends Error {
-  constructor(message: string, readonly needInvite = false) { super(message); }
-}
+export { AdmissionError as MessagingAdmissionError } from './onboarding.js';
 interface Route { tenant_id: string; channel: PhoneChannel; phone: string; conversation_id: string | null; revision: string }
 type RuntimeAuthorization = (client?: PoolClient) => Promise<unknown>;
 
@@ -126,11 +125,11 @@ export class MessagingOwnership {
       await this.lock(client,tenant);
       await authorize?.(client);
       const allowance=(await signupPolicy(client)).memberInvites;
-      if(!Number.isSafeInteger(allowance)||allowance<1||allowance>1000)throw new MessagingAdmissionError('Invites are unavailable.');
+      if(!Number.isSafeInteger(allowance)||allowance<1||allowance>1000)throw new AdmissionError('invite_needed');
       await authorize?.(client);
       await client.query("INSERT INTO messaging_invites(code,tenant_id,max_uses) VALUES($1,$2,$3) ON CONFLICT(tenant_id) WHERE kind='member' DO UPDATE SET max_uses=excluded.max_uses",[randomBytes(8).toString('hex').toUpperCase(),tenant,allowance]);
       const r=(await client.query("SELECT * FROM messaging_invites WHERE tenant_id=$1 AND kind='member' AND revoked=false AND (expires_at IS NULL OR expires_at>clock_timestamp())",[tenant])).rows[0];
-      if(!r||r.uses>=r.max_uses)throw new MessagingAdmissionError('You have no remaining invites.');
+      if(!r||r.uses>=r.max_uses)throw new AdmissionError('invite_invalid');
       await authorize?.(client);
       return {url:new URL(`/join/${r.code}`,process.env.PLATFORM_URL!).href,remaining:r.max_uses-r.uses};
     });
@@ -140,25 +139,5 @@ export class MessagingOwnership {
     return (await client.query(`SELECT i.*,t.display_name FROM messaging_invites i JOIN tenants t ON t.id=i.tenant_id
       WHERE i.code=$1 AND i.revoked=false AND i.uses<i.max_uses AND (i.kind='admin' OR i.uses<$2)
       AND (i.expires_at IS NULL OR i.expires_at>clock_timestamp()) AND t.state NOT IN ('deleting','deleted','failed')`,[code.toUpperCase(),policy.memberInvites])).rows[0];
-  }
-  /** Must run in the same transaction as identity creation and code consumption. */
-  async admitPhone(client: PoolClient, phone: string, inviteCode?: string) {
-    await client.query("SELECT pg_advisory_xact_lock(hashtext('swarm-phone-signups'))");
-    if ((await client.query("SELECT 1 FROM identities WHERE provider='phone' AND subject=$1",[phone])).rowCount)return;
-    const {mode,signupsPerDay:dailyLimit,memberInvites}=await signupPolicy(client);
-    if(mode==='closed')throw new MessagingAdmissionError('New phone accounts are currently closed.');
-    if(!Number.isSafeInteger(dailyLimit)||dailyLimit<0||dailyLimit>100000)throw new MessagingAdmissionError('Phone signup is unavailable.');
-    const used=Number((await client.query("SELECT count(*) n FROM identities i JOIN tenants t ON t.id=i.tenant_id WHERE i.provider='phone' AND t.created_at>=date_trunc('day',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'")).rows[0].n);
-    if(dailyLimit>0&&used>=dailyLimit)throw new MessagingAdmissionError('Phone signup capacity reached for today.');
-    const claim=(await client.query('SELECT invite_code FROM messaging_claims WHERE phone=$1 AND expires_at>now()',[phone])).rows[0];
-    const code=inviteCode||claim?.invite_code;
-    const approved=(await client.query("SELECT 1 FROM signup_waitlist WHERE phone=$1 AND state='approved' AND verified_at>clock_timestamp()-interval '30 days'",[phone])).rowCount;
-    if(code){
-      const used=await client.query(`UPDATE messaging_invites i SET uses=uses+1 FROM tenants t WHERE i.code=$1 AND i.revoked=false AND i.uses<i.max_uses
-        AND (i.kind='admin' OR i.uses<$2) AND (i.expires_at IS NULL OR i.expires_at>clock_timestamp()) AND t.id=i.tenant_id AND t.state NOT IN ('deleting','deleted','failed') RETURNING i.code`,[code.toUpperCase(),memberInvites]);
-      if(!used.rowCount)throw new MessagingAdmissionError('This invitation is no longer valid.',true);
-      await client.query('DELETE FROM messaging_claims WHERE phone=$1',[phone]);
-    }else if(mode!=='open'&&!approved)throw new MessagingAdmissionError('Use an invitation or sign in with another provider first.',true);
-    await client.query('DELETE FROM signup_waitlist WHERE phone=$1',[phone]);
   }
 }

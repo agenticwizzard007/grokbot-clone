@@ -1,5 +1,6 @@
 import { Pool, type PoolClient } from 'pg';
 import { bindTenantLog } from './tenant-logs.js';
+import { admitNewTenant } from './onboarding.js';
 import { randomBytes, createHash } from 'node:crypto';
 export const hashToken = (v: string) => createHash('sha256').update(v).digest('hex');
 export const opaqueToken = () => randomBytes(32).toString('base64url');
@@ -120,6 +121,16 @@ export class Directory {
         CREATE TABLE IF NOT EXISTS signup_policy (
           singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton), config jsonb NOT NULL,
           revision bigint NOT NULL DEFAULT 1, updated_by text NOT NULL REFERENCES tenants(id), updated_at timestamptz NOT NULL DEFAULT now());
+        ALTER TABLE signup_policy ALTER COLUMN updated_by DROP NOT NULL;
+        CREATE TABLE IF NOT EXISTS web_invites (
+          code text PRIMARY KEY, max_uses integer NOT NULL CHECK(max_uses BETWEEN 1 AND 100000),
+          uses integer NOT NULL DEFAULT 0 CHECK(uses>=0 AND uses<=max_uses), revoked boolean NOT NULL DEFAULT false,
+          expires_at timestamptz NOT NULL, note text, created_at timestamptz NOT NULL DEFAULT clock_timestamp());
+        CREATE TABLE IF NOT EXISTS web_waitlist (
+          id text PRIMARY KEY, contact text NOT NULL UNIQUE, kind text NOT NULL CHECK(kind IN ('email','phone')),
+          created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+          invite_code text REFERENCES web_invites(code), approved_at timestamptz);
+        ALTER TABLE phone_attempts ADD COLUMN IF NOT EXISTS invite_code text;
         CREATE TABLE IF NOT EXISTS signup_waitlist (
           phone text PRIMARY KEY, channel text NOT NULL CHECK(channel IN ('imessage','sms','whatsapp')),
           state text NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','approved','declined')),
@@ -286,11 +297,11 @@ export class Directory {
     if (rows[0]) bindTenantLog(rows[0].tenant_id);
     return rows[0] ?? null;
   }
-  async identity(provider: string, subject: string, profile: { name: string; email?: string }, linkSession?: string) {
-    return this.transaction(client => this.identityInTransaction(client, provider, subject, profile, linkSession));
+  async identity(provider: string, subject: string, profile: { name: string; email?: string }, linkSession?: string, inviteCode?: string) {
+    return this.transaction(client => this.identityInTransaction(client, provider, subject, profile, linkSession, inviteCode));
   }
   /** For verified identity workflows that must consume their authorization in the same transaction. */
-  async identityInTransaction(client: PoolClient, provider: string, subject: string, profile: { name: string; email?: string }, linkSession?: string) {
+  async identityInTransaction(client: PoolClient, provider: string, subject: string, profile: { name: string; email?: string }, linkSession?: string, inviteCode?: string) {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${provider}:${subject}`]);
       const existing = (await client.query('SELECT tenant_id FROM identities WHERE provider=$1 AND subject=$2', [provider, subject])).rows[0];
       const link = linkSession ? (await client.query(`SELECT tenant_id FROM sessions WHERE hash=$1 AND expires_at>now()
@@ -310,8 +321,9 @@ export class Directory {
       if (link && !(await client.query("SELECT 1 FROM tenants WHERE id=$1 AND state NOT IN ('deleting','deleted') FOR UPDATE", [tenant])).rowCount) throw new Error('account_revoked');
       if(legacy&&!(await client.query("SELECT 1 FROM tenants WHERE id=$1 AND state NOT IN ('deleting','deleted','failed') FOR UPDATE",[tenant])).rowCount)throw new Error('account_revoked');
       if (!link&&!legacy) {
+        await admitNewTenant(client, provider, subject, inviteCode);
         // Equal emails are deliberately not an identity join. Linking is explicit and session-bound.
-        await client.query('INSERT INTO tenants(id,display_name,verified_email,composio_user_id) VALUES($1,$2,$3,$4)', [tenant, profile.name, profile.email ?? null, tenant]);
+        await client.query('INSERT INTO tenants(id,display_name,verified_email,composio_user_id,created_at) VALUES($1,$2,$3,$4,clock_timestamp())', [tenant, profile.name, profile.email ?? null, tenant]);
         await client.query("INSERT INTO lifecycle_jobs(id,tenant_id,operation) VALUES($1,$2,'create')", [opaqueToken(), tenant]);
       }
       await client.query('INSERT INTO identities(provider,subject,tenant_id) VALUES($1,$2,$3)', [provider, subject, tenant]);

@@ -209,7 +209,7 @@ final class AppModel: NSObject, ObservableObject {
         #endif
     }
 
-    func signIn(provider: String = "google", linking: Bool = false) {
+    func signIn(provider: String = "google", linking: Bool = false, invite: String? = nil) {
         guard !signingIn else { return }
         signingIn = true
         let address = server
@@ -224,7 +224,7 @@ final class AppModel: NSObject, ObservableObject {
                 }
                 try Task.checkCancellation()
                 guard server == address else { signingIn = false; return }
-                let session = ASWebAuthenticationSession(url: attempt.startURL(server: address.url, provider: provider, ticket: ticket), callbackURLScheme: SignInAttempt.callbackScheme) { [weak self] callback, error in
+                let session = ASWebAuthenticationSession(url: attempt.startURL(server: address.url, provider: provider, ticket: ticket, invite: linking ? nil : invite), callbackURLScheme: SignInAttempt.callbackScheme) { [weak self] callback, error in
                     Task { @MainActor in
                         guard let self else { return }
                         self.authentication = nil
@@ -279,12 +279,19 @@ final class AppModel: NSObject, ObservableObject {
               let responseURL = http.url, address.contains(responseURL) else { throw SignInAttempt.SignInError.invalid }
         if http.statusCode != 200 {
             let error = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            if error?["platform"] as? Bool == true, let state = error?["onboarding"] as? String,
+               ["invite_needed", "invite_invalid", "at_capacity", "closed"].contains(state) {
+                var page = URLComponents(url: address.url, resolvingAgainstBaseURL: false)!
+                page.queryItems = [URLQueryItem(name: "onboarding", value: state)]
+                if let url = page.url { webView.load(URLRequest(url: url)) }
+                throw NSError(domain: "SwarmSignIn", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: error?["error"] as? String ?? "Swarm is invite only right now."])
+            }
             throw NSError(domain: "SwarmSignIn", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: (path.hasPrefix("apple/") ? AppleAuthorization.message(for: error?["error"] as? String) : (error?["error"] as? String ?? "Could not connect OpenRouter. Please try again."))])
         }
         return (data, http)
     }
 
-    func signInWithApple(linking: Bool) {
+    func signInWithApple(linking: Bool, invite: String? = nil) {
         guard !signingIn else { return }
         signingIn = true
         let address = server
@@ -296,7 +303,9 @@ final class AppModel: NSObject, ObservableObject {
                 #else
                 let client = "ios"
                 #endif
-                let (data, _) = try await authRequest(path: "apple/native/start", body: ["client": client, "challenge": attempt.challenge, "intent": linking ? "link" : "signin"], address: address, includeSession: linking)
+                var startBody: [String: Any] = ["client": client, "challenge": attempt.challenge, "intent": linking ? "link" : "signin"]
+                if !linking, let invite { startBody["inviteCode"] = invite }
+                let (data, _) = try await authRequest(path: "apple/native/start", body: startBody, address: address, includeSession: linking)
                 struct Start: Decodable { let attempt: String; let nonce: String }
                 let pending = try JSONDecoder().decode(Start.self, from: data)
                 try Task.checkCancellation()
@@ -377,11 +386,13 @@ extension AppModel: WKNavigationDelegate, WKUIDelegate {
             if ["/api/auth/google/start", "/api/auth/openrouter/start"].contains(url.path) && action.targetFrame?.isMainFrame != false {
                 decisionHandler(.cancel)
                 let linking = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "intent" && $0.value == "link" }) == true
-                signIn(provider: url.path.contains("openrouter") ? "openrouter" : "google", linking: linking)
+                let invite = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "invite" })?.value
+                signIn(provider: url.path.contains("openrouter") ? "openrouter" : "google", linking: linking, invite: invite)
             } else if url.path == "/api/auth/apple/start" && action.targetFrame?.isMainFrame != false {
                 decisionHandler(.cancel)
                 let linking = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "intent" && $0.value == "link" }) == true
-                signInWithApple(linking: linking)
+                let invite = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "invite" })?.value
+                signInWithApple(linking: linking, invite: invite)
             } else if action.shouldPerformDownload {
                 decisionHandler(.download)
             } else { decisionHandler(.allow) }

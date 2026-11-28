@@ -33,6 +33,7 @@ interface State {
   user: User | null;
   devLogin: boolean;
   /** Google sign-in needs Composio on the server. */
+  platform: boolean;
   googleLogin: boolean;
   appleLogin: boolean;
   appleLinked: boolean;
@@ -100,6 +101,7 @@ const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } ca
 export const useStore = create<State>((set, get) => ({
   user: null,
   devLogin: false,
+  platform: false,
   googleLogin: true,
   appleLogin: false,
   appleLinked: false,
@@ -142,10 +144,10 @@ export const useStore = create<State>((set, get) => ({
       });
       // Race the whole lookup, including its body, even if cancellation is ignored.
       // A late result cannot settle this race again or overwrite a later retry.
-      const { user, devLogin, googleLogin, googleLinked, appleLogin, appleLinked } = await Promise.race([api.me(controller.signal), deadline]);
+      const { user, devLogin, platform, googleLogin, googleLinked, appleLogin, appleLinked } = await Promise.race([api.me(controller.signal), deadline]);
       if (sessionExpired()) return;
       if (user !== null && (!user || typeof user.id !== 'string' || !user.id)) throw new Error('Invalid session response');
-      set({ user, devLogin, googleLogin: googleLogin !== false, appleLogin: !!appleLogin, appleLinked: !!appleLinked, googleLinked: !!googleLinked, authChecked: true, authError: null });
+      set({ user, devLogin, platform: platform === true, googleLogin: googleLogin !== false, appleLogin: !!appleLogin, appleLinked: !!appleLinked, googleLinked: !!googleLinked, authChecked: true, authError: null });
     } catch {
       if (sessionExpired()) return;
       set({ authChecked: false, authError: "We couldn't check your session. Check your connection and try again." });
