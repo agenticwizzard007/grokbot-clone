@@ -33,7 +33,7 @@ export const matches = (it: NavItem, q: string) => {
 export function SettingsNavButton({ item, compact = false, strip = false, active, onSelect }: {
   item: NavItem; compact?: boolean; strip?: boolean; active: boolean; onSelect: (id: AppSection | 'dashboards') => void;
 }) {
-  return <button type="button" className={`${strip ? 'settings-strip__item' : 'cfg-nav__item settings-nav__item'}${active ? ' is-active' : ''}`} onClick={() => item.id === 'dashboards' ? navigation.navigate({ kind: 'dashboards' }) : onSelect(item.id)} aria-current={active ? 'page' : undefined}>
+  return <button type="button" className={`${strip ? 'settings-strip__item' : 'cfg-nav__item settings-nav__item'}${active ? ' is-active' : ''}`} onClick={() => item.id === 'dashboards' ? navigation.navigate({ kind: 'settings', section: 'appearance', dashboards: true }) : onSelect(item.id)} aria-current={active ? 'page' : undefined}>
     <item.icon className="settings-nav__icon" size={compact ? 20 : 18} strokeWidth={1.75} aria-hidden />
     <span className="settings-nav__text">{item.label}</span>
     {compact && <ChevronRight className="settings-nav__chev" size={16} strokeWidth={1.75} aria-hidden />}

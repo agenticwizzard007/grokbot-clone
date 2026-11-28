@@ -156,3 +156,13 @@
   .dashboard-header-actions--editing { width: 152px; }
 }
 .dashboard-page .dashboard-empty-hint { margin: 0; padding-top: 16px; font-size: 14px; line-height: 20px; color: var(--color-text-secondary); }
+.dashboard-manager-actions { max-width: 768px; }
+.dashboard-agent-picker { display: flex; flex-direction: column; gap: 8px; }
+.dashboard-agent-picker > button { display: flex; align-items: center; gap: 16px; min-height: 48px; padding: 8px 16px; border: 1px solid var(--color-border); border-radius: 12px; text-align: left; font-size: 14px; }
+.dashboard-agent-picker > button[aria-checked='true'] { border-color: var(--color-primary); background: var(--color-bg-active); }
+.dashboard-agent-picker > button > span:first-child { flex: 0 0 32px; }
+.dashboard-dialog--full p { font-size: 14px; line-height: 20px; }
+@media (max-width: 760px) {
+  .dashboard-dialog.dashboard-dialog--full { height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; }
+  .dashboard-dialog--full .dashboard-dialog-heading > button { display: none; }
+}

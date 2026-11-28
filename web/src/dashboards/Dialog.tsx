@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { ChevronLeft, X } from 'lucide-react';
 import '../styles/config.css';
 import { Page } from '../components/layout';
-export function DashboardDialog({ title, children, close }: { title: string; children: ReactNode; close(): void }) {
+export function DashboardDialog({ title, children, close, fullScreen = false }: { title: string; children: ReactNode; close(): void; fullScreen?: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -15,7 +15,7 @@ export function DashboardDialog({ title, children, close }: { title: string; chi
     };
   }, []);
   useEffect(() => { heading.current?.focus({ preventScroll: true }); }, [title]);
-  return <dialog ref={dialog} className="dashboard-dialog" aria-label={title} onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }} onKeyDown={event => {
+  return <dialog ref={dialog} className={`dashboard-dialog${fullScreen ? ' dashboard-dialog--full' : ''}`} aria-label={title} onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }} onKeyDown={event => {
     if (event.key !== 'Tab' || event.defaultPrevented) return;
     const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea, [tabindex]')]
       .filter(node => node.tabIndex >= 0 && !node.matches(':disabled') && node.checkVisibility());

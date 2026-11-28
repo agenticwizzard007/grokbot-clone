@@ -98,7 +98,7 @@ export async function refreshUiConfig(): Promise<void> {
         if (result) accept(result); else update({ status: 'ready' });
       } catch (error) {
         if (epoch !== generation) return;
-        if (error instanceof UiApiError && error.errors[0]?.code === 'disabled') {
+        if (error instanceof UiApiError && (error.status === 404 || error.errors[0]?.code === 'disabled')) {
           clearPreview(); update({ status: 'disabled', saved: DEFAULT_CONFIG, revision: 0 });
           storage(store => store.removeItem(CACHE_KEY));
         } else update({ status: 'offline' });

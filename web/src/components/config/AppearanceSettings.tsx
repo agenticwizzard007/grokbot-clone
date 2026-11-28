@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { type PatchOp, type UiPreviewCardBody, type Violation } from '@shared/ui-config/index';
 import { useEffectiveConfig, useUiConfig, useUiPatch } from '../../customization';
-import { openConversation } from '../../configStore';
+import { navigation, openConversation } from '../../configStore';
 import { useStore } from '../../store';
 import { prefillComposer } from '../Composer';
 import { ButtonGroup, Card, Row, Section } from '../layout';
@@ -19,6 +19,13 @@ import '../../styles/appearance.css';
 
 export function AppearanceSettings() {
   const doc = useEffectiveConfig();
+  const screen = navigation.screen;
+  const dashboardSection = screen?.kind === 'settings' && screen.dashboards;
+  useEffect(() => {
+    if (!dashboardSection) return;
+    const frame = requestAnimationFrame(() => document.getElementById('appearance-dashboards')?.scrollIntoView({ block: 'start' }));
+    return () => cancelAnimationFrame(frame);
+  }, [dashboardSection]);
   const { saved, revision, status } = useUiConfig();
   const write = useUiPatch();
   const bots = useStore(s => s.bots);
