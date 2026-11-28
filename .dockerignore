@@ -21,3 +21,8 @@ data
 tests/out
 web/screenshots
 design
+**/.env
+**/.env.*
+**/*-private.pem
+**/kms-seed.yaml
+deploy/docker/secrets

@@ -1,9 +1,11 @@
 import { KMSClient, GenerateDataKeyCommand, DecryptCommand } from '@aws-sdk/client-kms';
 import { randomBytes, createCipheriv } from 'node:crypto';
 import type { Directory } from './directory.js';
+import { cloudEndpointConfig } from './cloud-config.js';
+export const tenantKmsConfig = (env: NodeJS.ProcessEnv = process.env) => cloudEndpointConfig(env, 'TENANT_KMS');
 const context = (tenant: string) => ({ tenant, purpose: 'swarm-tenant-master-v1' });
 export class TenantEnvelopes {
-  private kms = new KMSClient({});
+  private kms = new KMSClient(tenantKmsConfig());
   constructor(private directory: Directory, private keyId = process.env.TENANT_KMS_KEY_ID) { if(!keyId)throw new Error('Managed tenant encryption is required.'); }
   async create(tenant: string) {
     const owner=(await this.directory.pool.query("SELECT encrypted_data_key FROM tenants WHERE id=$1 AND state NOT IN ('deleting','deleted','failed')",[tenant])).rows[0];

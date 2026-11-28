@@ -1,0 +1,15 @@
+{
+	admin off
+	auto_https disable_redirects
+}
+https://localhost:8443 {
+	tls internal
+	reverse_proxy platform:8787
+}
+https://localhost:8444 {
+	tls internal
+	reverse_proxy composio-gateway:8787
+}
+http://127.0.0.1:8080 {
+	respond /health "ok" 200
+}
